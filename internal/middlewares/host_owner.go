@@ -1,0 +1,82 @@
+package middlewares
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"queuebuzz/internal/constants"
+	"queuebuzz/internal/services"
+
+	"github.com/gofiber/fiber/v3"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+)
+
+var (
+	hostOwnerAuthSvc  *services.AuthService
+	hostOwnerRedisSvc *services.RedisService
+	queueCollection   *mongo.Collection
+	hostOwnerOnce     sync.Once
+)
+
+// InitHostOwnerMiddleware sets up depenencies for the host owner middleware.
+func InitHostOwnerMiddleware(authSvc *services.AuthService, redisSvc *services.RedisService, queueCol *mongo.Collection) {
+	hostOwnerOnce.Do(func() {
+		hostOwnerAuthSvc = authSvc
+		hostOwnerRedisSvc = redisSvc
+		queueCollection = queueCol
+	})
+}
+
+// HostOwnerMiddleware verifies that the authenticated host owns the queue in :id.
+// Works for both anonymous hosts (SHA256 hash check) and registered hosts (host_id match).
+func HostOwnerMiddleware() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		role, _ := c.Locals("role").(string)
+		queueID := c.Params("id")
+
+		if queueID == "" {
+			return fiber.NewError(fiber.StatusForbidden)
+		}
+
+		switch role {
+		case constants.RoleAnonymousHost:
+			// Verify JWT queue_id claim matches :id param
+			claimQueueID, _ := c.Locals("queue_id").(string)
+			if claimQueueID != queueID {
+				return fiber.NewError(fiber.StatusForbidden)
+			}
+
+			// Verify SHA256(jwt) exists in Redis owner:{queue_id}
+			rawToken, _ := c.Locals("raw_token").(string)
+			if err := hostOwnerAuthSvc.VerifyAnonymousOwnership(c.Context(), rawToken, queueID); err != nil {
+				return fiber.NewError(fiber.StatusForbidden)
+			}
+
+		case constants.RoleRegisteredHost:
+			// Fetch queue and verify host_id matches JWT subject
+			hostID, _ := c.Locals("host_id").(string)
+
+			ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+			defer cancel()
+
+			var result struct {
+				HostID *string `bson:"host_id"`
+			}
+			err := queueCollection.FindOne(ctx, bson.M{"_id": queueID}).Decode(&result)
+			if err != nil {
+				return fiber.NewError(fiber.StatusForbidden)
+			}
+
+			if result.HostID == nil || *result.HostID != hostID {
+				return fiber.NewError(fiber.StatusForbidden)
+			}
+
+		default:
+			return fiber.NewError(fiber.StatusForbidden)
+		}
+
+		return c.Next()
+	}
+}

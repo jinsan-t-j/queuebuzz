@@ -1,0 +1,8 @@
+# .dockerignore
+tmp/
+logs/
+.air.toml
+.env
+.git/
+.github/
+*.md

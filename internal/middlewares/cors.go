@@ -5,7 +5,6 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/cors"
 )
 
-// CORSMiddleware creates a strict CORS middleware using the allowed origin.
 func CORSMiddleware(allowedOrigin string) fiber.Handler {
 	return cors.New(cors.Config{
 		AllowOrigins:     []string{allowedOrigin},

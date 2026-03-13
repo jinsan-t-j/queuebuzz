@@ -3,6 +3,8 @@ package main
 import (
 	"queuebuzz/internal/app"
 	"queuebuzz/internal/log"
+
+	_ "queuebuzz/docs"
 )
 
 // @title           QueueBuzz API

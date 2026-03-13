@@ -37,8 +37,17 @@ func NewWebSocketHandler(authSvc *services.AuthService, queueSvc *services.Queue
 	return wsHandlerInstance
 }
 
-// Handle performs JWT validation, ownership verification, and WebSocket upgrade.
-// Auth is validated BEFORE the handshake completes per the security checklist.
+// Handle godoc
+// @Summary Connect to Queue WebSocket
+// @Description Initiates a WebSocket connection for a Host to manage a queue in real-time
+// @Tags WebSocket
+// @Param id path string true "Queue ID"
+// @Param token query string true "Host Token (or Owner Token for anonymous)"
+// @Success 101 {string} string "Switching Protocols"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 403 {object} map[string]string "Error response"
+// @Failure 404 {object} map[string]string "Error response"
+// @Router /ws/queues/{id} [get]
 func (h *WebSocketHandler) Handle(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	tokenStr := c.Query("token")

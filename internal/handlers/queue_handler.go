@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"queuebuzz/internal/constants"
+	"queuebuzz/internal/requests"
 	"queuebuzz/internal/services"
 
 	"github.com/gofiber/fiber/v3"
@@ -31,16 +32,19 @@ func NewQueueHandler(queueSvc *services.QueueService, authSvc *services.AuthServ
 	return queueHandlerInstance
 }
 
-type createQueueRequest struct {
-	Lat            float64 `json:"lat" validate:"required"`
-	Lng            float64 `json:"lng" validate:"required"`
-	RadiusM        int     `json:"radius_m"`
-	AvgServiceMins int     `json:"avg_service_mins"`
-}
-
-// Create creates a new queue. If no Authorization header, creates anonymously.
+// Create godoc
+// @Summary Create a new queue
+// @Description Creates a new queue. If no Authorization header is present, it creates an anonymous queue and returns an owner token.
+// @Tags Queue
+// @Accept json
+// @Produce json
+// @Param request body requests.CreateQueueRequest true "Create Queue Request payload"
+// @Success 201 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queues [post]
 func (h *QueueHandler) Create(c fiber.Ctx) error {
-	var req createQueueRequest
+	var req requests.CreateQueueRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}
@@ -102,7 +106,16 @@ func (h *QueueHandler) Create(c fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(response)
 }
 
-// GetStatus returns the public status of a queue.
+// GetStatus godoc
+// @Summary Get Queue Status
+// @Description Returns the public status of a queue
+// @Tags Queue
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 404 {object} map[string]string "Error response"
+// @Router /queues/{id}/status [get]
 func (h *QueueHandler) GetStatus(c fiber.Ctx) error {
 	queueID := c.Params("id")
 
@@ -129,18 +142,19 @@ func (h *QueueHandler) GetStatus(c fiber.Ctx) error {
 	})
 }
 
-type joinByCodeRequest struct {
-	JoinCode    string  `json:"join_code" validate:"required,len=6"`
-	Lat         float64 `json:"lat" validate:"required"`
-	Lng         float64 `json:"lng" validate:"required"`
-	FCMToken    string  `json:"fcm_token" validate:"required"`
-	DisplayName *string `json:"display_name"`
-	PIN         *string `json:"pin" validate:"omitempty,len=4"`
-}
-
-// JoinByCode resolves a join code and joins the queue.
+// JoinByCode godoc
+// @Summary Join a queue via short-code
+// @Description Resolves a 6-character join code and adds the user to the queue
+// @Tags Queue
+// @Accept json
+// @Produce json
+// @Param request body requests.JoinByCodeRequest true "Join By Code Request"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 404 {object} map[string]string "Error response"
+// @Router /queues/join [post]
 func (h *QueueHandler) JoinByCode(c fiber.Ctx) error {
-	var req joinByCodeRequest
+	var req requests.JoinByCodeRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}
@@ -155,19 +169,21 @@ func (h *QueueHandler) JoinByCode(c fiber.Ctx) error {
 	return h.joinQueue(c, queueID, req.Lat, req.Lng, req.FCMToken, req.DisplayName, req.PIN)
 }
 
-type joinRequest struct {
-	Lat         float64 `json:"lat" validate:"required"`
-	Lng         float64 `json:"lng" validate:"required"`
-	FCMToken    string  `json:"fcm_token" validate:"required"`
-	DisplayName *string `json:"display_name"`
-	PIN         *string `json:"pin" validate:"omitempty,len=4"`
-}
-
-// JoinByID joins a queue directly by queue ID (QR scan path).
+// JoinByID godoc
+// @Summary Join a queue by ID
+// @Description Joins a queue directly by its queue ID (often used via QR scanning)
+// @Tags Queue
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param request body requests.JoinRequest true "Join Request"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string "Error response"
+// @Router /queues/{id}/join [post]
 func (h *QueueHandler) JoinByID(c fiber.Ctx) error {
 	queueID := c.Params("id")
 
-	var req joinRequest
+	var req requests.JoinRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}
@@ -191,7 +207,18 @@ func (h *QueueHandler) joinQueue(c fiber.Ctx, queueID string, lat, lng float64, 
 	return c.Status(fiber.StatusOK).JSON(result)
 }
 
-// Heartbeat processes the 45s activity ping.
+// Heartbeat godoc
+// @Summary User Heartbeat
+// @Description Processes the 45s activity ping from a user to keep their position active
+// @Tags Queue
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param X-User-Token header string true "User JWT session token"
+// @Success 200 {string} string "OK"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queues/{id}/heartbeat [post]
 func (h *QueueHandler) Heartbeat(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	token := c.Get("X-User-Token")
@@ -208,7 +235,18 @@ func (h *QueueHandler) Heartbeat(c fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
 
-// PingUser buzzes a specific user.
+// PingUser godoc
+// @Summary Ping/buzz a user
+// @Description Host specifically buzzes a user in the queue
+// @Tags Queue
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param token path string true "User session token"
+// @Success 200 {object} map[string]string
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queues/{id}/ping/{token} [post]
+// @Security BearerAuth
 func (h *QueueHandler) PingUser(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	token := c.Params("token")
@@ -225,7 +263,17 @@ func (h *QueueHandler) PingUser(c fiber.Ctx) error {
 	})
 }
 
-// CallNext calls the next user in the queue.
+// CallNext godoc
+// @Summary Call next user
+// @Description Host calls the next waiting user in the queue
+// @Tags Queue
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Success 200 {object} map[string]string
+// @Failure 404 {object} map[string]string "Error response"
+// @Router /queues/{id}/call [post]
+// @Security BearerAuth
 func (h *QueueHandler) CallNext(c fiber.Ctx) error {
 	queueID := c.Params("id")
 
@@ -245,7 +293,18 @@ func (h *QueueHandler) CallNext(c fiber.Ctx) error {
 	})
 }
 
-// RemoveUser removes a user from the queue.
+// RemoveUser godoc
+// @Summary Remove a user from queue
+// @Description Host forcibly removes a specific user from the queue
+// @Tags Queue
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param token path string true "User session token"
+// @Success 200 {object} map[string]string
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queues/{id}/remove/{token} [post]
+// @Security BearerAuth
 func (h *QueueHandler) RemoveUser(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	token := c.Params("token")
@@ -261,7 +320,17 @@ func (h *QueueHandler) RemoveUser(c fiber.Ctx) error {
 	})
 }
 
-// Close closes the queue.
+// Close godoc
+// @Summary Close a queue
+// @Description Host closes a queue, disconnecting users and cleaning up
+// @Tags Queue
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Success 200 {object} map[string]string
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queues/{id}/close [post]
+// @Security BearerAuth
 func (h *QueueHandler) Close(c fiber.Ctx) error {
 	queueID := c.Params("id")
 

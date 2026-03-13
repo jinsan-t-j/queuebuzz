@@ -7,7 +7,7 @@ tmp_dir = "tmp"
 
 [build]
   bin = "./tmp/main"
-  cmd = "CGO_ENABLED=0 go build -gcflags=all='-N -l' -o ./tmp/main ./cmd/main.go && chmod +x ./tmp/main"
+  cmd = "CGO_ENABLED=0 go build -gcflags=all='-N -l' -o ./tmp/main . && chmod +x ./tmp/main"
   delay = 1000
   exclude_dir = ["assets", "tmp", "vendor", "testdata", "logs", ".git", "bin", "logs"]
   exclude_file = []
@@ -36,7 +36,7 @@ tmp_dir = "tmp"
   time = false
 
 [misc]
-  clean_on_exit = true
+  clean_on_exit = false
 
 [proxy]
   app_port = 0

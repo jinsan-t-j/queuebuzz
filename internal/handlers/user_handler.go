@@ -3,6 +3,7 @@ package handlers
 import (
 	"sync"
 
+	"queuebuzz/internal/requests"
 	"queuebuzz/internal/services"
 
 	"github.com/gofiber/fiber/v3"
@@ -29,11 +30,20 @@ func NewUserHandler(queueSvc *services.QueueService, redisSvc *services.RedisSer
 	return userHandlerInstance
 }
 
-type addEmailRequest struct {
-	Email string `json:"email" validate:"required,email"`
-}
-
-// AddEmail adds an optional email to a user's queue entry (post-join).
+// AddEmail godoc
+// @Summary Add email to queue entry
+// @Description Adds an optional email to a user's queue entry after they have joined
+// @Tags User
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param X-User-Token header string true "User Token"
+// @Param request body requests.AddEmailRequest true "Email Request"
+// @Success 200 {string} string "OK"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queues/{id}/user/email [post]
 func (h *UserHandler) AddEmail(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	token := c.Get("X-User-Token")
@@ -42,7 +52,7 @@ func (h *UserHandler) AddEmail(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusUnauthorized)
 	}
 
-	var req addEmailRequest
+	var req requests.AddEmailRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}
@@ -60,11 +70,20 @@ func (h *UserHandler) AddEmail(c fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
 
-type setPINRequest struct {
-	PIN string `json:"pin" validate:"required,len=4"`
-}
-
-// SetPIN sets or updates a recovery PIN for a queue entry.
+// SetPIN godoc
+// @Summary Set PIN for queue entry
+// @Description Sets or updates a 4-digit recovery PIN for a queue entry
+// @Tags User
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param X-User-Token header string true "User Token"
+// @Param request body requests.SetPINRequest true "PIN Request"
+// @Success 200 {string} string "OK"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queues/{id}/user/pin [post]
 func (h *UserHandler) SetPIN(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	token := c.Get("X-User-Token")
@@ -73,7 +92,7 @@ func (h *UserHandler) SetPIN(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusUnauthorized)
 	}
 
-	var req setPINRequest
+	var req requests.SetPINRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}
@@ -90,12 +109,19 @@ func (h *UserHandler) SetPIN(c fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
 
-type rejoinPINRequest struct {
-	TicketNo string `json:"ticket_no" validate:"required"`
-	PIN      string `json:"pin" validate:"required,len=4"`
-}
-
-// Rejoin restores a user session — by token (primary) or by ticket_no + PIN (fallback).
+// Rejoin godoc
+// @Summary Rejoin a queue session
+// @Description Restores a user session by token (primary) or by ticket number and PIN (fallback)
+// @Tags User
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param X-User-Token header string false "User Token"
+// @Param request body requests.RejoinPINRequest false "Rejoin Request"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Router /queues/{id}/user/rejoin [post]
 func (h *UserHandler) Rejoin(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	token := c.Get("X-User-Token")
@@ -110,7 +136,7 @@ func (h *UserHandler) Rejoin(c fiber.Ctx) error {
 	}
 
 	// Fallback path — rejoin by ticket_no + PIN
-	var req rejoinPINRequest
+	var req requests.RejoinPINRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}

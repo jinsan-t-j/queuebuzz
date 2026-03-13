@@ -9,6 +9,7 @@ import (
 
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/models"
+	"queuebuzz/internal/requests"
 	"queuebuzz/internal/services"
 
 	"github.com/gofiber/fiber/v3"
@@ -56,14 +57,19 @@ func NewHostHandler(
 	return hostHandlerInstance
 }
 
-type registerRequest struct {
-	Email *string `json:"email" validate:"omitempty,email"`
-	Phone *string `json:"phone" validate:"omitempty,e164"`
-}
-
-// Register triggers Magic Link or OTP based on the provided field.
+// Register godoc
+// @Summary Register a Host
+// @Description Triggers Magic Link (email) or OTP (phone) for host registration
+// @Tags Host
+// @Accept json
+// @Produce json
+// @Param request body requests.RegisterRequest true "Register Request"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /host/register [post]
 func (h *HostHandler) Register(c fiber.Ctx) error {
-	var req registerRequest
+	var req requests.RegisterRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}
@@ -100,15 +106,20 @@ func (h *HostHandler) Register(c fiber.Ctx) error {
 	})
 }
 
-type verifyRequest struct {
-	Token *string `json:"token" validate:"omitempty"`
-	Phone *string `json:"phone" validate:"omitempty,e164"`
-	OTP   *string `json:"otp"   validate:"omitempty,len=6"`
-}
-
-// Verify validates the magic link token or OTP and issues a JWT pair.
+// Verify godoc
+// @Summary Verify Magic Link or OTP
+// @Description Validates the magic link token or OTP and issues a JWT pair for the host
+// @Tags Host
+// @Accept json
+// @Produce json
+// @Param request body requests.VerifyRequest true "Verify Request"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /host/verify [post]
 func (h *HostHandler) Verify(c fiber.Ctx) error {
-	var req verifyRequest
+	var req requests.VerifyRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}
@@ -165,7 +176,20 @@ func (h *HostHandler) Verify(c fiber.Ctx) error {
 	})
 }
 
-// Claim allows an anonymous host to claim their queue as a registered host.
+// Claim godoc
+// @Summary Claim an anonymous queue
+// @Description Allows an anonymous host to claim their queue as a registered host
+// @Tags Host
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 403 {object} map[string]string "Error response"
+// @Failure 404 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /host/claim [post]
+// @Security BearerAuth
 func (h *HostHandler) Claim(c fiber.Ctx) error {
 	registeredHostID, _ := c.Locals("host_id").(string)
 	if registeredHostID == "" {
@@ -230,7 +254,16 @@ func (h *HostHandler) Claim(c fiber.Ctx) error {
 	})
 }
 
-// GetProfile returns the host's public profile.
+// GetProfile godoc
+// @Summary Get host profile
+// @Description Returns the host's public profile based on public_id
+// @Tags Host
+// @Accept json
+// @Produce json
+// @Param public_id path string true "Host Public ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 404 {object} map[string]string "Error response"
+// @Router /host/{public_id} [get]
 func (h *HostHandler) GetProfile(c fiber.Ctx) error {
 	publicID := c.Params("public_id")
 
@@ -251,7 +284,16 @@ func (h *HostHandler) GetProfile(c fiber.Ctx) error {
 	})
 }
 
-// GetQueues returns the host's active queues.
+// GetQueues godoc
+// @Summary Get active queues for host
+// @Description Returns a list of the host's active queues based on public_id
+// @Tags Host
+// @Accept json
+// @Produce json
+// @Param public_id path string true "Host Public ID"
+// @Success 200 {array} models.Queue
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /host/{public_id}/queues [get]
 func (h *HostHandler) GetQueues(c fiber.Ctx) error {
 	publicID := c.Params("public_id")
 

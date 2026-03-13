@@ -4,3 +4,4 @@
 workflows
 /logs/*
 .env
+main

@@ -3,6 +3,7 @@ package handlers
 import (
 	"sync"
 
+	"queuebuzz/internal/requests"
 	"queuebuzz/internal/services"
 
 	"github.com/gofiber/fiber/v3"
@@ -29,16 +30,23 @@ func NewNotificationHandler(queueSvc *services.QueueService, notifSender service
 	return notifHandlerInstance
 }
 
-type broadcastRequest struct {
-	Title string `json:"title" validate:"required,max=100"`
-	Body  string `json:"body"  validate:"required,max=500"`
-}
-
-// BroadcastToQueue sends a notification to all WAITING users in a queue.
+// BroadcastToQueue godoc
+// @Summary Broadcast notification to queue
+// @Description Sends a push notification to all WAITING users in a specified queue
+// @Tags Notification
+// @Accept json
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param request body requests.BroadcastRequest true "Broadcast Request payload"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queues/{id}/broadcast [post]
+// @Security BearerAuth
 func (h *NotificationHandler) BroadcastToQueue(c fiber.Ctx) error {
 	queueID := c.Params("id")
 
-	var req broadcastRequest
+	var req requests.BroadcastRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}

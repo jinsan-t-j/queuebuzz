@@ -21,13 +21,11 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// App holds the Fiber instance plus all dependencies needed for the application lifecycle.
 type App struct {
 	fiber  *fiber.App
 	config *config.Config
 }
 
-// New wires all dependencies, creates the Fiber app, registers middleware and routes.
 func New() *App {
 	cfg := config.Get()
 

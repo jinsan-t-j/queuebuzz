@@ -3,3 +3,4 @@
 .agent
 workflows
 /logs/*
+.env

@@ -10,7 +10,7 @@ import (
 )
 
 type Config struct {
-	AppPort string `env:"PORT" env-default:"8080"`
+	AppPort string `env:"APP_PORT" env-default:"8080"`
 	AppEnv  string `env:"APP_ENV" env-default:"development"`
 
 	// MongoDB

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/smtp"
 	"sync"
 	"time"
 
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/log"
 )
 
@@ -17,17 +19,13 @@ var (
 )
 
 type EmailService struct {
-	apiKey  string
-	from    string
-	replyTo string
+	cfg *config.Config
 }
 
-func NewEmailService(apiKey, from, replyTo string) *EmailService {
+func NewEmailService(cfg *config.Config) *EmailService {
 	emailOnce.Do(func() {
 		emailInstance = &EmailService{
-			apiKey:  apiKey,
-			from:    from,
-			replyTo: replyTo,
+			cfg: cfg,
 		}
 	})
 
@@ -44,7 +42,7 @@ type resendPayload struct {
 
 // SendMagicLink sends a magic link email for host registration.
 func (s *EmailService) SendMagicLink(email, token string) error {
-	link := fmt.Sprintf("https://queuebuzz.com/auth/verify?token=%s", token)
+	link := fmt.Sprintf("%s/auth/verify?token=%s", s.cfg.AppURL, token)
 
 	html := fmt.Sprintf(`
 		<h2>Verify your QueueBuzz account</h2>
@@ -82,15 +80,23 @@ func (s *EmailService) SendQueueClosingWarning(email, ticketNo string) error {
 }
 
 func (s *EmailService) send(to, subject, html string) error {
+	if !s.cfg.IsProduction() {
+		return s.sendViaMailpit(to, subject, html)
+	}
+
+	if s.cfg.ResendAPIKey == "" {
+		return fmt.Errorf("resend api key is required outside development")
+	}
+
 	payload := resendPayload{
-		From:    s.from,
+		From:    s.cfg.EmailFrom,
 		To:      []string{to},
 		Subject: subject,
 		HTML:    html,
 	}
 
-	if s.replyTo != "" {
-		payload.ReplyTo = s.replyTo
+	if s.cfg.EmailReplyTo != "" {
+		payload.ReplyTo = s.cfg.EmailReplyTo
 	}
 
 	body, err := json.Marshal(payload)
@@ -104,7 +110,7 @@ func (s *EmailService) send(to, subject, html string) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	req.Header.Set("Authorization", "Bearer "+s.cfg.ResendAPIKey)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -120,6 +126,16 @@ func (s *EmailService) send(to, subject, html string) error {
 			Str("subject", subject).
 			Msg("Email delivery failed")
 		return fmt.Errorf("email delivery failed with status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func (s *EmailService) sendViaMailpit(to, subject, html string) error {
+	message := []byte(fmt.Sprintf("Subject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\nFrom: %s\r\nTo: %s\r\n\r\n%s", subject, s.cfg.EmailFrom, to, html))
+
+	if err := smtp.SendMail(s.cfg.MailpitSMTPHost+":"+s.cfg.MailpitSMTPPort, nil, s.cfg.EmailFrom, []string{to}, message); err != nil {
+		return fmt.Errorf("failed to send email via mailpit: %w", err)
 	}
 
 	return nil

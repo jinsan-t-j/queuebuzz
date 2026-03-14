@@ -44,11 +44,12 @@ func New() *App {
 	ticketSvc := services.NewTicketService(rdb)
 	joinCodeSvc := services.NewJoinCodeService(rdb)
 	authSvc := services.NewAuthService(cfg.JWTPrivateKey, cfg.JWTPublicKey, redisSvc)
-	emailSvc := services.NewEmailService(cfg.ResendAPIKey, cfg.EmailFrom, cfg.EmailReplyTo)
+	emailSvc := services.NewEmailService(cfg)
 	otpSvc := services.NewOTPService(rdb)
 	magicLinkSvc := services.NewMagicLinkService(rdb)
 	notifSender := services.NewFirebaseSender(cfg.FirebaseCredentials)
 	queueSvc := services.NewQueueService(queueCol, entryCol, redisSvc, ticketSvc, joinCodeSvc, geoSvc)
+	hostSvc := services.NewHostService(rdb, hostCol)
 
 	hub := ws.NewHub()
 
@@ -57,7 +58,7 @@ func New() *App {
 	expiryListener.StartKeyspaceListener(ctx)
 	go expiryListener.RunCronSweep(ctx)
 
-	hostHandler := handlers.NewHostHandler(authSvc, magicLinkSvc, otpSvc, emailSvc, redisSvc, hostCol, queueSvc)
+	hostHandler := handlers.NewHostHandler(cfg, authSvc, magicLinkSvc, otpSvc, emailSvc, redisSvc, hostCol, hostSvc, queueSvc)
 	queueHandler := handlers.NewQueueHandler(queueSvc, authSvc)
 	userHandler := handlers.NewUserHandler(queueSvc, redisSvc)
 	notifHandler := handlers.NewNotificationHandler(queueSvc, notifSender)
@@ -76,17 +77,11 @@ func New() *App {
 		},
 	})
 
-	if cfg.IsProduction() {
-		app.Use(middlewares.SecurityHeaders())
-		app.Use(middlewares.CORSMiddleware(cfg.AllowedOrigin))
-	}
+	app.Use(middlewares.SecurityHeaders())
+	app.Use(middlewares.CORSMiddleware(cfg.AllowedOrigin))
 	app.Use(middlewares.GlobalRateLimiter)
 	app.Use(recover.New())
 	app.Use(idempotency.New())
-
-	app.Use(swagger.New(swagger.Config{
-		FilePath: "./docs/swagger.json",
-	}))
 
 	routes.Register(app, &routes.Deps{
 		HostHandler:         hostHandler,
@@ -94,6 +89,16 @@ func New() *App {
 		UserHandler:         userHandler,
 		NotificationHandler: notifHandler,
 		WebSocketHandler:    wsHandler,
+	})
+
+	app.Use(swagger.New(swagger.Config{
+		BasePath: "/",
+		Path:     "docs",
+		FilePath: "./docs/swagger.json",
+	}))
+
+	app.Use(func(c fiber.Ctx) error {
+		return c.SendStatus(fiber.StatusNotFound)
 	})
 
 	// Store cancel func so Start() can invoke it on shutdown.
@@ -111,8 +116,6 @@ func (a *App) Start() {
 	if err := a.fiber.Listen(":" + a.config.AppPort); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start server")
 	}
-
-	log.Info().Msg("QueueBuzz server started successfully on environment " + a.config.AppEnv + " on https://localhost:" + a.config.AppPort)
 }
 
 // startShutdownListener spawns a goroutine that waits for SIGINT/SIGTERM,

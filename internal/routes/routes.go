@@ -18,12 +18,17 @@ type Deps struct {
 
 // Register mounts all API routes onto the Fiber app.
 func Register(app *fiber.App, d *Deps) {
-	api := app.Group("/api")
+	app.Get("/healthz", func(c fiber.Ctx) error {
+		return c.SendString("OK")
+	})
+
+	app.Get("/auth/verify", middlewares.VerifyRateLimiter, d.HostHandler.Verify)
+
+	api := app.Group("/api/v1")
 
 	// ── Host Auth (public) ──────────────────────────────────────────
 	host := api.Group("/host")
 	host.Post("/register", middlewares.RegisterRateLimiter, d.HostHandler.Register)
-	host.Post("/auth/verify", middlewares.VerifyRateLimiter, d.HostHandler.Verify)
 	host.Post("/claim", middlewares.AuthMiddleware(), d.HostHandler.Claim)
 	host.Get("/:public_id", d.HostHandler.GetProfile)
 	host.Get("/:public_id/queues", d.HostHandler.GetQueues)

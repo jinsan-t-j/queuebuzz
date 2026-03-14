@@ -2,19 +2,18 @@ package handlers
 
 import (
 	"context"
-	"crypto/rand"
-	"math/big"
 	"sync"
 	"time"
 
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
+	"queuebuzz/internal/helpers"
 	"queuebuzz/internal/models"
 	"queuebuzz/internal/requests"
 	"queuebuzz/internal/services"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -24,32 +23,38 @@ var (
 )
 
 type HostHandler struct {
+	cfg              *config.Config
 	authService      *services.AuthService
 	magicLinkService *services.MagicLinkService
 	otpService       *services.OTPService
 	emailService     *services.EmailService
 	redisService     *services.RedisService
 	hostCol          *mongo.Collection
+	hostService      *services.HOST_SERVICE
 	queueService     *services.QueueService
 }
 
 func NewHostHandler(
+	cfg *config.Config,
 	authSvc *services.AuthService,
 	magicLinkSvc *services.MagicLinkService,
 	otpSvc *services.OTPService,
 	emailSvc *services.EmailService,
 	redisSvc *services.RedisService,
 	hostCol *mongo.Collection,
+	hostSvc *services.HOST_SERVICE,
 	queueSvc *services.QueueService,
 ) *HostHandler {
 	hostHandlerOnce.Do(func() {
 		hostHandlerInstance = &HostHandler{
+			cfg:              cfg,
 			authService:      authSvc,
 			magicLinkService: magicLinkSvc,
 			otpService:       otpSvc,
 			emailService:     emailSvc,
 			redisService:     redisSvc,
 			hostCol:          hostCol,
+			hostService:      hostSvc,
 			queueService:     queueSvc,
 		}
 	})
@@ -63,8 +68,8 @@ func NewHostHandler(
 // @Tags Host
 // @Accept json
 // @Produce json
-// @Param request body requests.RegisterRequest true "Register Request"
-// @Success 200 {object} map[string]string
+// @Param request body requests.RegisterRequest true "Magic link sent. Check your email."
+// @Success 200 {object} responses.MessageResponse "Success response"
 // @Failure 400 {object} map[string]string "Error response"
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /host/register [post]
@@ -88,9 +93,7 @@ func (h *HostHandler) Register(c fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"message": "Magic link sent. Check your email.",
-		})
+		return helpers.MessageResponse(c, "Magic link sent. Check your email.")
 	}
 
 	// Phone / OTP path
@@ -99,64 +102,64 @@ func (h *HostHandler) Register(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError)
 	}
 
-	// TODO: Send OTP via SMS (not implemented in MVP)
-
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "OTP sent.",
-	})
+	return helpers.MessageResponse(c, "OTP sent.")
 }
 
 // Verify godoc
 // @Summary Verify Magic Link or OTP
 // @Description Validates the magic link token or OTP and issues a JWT pair for the host
 // @Tags Host
-// @Accept json
 // @Produce json
-// @Param request body requests.VerifyRequest true "Verify Request"
-// @Success 200 {object} map[string]interface{}
+// @Param token query string false "Magic link token"
+// @Param phone query string false "Phone number"
+// @Param otp query string false "OTP code"
+// @Success 200 redirect "Redirect to auth callback URL"
 // @Failure 400 {object} map[string]string "Error response"
 // @Failure 401 {object} map[string]string "Error response"
 // @Failure 500 {object} map[string]string "Error response"
-// @Router /host/verify [post]
+// @Router /auth/verify [get]
 func (h *HostHandler) Verify(c fiber.Ctx) error {
-	var req requests.VerifyRequest
-	if err := c.Bind().JSON(&req); err != nil {
-		return err
-	}
-
 	var email string
 	var phone string
+	token := c.Query("token")
+	reqPhone := c.Query("phone")
+	otp := c.Query("otp")
 
-	if req.Token != nil {
-		// Magic link path
-		e, err := h.magicLinkService.VerifyMagicLink(c.Context(), *req.Token)
+	if token != "" {
+		e, err := h.magicLinkService.VerifyMagicLink(c.Context(), token)
 		if err != nil {
 			return fiber.NewError(fiber.StatusUnauthorized)
 		}
 		email = e
-	} else if req.Phone != nil && req.OTP != nil {
-		// OTP path
-		if err := h.otpService.VerifyOTP(c.Context(), *req.Phone, *req.OTP); err != nil {
+	} else if reqPhone != "" && otp != "" {
+		if err := h.otpService.VerifyOTP(c.Context(), reqPhone, otp); err != nil {
 			return fiber.NewError(fiber.StatusUnauthorized)
 		}
-		phone = *req.Phone
+		phone = reqPhone
 	} else {
 		return fiber.NewError(fiber.StatusBadRequest, "provide token or phone+otp")
 	}
 
-	// Create or fetch Host
-	host, err := h.findOrCreateHost(c.Context(), email, phone)
+	host, err := h.hostService.FindOrCreateHost(c.Context(), email, phone)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError)
 	}
 
-	// Issue JWT pair
 	accessToken, refreshToken, accessExp, refreshExp, err := h.authService.IssueTokenPair(c.Context(), host.ID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError)
 	}
 
-	// Set refresh token as httpOnly cookie
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    accessToken,
+		Expires:  accessExp,
+		HTTPOnly: true,
+		Secure:   true,
+		SameSite: "Strict",
+		Path:     "/",
+	})
+
 	c.Cookie(&fiber.Cookie{
 		Name:     "refresh_token",
 		Value:    refreshToken,
@@ -167,13 +170,7 @@ func (h *HostHandler) Verify(c fiber.Ctx) error {
 		Path:     "/",
 	})
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"access_token":   accessToken,
-		"expires_at":     accessExp.Format(time.RFC3339),
-		"token_type":     "Bearer",
-		"host_id":        host.ID,
-		"host_public_id": host.PublicID,
-	})
+	return c.Redirect().To(h.cfg.AuthCallbackURL)
 }
 
 // Claim godoc
@@ -306,75 +303,3 @@ func (h *HostHandler) GetQueues(c fiber.Ctx) error {
 }
 
 // --- helpers ---
-
-func (h *HostHandler) findOrCreateHost(ctx context.Context, email, phone string) (*models.Host, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	filter := bson.M{}
-	if email != "" {
-		filter["email"] = email
-	} else if phone != "" {
-		filter["phone"] = phone
-	}
-
-	var host models.Host
-	err := h.hostCol.FindOne(ctx, filter).Decode(&host)
-	if err == nil {
-		// Update last_seen
-		_, _ = h.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, bson.M{"$set": bson.M{"last_seen": time.Now()}})
-		return &host, nil
-	}
-
-	// Create new host
-	now := time.Now()
-	host = models.Host{
-		ID:        generateHostID(),
-		PublicID:  generateSlug(),
-		Tier:      constants.TierFree,
-		CreatedAt: now,
-		LastSeen:  now,
-	}
-	if email != "" {
-		host.Email = &email
-	}
-	if phone != "" {
-		host.Phone = &phone
-	}
-
-	_, err = h.hostCol.InsertOne(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-
-	return &host, nil
-}
-
-func generateHostID() string {
-	return "host_" + uuid.New().String()[:8]
-}
-
-func generateSlug() string {
-	adjectives := []string{"swift", "bright", "calm", "bold", "cool", "fast", "keen", "neat", "warm", "wise"}
-	nouns := []string{"queue", "spot", "line", "desk", "gate", "lane", "zone", "hub", "dock", "pass"}
-
-	adj := adjectives[randInt(len(adjectives))]
-	noun := nouns[randInt(len(nouns))]
-	num := 1000 + randInt(9000)
-
-	return adj + "-" + noun + "-" + itoa(num)
-}
-
-func randInt(max int) int {
-	n, _ := rand.Int(rand.Reader, big.NewInt(int64(max)))
-	return int(n.Int64())
-}
-
-func itoa(n int) string {
-	s := make([]byte, 4)
-	for i := 3; i >= 0; i-- {
-		s[i] = '0' + byte(n%10)
-		n /= 10
-	}
-	return string(s)
-}

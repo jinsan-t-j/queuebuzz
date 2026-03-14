@@ -10,6 +10,7 @@ import (
 )
 
 type Config struct {
+	AppURL  string `env:"APP_URL" env-default:"http://localhost:8080"`
 	AppPort string `env:"APP_PORT" env-default:"8080"`
 	AppEnv  string `env:"APP_ENV" env-default:"development"`
 
@@ -28,13 +29,18 @@ type Config struct {
 	// Firebase
 	FirebaseCredentials string `env:"FIREBASE_CREDENTIALS" env-required:"true"`
 
-	// Resend (email)
-	ResendAPIKey string `env:"RESEND_API_KEY" env-required:"true"`
-	EmailFrom    string `env:"EMAIL_FROM" env-default:"noreply@queuebuzz.com"`
-	EmailReplyTo string `env:"EMAIL_REPLY_TO" env-default:""`
+	// Email
+	ResendAPIKey    string `env:"RESEND_API_KEY" env-default:""`
+	EmailFrom       string `env:"EMAIL_FROM" env-default:"noreply@queuebuzz.com"`
+	EmailReplyTo    string `env:"EMAIL_REPLY_TO" env-default:""`
+	MailpitSMTPHost string `env:"MAILPIT_SMTP_HOST" env-default:"localhost"`
+	MailpitSMTPPort string `env:"MAILPIT_SMTP_PORT" env-default:"1025"`
 
 	// CORS
 	AllowedOrigin string `env:"ALLOWED_ORIGIN" env-required:"true"`
+
+	// FRONTEND
+	AuthCallbackURL string `env:"AUTH_CALLBACK_URL" env-required:"true"`
 }
 
 var (

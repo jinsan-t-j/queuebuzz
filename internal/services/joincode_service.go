@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
-	"sync"
 	"time"
 
 	"queuebuzz/internal/constants"
@@ -13,21 +12,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var (
-	joinCodeInstance *JoinCodeService
-	joinCodeOnce     sync.Once
-)
-
 type JoinCodeService struct {
 	rdb *redis.Client
 }
 
 func NewJoinCodeService(rdb *redis.Client) *JoinCodeService {
-	joinCodeOnce.Do(func() {
-		joinCodeInstance = &JoinCodeService{rdb: rdb}
-	})
-
-	return joinCodeInstance
+	return &JoinCodeService{rdb: rdb}
 }
 
 // GenerateJoinCode creates a cryptographically random 6-character join code

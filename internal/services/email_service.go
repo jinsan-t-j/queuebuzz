@@ -6,16 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/smtp"
-	"sync"
 	"time"
 
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/log"
-)
-
-var (
-	emailInstance *EmailService
-	emailOnce     sync.Once
 )
 
 type EmailService struct {
@@ -23,13 +17,9 @@ type EmailService struct {
 }
 
 func NewEmailService(cfg *config.Config) *EmailService {
-	emailOnce.Do(func() {
-		emailInstance = &EmailService{
-			cfg: cfg,
-		}
-	})
-
-	return emailInstance
+	return &EmailService{
+		cfg: cfg,
+	}
 }
 
 type resendPayload struct {

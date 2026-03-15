@@ -3,16 +3,10 @@ package services
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-)
-
-var (
-	magicLinkInstance *MagicLinkService
-	magicLinkOnce     sync.Once
 )
 
 type MagicLinkService struct {
@@ -20,11 +14,7 @@ type MagicLinkService struct {
 }
 
 func NewMagicLinkService(rdb *redis.Client) *MagicLinkService {
-	magicLinkOnce.Do(func() {
-		magicLinkInstance = &MagicLinkService{rdb: rdb}
-	})
-
-	return magicLinkInstance
+	return &MagicLinkService{rdb: rdb}
 }
 
 // GenerateAndStoreMagicLink creates a UUID magic link token, stores the

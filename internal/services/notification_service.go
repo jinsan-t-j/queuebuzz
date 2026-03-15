@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
 	"queuebuzz/internal/log"
@@ -26,11 +25,6 @@ type NotificationSender interface {
 
 // --- FirebaseSender implementation ---
 
-var (
-	firebaseSenderInstance *FirebaseSender
-	firebaseSenderOnce     sync.Once
-)
-
 type FirebaseSender struct {
 	projectID  string
 	credsJSON  []byte
@@ -40,28 +34,23 @@ type FirebaseSender struct {
 // NewFirebaseSender creates a singleton FirebaseSender.
 // credentialsBase64 is the base64-encoded Firebase service account JSON.
 func NewFirebaseSender(credentialsBase64 string) *FirebaseSender {
-	firebaseSenderOnce.Do(func() {
-		credsJSON, err := base64.StdEncoding.DecodeString(credentialsBase64)
-		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to decode Firebase credentials")
-		}
+	credsJSON, err := base64.StdEncoding.DecodeString(credentialsBase64)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to decode Firebase credentials")
+	}
 
-		// Extract project_id from the credentials JSON
-		var creds struct {
-			ProjectID string `json:"project_id"`
-		}
-		if err := json.Unmarshal(credsJSON, &creds); err != nil {
-			log.Fatal().Err(err).Msg("Failed to parse Firebase credentials JSON")
-		}
+	var creds struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.Unmarshal(credsJSON, &creds); err != nil {
+		log.Fatal().Err(err).Msg("Failed to parse Firebase credentials JSON")
+	}
 
-		firebaseSenderInstance = &FirebaseSender{
-			projectID:  creds.ProjectID,
-			credsJSON:  credsJSON,
-			httpClient: &http.Client{Timeout: 10 * time.Second},
-		}
-	})
-
-	return firebaseSenderInstance
+	return &FirebaseSender{
+		projectID:  creds.ProjectID,
+		credsJSON:  credsJSON,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
 }
 
 type fcmMessage struct {

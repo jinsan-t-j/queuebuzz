@@ -3,15 +3,9 @@ package services
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
-)
-
-var (
-	redisServiceInstance *RedisService
-	redisServiceOnce     sync.Once
 )
 
 type RedisService struct {
@@ -19,11 +13,7 @@ type RedisService struct {
 }
 
 func NewRedisService(rdb *redis.Client) *RedisService {
-	redisServiceOnce.Do(func() {
-		redisServiceInstance = &RedisService{rdb: rdb}
-	})
-
-	return redisServiceInstance
+	return &RedisService{rdb: rdb}
 }
 
 // --- Sorted set position management ---

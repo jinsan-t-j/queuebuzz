@@ -7,15 +7,9 @@ import (
 	"syscall"
 	"time"
 
-	"queuebuzz/internal/config"
-	"queuebuzz/internal/db"
-	"queuebuzz/internal/handlers"
 	"queuebuzz/internal/log"
 	"queuebuzz/internal/middlewares"
 	"queuebuzz/internal/providers/validator"
-	"queuebuzz/internal/routes"
-	"queuebuzz/internal/services"
-	"queuebuzz/internal/ws"
 
 	v10 "github.com/go-playground/validator/v10"
 	swagger "github.com/gofiber/contrib/v3/swaggerui"
@@ -25,49 +19,13 @@ import (
 )
 
 type App struct {
-	fiber  *fiber.App
-	config *config.Config
+	fiber     *fiber.App
+	container *Container
 }
 
 func New() *App {
-	cfg := config.Get()
-
-	mongoDB := db.ConnectMongo(cfg.MongoURI, cfg.MongoDBName)
-	rdb := db.ConnectRedis(cfg.RedisURL, cfg.RedisPassword)
-
-	queueCol := mongoDB.Collection("queues")
-	entryCol := mongoDB.Collection("queue_entries")
-	hostCol := mongoDB.Collection("hosts")
-
-	redisSvc := services.NewRedisService(rdb)
-	geoSvc := services.NewGeoService()
-	ticketSvc := services.NewTicketService(rdb)
-	joinCodeSvc := services.NewJoinCodeService(rdb)
-	authSvc := services.NewAuthService(cfg.JWTPrivateKey, cfg.JWTPublicKey, redisSvc)
-	socialAuthSvc := services.NewSocialAuthService(cfg, redisSvc)
-	emailSvc := services.NewEmailService(cfg)
-	otpSvc := services.NewOTPService(rdb)
-	magicLinkSvc := services.NewMagicLinkService(rdb)
-	notifSender := services.NewFirebaseSender(cfg.FirebaseCredentials)
-	queueSvc := services.NewQueueService(queueCol, entryCol, redisSvc, ticketSvc, joinCodeSvc, geoSvc)
-	hostSvc := services.NewHostService(rdb, hostCol)
-
-	hub := ws.NewHub()
-
-	expiryListener := services.NewExpiryListener(rdb, queueCol, entryCol, redisSvc, hub, notifSender)
-	ctx, cancel := context.WithCancel(context.Background())
-	expiryListener.StartKeyspaceListener(ctx)
-	go expiryListener.RunCronSweep(ctx)
-
-	hostHandler := handlers.NewHostHandler(cfg, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, redisSvc, hostCol, hostSvc, queueSvc)
-	queueHandler := handlers.NewQueueHandler(queueSvc, authSvc)
-	userHandler := handlers.NewUserHandler(queueSvc, redisSvc)
-	notifHandler := handlers.NewNotificationHandler(queueSvc, notifSender)
-	wsHandler := handlers.NewWebSocketHandler(authSvc, queueSvc, hub)
-
-	middlewares.InitAuthMiddleware(authSvc)
-	middlewares.InitHostOwnerMiddleware(authSvc, redisSvc, queueCol)
-	middlewares.InitGeoMiddleware(geoSvc)
+	container := NewContainer()
+	cfg := container.Config
 
 	errHandler := middlewares.NewErrorHandler(cfg)
 
@@ -84,13 +42,7 @@ func New() *App {
 	app.Use(recover.New())
 	app.Use(idempotency.New())
 
-	routes.Register(app, &routes.Deps{
-		HostHandler:         hostHandler,
-		QueueHandler:        queueHandler,
-		UserHandler:         userHandler,
-		NotificationHandler: notifHandler,
-		WebSocketHandler:    wsHandler,
-	})
+	RegisterRoutes(app, container)
 
 	app.Use(swagger.New(swagger.Config{
 		BasePath: "/",
@@ -102,29 +54,24 @@ func New() *App {
 		return c.SendStatus(fiber.StatusNotFound)
 	})
 
-	go func() {
-		<-ctx.Done()
-	}()
-
-	a := &App{fiber: app, config: cfg}
-	a.startShutdownListener(cancel)
+	a := &App{fiber: app, container: container}
+	a.startShutdownListener()
 	return a
 }
 
 func (a *App) Start() {
-	if err := a.fiber.Listen(":" + a.config.AppPort); err != nil {
+	if err := a.fiber.Listen(":" + a.container.Config.AppPort); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start server")
 	}
 }
 
-func (a *App) startShutdownListener(cancel context.CancelFunc) {
+func (a *App) startShutdownListener() {
 	go func() {
 		quit := make(chan os.Signal, 1)
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 		<-quit
 
 		log.Info().Msg("Shutting down gracefully...")
-		cancel()
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
@@ -133,8 +80,7 @@ func (a *App) startShutdownListener(cancel context.CancelFunc) {
 			log.Error().Err(err).Msg("Server shutdown error")
 		}
 
-		db.DisconnectMongo()
-		db.DisconnectRedis()
+		a.container.Shutdown()
 
 		log.Info().Msg("QueueBuzz server stopped")
 		os.Exit(0)

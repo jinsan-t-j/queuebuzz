@@ -3,15 +3,9 @@ package services
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
-)
-
-var (
-	ticketInstance *TicketService
-	ticketOnce     sync.Once
 )
 
 type TicketService struct {
@@ -19,11 +13,7 @@ type TicketService struct {
 }
 
 func NewTicketService(rdb *redis.Client) *TicketService {
-	ticketOnce.Do(func() {
-		ticketInstance = &TicketService{rdb: rdb}
-	})
-
-	return ticketInstance
+	return &TicketService{rdb: rdb}
 }
 
 // NextTicket atomically increments the ticket counter for the given queue

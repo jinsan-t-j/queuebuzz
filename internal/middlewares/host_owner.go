@@ -2,11 +2,11 @@ package middlewares
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"queuebuzz/internal/constants"
-	"queuebuzz/internal/services"
+	authservice "queuebuzz/internal/modules/auth/service"
+	legacyservices "queuebuzz/internal/services"
 
 	"github.com/gofiber/fiber/v3"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -14,19 +14,16 @@ import (
 )
 
 var (
-	hostOwnerAuthSvc  *services.AuthService
-	hostOwnerRedisSvc *services.RedisService
+	hostOwnerAuthSvc  *authservice.AuthService
+	hostOwnerRedisSvc *legacyservices.RedisService
 	queueCollection   *mongo.Collection
-	hostOwnerOnce     sync.Once
 )
 
 // InitHostOwnerMiddleware sets up depenencies for the host owner middleware.
-func InitHostOwnerMiddleware(authSvc *services.AuthService, redisSvc *services.RedisService, queueCol *mongo.Collection) {
-	hostOwnerOnce.Do(func() {
-		hostOwnerAuthSvc = authSvc
-		hostOwnerRedisSvc = redisSvc
-		queueCollection = queueCol
-	})
+func InitHostOwnerMiddleware(authSvc *authservice.AuthService, redisSvc *legacyservices.RedisService, queueCol *mongo.Collection) {
+	hostOwnerAuthSvc = authSvc
+	hostOwnerRedisSvc = redisSvc
+	queueCollection = queueCol
 }
 
 // HostOwnerMiddleware verifies that the authenticated host owns the queue in :id.

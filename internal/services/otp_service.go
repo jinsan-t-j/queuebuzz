@@ -5,16 +5,10 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
-)
-
-var (
-	otpInstance *OTPService
-	otpOnce     sync.Once
 )
 
 type OTPService struct {
@@ -22,11 +16,7 @@ type OTPService struct {
 }
 
 func NewOTPService(rdb *redis.Client) *OTPService {
-	otpOnce.Do(func() {
-		otpInstance = &OTPService{rdb: rdb}
-	})
-
-	return otpInstance
+	return &OTPService{rdb: rdb}
 }
 
 // GenerateAndStoreOTP creates a 6-digit OTP using crypto/rand, bcrypt-hashes it,

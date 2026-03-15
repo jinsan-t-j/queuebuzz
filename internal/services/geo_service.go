@@ -2,24 +2,14 @@ package services
 
 import (
 	"math"
-	"sync"
 
 	"github.com/gofiber/fiber/v3"
-)
-
-var (
-	geoInstance *GeoService
-	geoOnce     sync.Once
 )
 
 type GeoService struct{}
 
 func NewGeoService() *GeoService {
-	geoOnce.Do(func() {
-		geoInstance = &GeoService{}
-	})
-
-	return geoInstance
+	return &GeoService{}
 }
 
 const earthRadiusM = 6_371_000.0 // Earth radius in meters

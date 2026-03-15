@@ -7,26 +7,16 @@ import (
 	"queuebuzz/internal/log"
 )
 
-var (
-	hubInstance *Hub
-	hubOnce     sync.Once
-)
-
 // Hub maintains one active WebSocket client per queue_id.
 type Hub struct {
 	mu      sync.RWMutex
 	clients map[string]*Client // queue_id → *Client
 }
 
-// NewHub returns the singleton Hub.
 func NewHub() *Hub {
-	hubOnce.Do(func() {
-		hubInstance = &Hub{
-			clients: make(map[string]*Client),
-		}
-	})
-
-	return hubInstance
+	return &Hub{
+		clients: make(map[string]*Client),
+	}
 }
 
 // Register adds a client for a queue. If a client already exists for the

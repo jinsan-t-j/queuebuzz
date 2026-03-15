@@ -1,25 +1,20 @@
 package middlewares
 
 import (
-	"sync"
-
 	"queuebuzz/internal/log"
-	"queuebuzz/internal/services"
+	authservice "queuebuzz/internal/modules/auth/service"
 
 	"github.com/gofiber/fiber/v3"
 )
 
 var (
-	authService     *services.AuthService
-	authInitOnce    sync.Once
+	authService     *authservice.AuthService
 	authInitialized bool
 )
 
-func InitAuthMiddleware(svc *services.AuthService) {
-	authInitOnce.Do(func() {
-		authService = svc
-		authInitialized = true
-	})
+func InitAuthMiddleware(svc *authservice.AuthService) {
+	authService = svc
+	authInitialized = true
 }
 
 func AuthMiddleware() fiber.Handler {

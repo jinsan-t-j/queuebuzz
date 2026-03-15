@@ -41,6 +41,14 @@ type Config struct {
 
 	// FRONTEND
 	AuthCallbackURL string `env:"AUTH_CALLBACK_URL" env-required:"true"`
+
+	// Social Auth
+	GoogleOAuthClientID     string `env:"GOOGLE_OAUTH_CLIENT_ID"`
+	GoogleOAuthClientSecret string `env:"GOOGLE_OAUTH_CLIENT_SECRET"`
+	AppleOAuthClientID      string `env:"APPLE_OAUTH_CLIENT_ID" env-default:""`
+	AppleOAuthTeamID        string `env:"APPLE_OAUTH_TEAM_ID" env-default:""`
+	AppleOAuthKeyID         string `env:"APPLE_OAUTH_KEY_ID" env-default:""`
+	AppleOAuthPrivateKey    string `env:"APPLE_OAUTH_PRIVATE_KEY" env-default:""`
 }
 
 var (

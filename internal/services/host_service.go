@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -31,19 +32,17 @@ func (hs *HOST_SERVICE) FindOrCreateHost(ctx context.Context, email, phone strin
 	filter := bson.M{}
 	if email != "" {
 		filter["email"] = email
-	} else if phone != "" {
+	} else if phone != "" && len(phone) > 0 {
 		filter["phone"] = phone
 	}
 
 	var host models.Host
 	err := hs.hostCol.FindOne(ctx, filter).Decode(&host)
 	if err == nil {
-		// Update last_seen
 		_, _ = hs.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, bson.M{"$set": bson.M{"last_seen": time.Now()}})
 		return &host, nil
 	}
 
-	// Create new host
 	now := time.Now()
 	host = models.Host{
 		ID:        generateHostID(),
@@ -55,7 +54,7 @@ func (hs *HOST_SERVICE) FindOrCreateHost(ctx context.Context, email, phone strin
 	if email != "" {
 		host.Email = &email
 	}
-	if phone != "" {
+	if phone != "" && len(phone) > 0 {
 		host.Phone = &phone
 	}
 
@@ -65,6 +64,106 @@ func (hs *HOST_SERVICE) FindOrCreateHost(ctx context.Context, email, phone strin
 	}
 
 	return &host, nil
+}
+
+func (hs *HOST_SERVICE) FindOrCreateHostBySocial(ctx context.Context, identity *SocialIdentity) (*models.Host, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	providerField := fmt.Sprintf("social_auth.%s.provider_user_id", identity.Provider)
+	lastLoginField := fmt.Sprintf("social_auth.%s.last_login_at", identity.Provider)
+
+	var host models.Host
+	err := hs.hostCol.FindOne(ctx, bson.M{providerField: identity.ProviderUserID}).Decode(&host)
+	if err == nil {
+		_, _ = hs.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, bson.M{"$set": bson.M{
+			"last_seen":    time.Now(),
+			lastLoginField: time.Now(),
+		}})
+		return &host, nil
+	}
+	if err != nil && err != mongo.ErrNoDocuments {
+		return nil, err
+	}
+
+	now := time.Now()
+	providerAuth := &models.SocialProviderAuth{
+		ProviderUserID: identity.ProviderUserID,
+		LinkedAt:       now,
+		LastLoginAt:    now,
+	}
+	if identity.EmailVerified {
+		providerAuth.Email = identity.Email
+	}
+
+	if identity.EmailVerified && identity.Email != "" {
+		err = hs.hostCol.FindOne(ctx, bson.M{"email": identity.Email}).Decode(&host)
+		if err == nil {
+			existing := providerAuthForHost(&host, identity.Provider)
+			if existing != nil && existing.ProviderUserID != identity.ProviderUserID {
+				return nil, fmt.Errorf("account already linked with a different %s identity", identity.Provider)
+			}
+
+			update := bson.M{"$set": bson.M{
+				"last_seen": time.Now(),
+				fmt.Sprintf("social_auth.%s", identity.Provider): providerAuth,
+			}}
+			if _, err := hs.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, update); err != nil {
+				return nil, err
+			}
+			applyProviderAuth(&host, identity.Provider, providerAuth)
+			host.LastSeen = time.Now()
+			return &host, nil
+		}
+		if err != nil && err != mongo.ErrNoDocuments {
+			return nil, err
+		}
+	}
+
+	host = models.Host{
+		ID:         generateHostID(),
+		PublicID:   generateSlug(),
+		Tier:       constants.TierFree,
+		CreatedAt:  now,
+		LastSeen:   now,
+		SocialAuth: &models.HostSocialAuth{},
+	}
+	if identity.EmailVerified && identity.Email != "" {
+		host.Email = &identity.Email
+	}
+	applyProviderAuth(&host, identity.Provider, providerAuth)
+
+	if _, err := hs.hostCol.InsertOne(ctx, host); err != nil {
+		return nil, err
+	}
+
+	return &host, nil
+}
+
+func providerAuthForHost(host *models.Host, provider string) *models.SocialProviderAuth {
+	if host.SocialAuth == nil {
+		return nil
+	}
+	switch provider {
+	case "google":
+		return host.SocialAuth.Google
+	case "apple":
+		return host.SocialAuth.Apple
+	default:
+		return nil
+	}
+}
+
+func applyProviderAuth(host *models.Host, provider string, auth *models.SocialProviderAuth) {
+	if host.SocialAuth == nil {
+		host.SocialAuth = &models.HostSocialAuth{}
+	}
+	switch provider {
+	case "google":
+		host.SocialAuth.Google = auth
+	case "apple":
+		host.SocialAuth.Apple = auth
+	}
 }
 
 func generateHostID() string {

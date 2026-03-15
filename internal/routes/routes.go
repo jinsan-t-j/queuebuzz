@@ -23,17 +23,20 @@ func Register(app *fiber.App, d *Deps) {
 	})
 
 	app.Get("/auth/verify", middlewares.VerifyRateLimiter, d.HostHandler.Verify)
+	app.Get("/auth/social/:provider/start", d.HostHandler.SocialLogin)
+	app.Get("/auth/social/:provider/callback", d.HostHandler.SocialCallback)
+	app.Post("/auth/social/:provider/callback", d.HostHandler.SocialCallback)
 
 	api := app.Group("/api/v1")
 
-	// ── Host Auth (public) ──────────────────────────────────────────
 	host := api.Group("/host")
 	host.Post("/register", middlewares.RegisterRateLimiter, d.HostHandler.Register)
+	host.Get("/me", middlewares.AuthMiddleware(), d.HostHandler.GetMe)
+	host.Post("/logout", d.HostHandler.Logout)
 	host.Post("/claim", middlewares.AuthMiddleware(), d.HostHandler.Claim)
 	host.Get("/:public_id", d.HostHandler.GetProfile)
 	host.Get("/:public_id/queues", d.HostHandler.GetQueues)
 
-	// ── Queue (public) ──────────────────────────────────────────────
 	queue := api.Group("/queue")
 	queue.Post("/create", middlewares.OptionalAuthMiddleware(), d.QueueHandler.Create)
 	queue.Get("/:id", d.QueueHandler.GetStatus)
@@ -42,7 +45,6 @@ func Register(app *fiber.App, d *Deps) {
 	queue.Get("/:id/rejoin", d.UserHandler.Rejoin)
 	queue.Post("/:id/heartbeat", d.QueueHandler.Heartbeat)
 
-	// ── Queue — host-only (auth + ownership) ────────────────────────
 	queueHost := queue.Group("/:id", middlewares.AuthMiddleware(), middlewares.HostOwnerMiddleware())
 	queueHost.Post("/ping/:token", d.QueueHandler.PingUser)
 	queueHost.Post("/next", d.QueueHandler.CallNext)
@@ -50,11 +52,9 @@ func Register(app *fiber.App, d *Deps) {
 	queueHost.Post("/close", d.QueueHandler.Close)
 	queueHost.Post("/broadcast", d.NotificationHandler.BroadcastToQueue)
 
-	// ── User — post-join (X-User-Token header) ──────────────────────
 	queueUser := queue.Group("/:id/user")
 	queueUser.Post("/email", d.UserHandler.AddEmail)
 	queueUser.Post("/pin", d.UserHandler.SetPIN)
 
-	// ── WebSocket ───────────────────────────────────────────────────
 	app.Get("/ws/queue/:id", middlewares.WSRateLimiter, d.WebSocketHandler.Handle)
 }

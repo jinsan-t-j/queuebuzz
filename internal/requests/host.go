@@ -10,3 +10,7 @@ type VerifyRequest struct {
 	Phone *string `json:"phone" validate:"omitempty,e164"`
 	OTP   *string `json:"otp"   validate:"omitempty,len=6"`
 }
+
+type SocialAuthRequest struct {
+	Provider string `json:"provider" validate:"required,oneof=google apple"`
+}

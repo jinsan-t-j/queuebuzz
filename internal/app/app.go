@@ -44,6 +44,7 @@ func New() *App {
 	ticketSvc := services.NewTicketService(rdb)
 	joinCodeSvc := services.NewJoinCodeService(rdb)
 	authSvc := services.NewAuthService(cfg.JWTPrivateKey, cfg.JWTPublicKey, redisSvc)
+	socialAuthSvc := services.NewSocialAuthService(cfg, redisSvc)
 	emailSvc := services.NewEmailService(cfg)
 	otpSvc := services.NewOTPService(rdb)
 	magicLinkSvc := services.NewMagicLinkService(rdb)
@@ -58,7 +59,7 @@ func New() *App {
 	expiryListener.StartKeyspaceListener(ctx)
 	go expiryListener.RunCronSweep(ctx)
 
-	hostHandler := handlers.NewHostHandler(cfg, authSvc, magicLinkSvc, otpSvc, emailSvc, redisSvc, hostCol, hostSvc, queueSvc)
+	hostHandler := handlers.NewHostHandler(cfg, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, redisSvc, hostCol, hostSvc, queueSvc)
 	queueHandler := handlers.NewQueueHandler(queueSvc, authSvc)
 	userHandler := handlers.NewUserHandler(queueSvc, redisSvc)
 	notifHandler := handlers.NewNotificationHandler(queueSvc, notifSender)
@@ -101,10 +102,8 @@ func New() *App {
 		return c.SendStatus(fiber.StatusNotFound)
 	})
 
-	// Store cancel func so Start() can invoke it on shutdown.
-	// We stash it via a goroutine in Start() to keep App struct lean.
 	go func() {
-		<-ctx.Done() // will fire when cancel() is called in Start()
+		<-ctx.Done()
 	}()
 
 	a := &App{fiber: app, config: cfg}
@@ -118,8 +117,6 @@ func (a *App) Start() {
 	}
 }
 
-// startShutdownListener spawns a goroutine that waits for SIGINT/SIGTERM,
-// then drains Fiber and closes DB connections.
 func (a *App) startShutdownListener(cancel context.CancelFunc) {
 	go func() {
 		quit := make(chan os.Signal, 1)
@@ -127,11 +124,8 @@ func (a *App) startShutdownListener(cancel context.CancelFunc) {
 		<-quit
 
 		log.Info().Msg("Shutting down gracefully...")
-
-		// Cancel context — stops expiry listener + cron sweep
 		cancel()
 
-		// Shutdown Fiber — drains active connections
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 

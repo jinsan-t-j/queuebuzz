@@ -234,6 +234,36 @@ func (s *RedisService) DeleteRefreshToken(ctx context.Context, token string) err
 	return s.rdb.Del(ctx, key).Err()
 }
 
+// --- OAuth state management ---
+
+func (s *RedisService) SetOAuthState(ctx context.Context, state, payload string, ttl time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	key := fmt.Sprintf("oauth_state:%s", state)
+	return s.rdb.Set(ctx, key, payload, ttl).Err()
+}
+
+func (s *RedisService) GetOAuthState(ctx context.Context, state string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	key := fmt.Sprintf("oauth_state:%s", state)
+	val, err := s.rdb.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return "", nil
+	}
+	return val, err
+}
+
+func (s *RedisService) DeleteOAuthState(ctx context.Context, state string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	key := fmt.Sprintf("oauth_state:%s", state)
+	return s.rdb.Del(ctx, key).Err()
+}
+
 // --- Cleanup helpers ---
 
 // DeleteQueueKeys cleans up all Redis keys associated with a queue.

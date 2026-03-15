@@ -23,20 +23,22 @@ var (
 )
 
 type HostHandler struct {
-	cfg              *config.Config
-	authService      *services.AuthService
-	magicLinkService *services.MagicLinkService
-	otpService       *services.OTPService
-	emailService     *services.EmailService
-	redisService     *services.RedisService
-	hostCol          *mongo.Collection
-	hostService      *services.HOST_SERVICE
-	queueService     *services.QueueService
+	cfg               *config.Config
+	authService       *services.AuthService
+	socialAuthService *services.SocialAuthService
+	magicLinkService  *services.MagicLinkService
+	otpService        *services.OTPService
+	emailService      *services.EmailService
+	redisService      *services.RedisService
+	hostCol           *mongo.Collection
+	hostService       *services.HOST_SERVICE
+	queueService      *services.QueueService
 }
 
 func NewHostHandler(
 	cfg *config.Config,
 	authSvc *services.AuthService,
+	socialAuthSvc *services.SocialAuthService,
 	magicLinkSvc *services.MagicLinkService,
 	otpSvc *services.OTPService,
 	emailSvc *services.EmailService,
@@ -47,15 +49,16 @@ func NewHostHandler(
 ) *HostHandler {
 	hostHandlerOnce.Do(func() {
 		hostHandlerInstance = &HostHandler{
-			cfg:              cfg,
-			authService:      authSvc,
-			magicLinkService: magicLinkSvc,
-			otpService:       otpSvc,
-			emailService:     emailSvc,
-			redisService:     redisSvc,
-			hostCol:          hostCol,
-			hostService:      hostSvc,
-			queueService:     queueSvc,
+			cfg:               cfg,
+			authService:       authSvc,
+			socialAuthService: socialAuthSvc,
+			magicLinkService:  magicLinkSvc,
+			otpService:        otpSvc,
+			emailService:      emailSvc,
+			redisService:      redisSvc,
+			hostCol:           hostCol,
+			hostService:       hostSvc,
+			queueService:      queueSvc,
 		}
 	})
 
@@ -96,13 +99,78 @@ func (h *HostHandler) Register(c fiber.Ctx) error {
 		return helpers.MessageResponse(c, "Magic link sent. Check your email.")
 	}
 
-	// Phone / OTP path
 	_, err := h.otpService.GenerateAndStoreOTP(c.Context(), *req.Phone)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError)
 	}
 
 	return helpers.MessageResponse(c, "OTP sent.")
+}
+
+// SocialLogin godoc
+// @Summary Start social sign in
+// @Description Starts the provider OAuth authorization code flow and redirects the browser to the selected provider.
+// @Tags Host
+// @Produce html
+// @Param provider path string true "Social provider"
+// @Success 302 {string} string "Redirect to provider"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /auth/social/{provider}/start [get]
+func (h *HostHandler) SocialLogin(c fiber.Ctx) error {
+	provider := c.Params("provider")
+	authorizationURL, err := h.socialAuthService.StartAuth(c.Context(), provider)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return c.Redirect().To(authorizationURL)
+}
+
+// SocialCallback godoc
+// @Summary Complete social sign in
+// @Description Handles OAuth provider callbacks, creates or links a host account, sets auth cookies, and redirects to the dashboard.
+// @Tags Host
+// @Produce html
+// @Param provider path string true "Social provider"
+// @Param code query string false "OAuth code"
+// @Param state query string false "OAuth state"
+// @Success 302 {string} string "Redirect to dashboard"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /auth/social/{provider}/callback [get]
+func (h *HostHandler) SocialCallback(c fiber.Ctx) error {
+	provider := c.Params("provider")
+	code := c.Query("code")
+	state := c.Query("state")
+	if code == "" {
+		code = c.FormValue("code")
+	}
+	if state == "" {
+		state = c.FormValue("state")
+	}
+	if code == "" || state == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "missing social auth callback parameters")
+	}
+
+	identity, err := h.socialAuthService.CompleteAuth(c.Context(), provider, code, state)
+	if err != nil {
+		return fiber.NewError(fiber.StatusUnauthorized, err.Error())
+	}
+
+	host, err := h.hostService.FindOrCreateHostBySocial(c.Context(), identity)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	accessToken, refreshToken, accessExp, refreshExp, err := h.authService.IssueTokenPair(c.Context(), host.ID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	h.setAuthCookies(c, accessToken, refreshToken, accessExp, refreshExp)
+	return c.Redirect().To(h.cfg.AuthCallbackURL)
 }
 
 // Verify godoc
@@ -142,34 +210,15 @@ func (h *HostHandler) Verify(c fiber.Ctx) error {
 
 	host, err := h.hostService.FindOrCreateHost(c.Context(), email, phone)
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError)
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
 	accessToken, refreshToken, accessExp, refreshExp, err := h.authService.IssueTokenPair(c.Context(), host.ID)
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError)
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	c.Cookie(&fiber.Cookie{
-		Name:     "access_token",
-		Value:    accessToken,
-		Expires:  accessExp,
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "Strict",
-		Path:     "/",
-	})
-
-	c.Cookie(&fiber.Cookie{
-		Name:     "refresh_token",
-		Value:    refreshToken,
-		Expires:  refreshExp,
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "Strict",
-		Path:     "/",
-	})
-
+	h.setAuthCookies(c, accessToken, refreshToken, accessExp, refreshExp)
 	return c.Redirect().To(h.cfg.AuthCallbackURL)
 }
 
@@ -193,13 +242,11 @@ func (h *HostHandler) Claim(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden)
 	}
 
-	// Get anonymous owner token from cookie
 	ownerCookie := c.Cookies("owner_token")
 	if ownerCookie == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "missing owner token cookie")
 	}
 
-	// Parse anonymous JWT to get queue_id
 	anonClaims, err := h.authService.VerifyToken(ownerCookie)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized)
@@ -209,7 +256,6 @@ func (h *HostHandler) Claim(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden)
 	}
 
-	// Verify anonymous ownership
 	if err := h.authService.VerifyAnonymousOwnership(c.Context(), ownerCookie, anonClaims.QueueID); err != nil {
 		return fiber.NewError(fiber.StatusForbidden)
 	}
@@ -217,20 +263,17 @@ func (h *HostHandler) Claim(c fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
 	defer cancel()
 
-	// Fetch the registered host
 	var host models.Host
 	err = h.hostCol.FindOne(ctx, bson.M{"_id": registeredHostID}).Decode(&host)
 	if err != nil {
 		return fiber.NewError(fiber.StatusForbidden)
 	}
 
-	// Update queue ownership
 	_, err = h.queueService.GetQueue(ctx, anonClaims.QueueID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound)
 	}
 
-	// We need the queue collection directly for the update
 	queueCol := h.hostCol.Database().Collection("queues")
 	_, err = queueCol.UpdateOne(ctx,
 		bson.M{"_id": anonClaims.QueueID},
@@ -243,11 +286,87 @@ func (h *HostHandler) Claim(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError)
 	}
 
-	// Delete old owner token from Redis
 	_ = h.redisService.DeleteOwnerToken(ctx, anonClaims.QueueID)
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Queue claimed successfully",
+	})
+}
+
+// Logout godoc
+// @Summary Logout host
+// @Description Clears host auth cookies and revokes the refresh token if present
+// @Tags Host
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /host/logout [post]
+func (h *HostHandler) Logout(c fiber.Ctx) error {
+	refreshToken := c.Cookies("refresh_token")
+	if refreshToken != "" {
+		_ = h.redisService.DeleteRefreshToken(c.Context(), refreshToken)
+	}
+
+	for _, name := range []string{"access_token", "refresh_token"} {
+		c.Cookie(&fiber.Cookie{
+			Name:     name,
+			Value:    "",
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+			HTTPOnly: true,
+			Secure:   h.cfg.IsProduction(),
+			SameSite: "Lax",
+			Path:     "/",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Signed out successfully",
+	})
+}
+
+// GetMe godoc
+// @Summary Get authenticated host
+// @Description Returns the currently authenticated host profile based on the access token cookie or bearer token
+// @Tags Host
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 404 {object} map[string]string "Error response"
+// @Router /host/me [get]
+// @Security BearerAuth
+func (h *HostHandler) GetMe(c fiber.Ctx) error {
+	hostID, _ := c.Locals("host_id").(string)
+	if hostID == "" {
+		return fiber.NewError(fiber.StatusUnauthorized)
+	}
+
+	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+	defer cancel()
+
+	var host models.Host
+	err := h.hostCol.FindOne(ctx, bson.M{"_id": hostID}).Decode(&host)
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound)
+	}
+
+	email := ""
+	if host.Email != nil {
+		email = *host.Email
+	}
+
+	name := host.PublicID
+	if email != "" {
+		name = email
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"id":            host.ID,
+		"public_id":     host.PublicID,
+		"name":          name,
+		"email":         email,
+		"business_name": "QueueBuzz Host",
+		"tier":          host.Tier,
+		"avatar":        nil,
 	})
 }
 
@@ -302,4 +421,24 @@ func (h *HostHandler) GetQueues(c fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(queues)
 }
 
-// --- helpers ---
+func (h *HostHandler) setAuthCookies(c fiber.Ctx, accessToken, refreshToken string, accessExp, refreshExp time.Time) {
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    accessToken,
+		Expires:  accessExp,
+		HTTPOnly: true,
+		Secure:   h.cfg.IsProduction(),
+		SameSite: "Lax",
+		Path:     "/",
+	})
+
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		Expires:  refreshExp,
+		HTTPOnly: true,
+		Secure:   h.cfg.IsProduction(),
+		SameSite: "Lax",
+		Path:     "/",
+	})
+}

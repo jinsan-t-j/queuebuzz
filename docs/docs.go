@@ -22,71 +22,44 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/host/claim": {
+        "/api/v1/auth/logout": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Allows an anonymous host to claim their queue as a registered host",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Clears host auth cookies and revokes the refresh token if present",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Host"
                 ],
-                "summary": "Claim an anonymous queue",
+                "summary": "Logout host",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/helpers.SuccessResponse"
                         }
-                    },
-                    "400": {
-                        "description": "Error response",
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/refresh": {
+            "post": {
+                "description": "Uses the refresh token cookie to issue a new access token and refresh token",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Host"
+                ],
+                "summary": "Refresh access token",
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/helpers.SuccessResponse"
                         }
                     },
                     "401": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
                         "description": "Error response",
                         "schema": {
                             "type": "object",
@@ -98,7 +71,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/host/register": {
+        "/api/v1/auth/register": {
             "post": {
                 "description": "Triggers Magic Link (email) or OTP (phone) for host registration",
                 "consumes": [
@@ -113,23 +86,135 @@ const docTemplate = `{
                 "summary": "Register a Host",
                 "parameters": [
                     {
-                        "description": "Register Request",
+                        "description": "Register host request",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/requests.RegisterRequest"
+                            "$ref": "#/definitions/queuebuzz_internal_modules_auth_dto.RegisterRequest"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Magic link sent. Check your email.",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/social/{provider}/callback": {
+            "get": {
+                "description": "Handles OAuth provider callbacks, creates or links a host account, sets auth cookies, and redirects to the dashboard.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "Host"
+                ],
+                "summary": "Complete social sign in",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Social provider",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth code",
+                        "name": "code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth state",
+                        "name": "state",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to dashboard",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/social/{provider}/start": {
+            "get": {
+                "description": "Starts the provider OAuth authorization code flow and redirects the browser to the selected provider.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "Host"
+                ],
+                "summary": "Start social sign in",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Social provider",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to provider",
+                        "schema": {
+                            "type": "string"
                         }
                     },
                     "400": {
@@ -153,36 +238,54 @@ const docTemplate = `{
                 }
             }
         },
-        "/host/verify": {
-            "post": {
-                "description": "Validates the magic link token or OTP and issues a JWT pair for the host",
-                "consumes": [
-                    "application/json"
-                ],
+        "/auth/verify": {
+            "get": {
+                "description": "Gets the authenticated host profile.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Host"
                 ],
-                "summary": "Verify Magic Link or OTP",
+                "summary": "Get authenticated host",
                 "parameters": [
                     {
-                        "description": "Verify Request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/requests.VerifyRequest"
-                        }
+                        "type": "string",
+                        "description": "Phone number",
+                        "name": "phone",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "OTP code",
+                        "name": "otp",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Host profile",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    },
+                    "302": {
+                        "description": "Found",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/helpers.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "Data": {
+                                            "$ref": "#/definitions/dto.GetMeResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -204,898 +307,6 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/host/{public_id}": {
-            "get": {
-                "description": "Returns the host's public profile based on public_id",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Host"
-                ],
-                "summary": "Get host profile",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Host Public ID",
-                        "name": "public_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/host/{public_id}/queues": {
-            "get": {
-                "description": "Returns a list of the host's active queues based on public_id",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Host"
-                ],
-                "summary": "Get active queues for host",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Host Public ID",
-                        "name": "public_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/models.Queue"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues": {
-            "post": {
-                "description": "Creates a new queue. If no Authorization header is present, it creates an anonymous queue and returns an owner token.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Queue"
-                ],
-                "summary": "Create a new queue",
-                "parameters": [
-                    {
-                        "description": "Create Queue Request payload",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/requests.CreateQueueRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/join": {
-            "post": {
-                "description": "Resolves a 6-character join code and adds the user to the queue",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Queue"
-                ],
-                "summary": "Join a queue via short-code",
-                "parameters": [
-                    {
-                        "description": "Join By Code Request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/requests.JoinByCodeRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/broadcast": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Sends a push notification to all WAITING users in a specified queue",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Notification"
-                ],
-                "summary": "Broadcast notification to queue",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Broadcast Request payload",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/requests.BroadcastRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/call": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Host calls the next waiting user in the queue",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Queue"
-                ],
-                "summary": "Call next user",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/close": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Host closes a queue, disconnecting users and cleaning up",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Queue"
-                ],
-                "summary": "Close a queue",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/heartbeat": {
-            "post": {
-                "description": "Processes the 45s activity ping from a user to keep their position active",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Queue"
-                ],
-                "summary": "User Heartbeat",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "User JWT session token",
-                        "name": "X-User-Token",
-                        "in": "header",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "401": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/join": {
-            "post": {
-                "description": "Joins a queue directly by its queue ID (often used via QR scanning)",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Queue"
-                ],
-                "summary": "Join a queue by ID",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Join Request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/requests.JoinRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/ping/{token}": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Host specifically buzzes a user in the queue",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Queue"
-                ],
-                "summary": "Ping/buzz a user",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "User session token",
-                        "name": "token",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/remove/{token}": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Host forcibly removes a specific user from the queue",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Queue"
-                ],
-                "summary": "Remove a user from queue",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "User session token",
-                        "name": "token",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/status": {
-            "get": {
-                "description": "Returns the public status of a queue",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Queue"
-                ],
-                "summary": "Get Queue Status",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/user/email": {
-            "post": {
-                "description": "Adds an optional email to a user's queue entry after they have joined",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "User"
-                ],
-                "summary": "Add email to queue entry",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "User Token",
-                        "name": "X-User-Token",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
-                        "description": "Email Request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/requests.AddEmailRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/user/pin": {
-            "post": {
-                "description": "Sets or updates a 4-digit recovery PIN for a queue entry",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "User"
-                ],
-                "summary": "Set PIN for queue entry",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "User Token",
-                        "name": "X-User-Token",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
-                        "description": "PIN Request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/requests.SetPINRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/queues/{id}/user/rejoin": {
-            "post": {
-                "description": "Restores a user session by token (primary) or by ticket number and PIN (fallback)",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "User"
-                ],
-                "summary": "Rejoin a queue session",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "User Token",
-                        "name": "X-User-Token",
-                        "in": "header"
-                    },
-                    {
-                        "description": "Rejoin Request",
-                        "name": "request",
-                        "in": "body",
-                        "schema": {
-                            "$ref": "#/definitions/requests.RejoinPINRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/ws/queues/{id}": {
-            "get": {
-                "description": "Initiates a WebSocket connection for a Host to manage a queue in real-time",
-                "tags": [
-                    "WebSocket"
-                ],
-                "summary": "Connect to Queue WebSocket",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Queue ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Host Token (or Owner Token for anonymous)",
-                        "name": "token",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "101": {
-                        "description": "Switching Protocols",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "401": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
                         "description": "Error response",
                         "schema": {
                             "type": "object",
@@ -1109,185 +320,45 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "models.Queue": {
+        "dto.GetMeResponse": {
             "type": "object",
             "properties": {
-                "avg_service_mins": {
-                    "type": "integer"
-                },
-                "created_at": {
+                "avatar": {
                     "type": "string"
                 },
-                "expires_at": {
-                    "type": "string"
-                },
-                "host_public_id": {
+                "email": {
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
-                "join_code": {
+                "name": {
                     "type": "string"
                 },
-                "radius_m": {
-                    "type": "integer"
+                "public_id": {
+                    "type": "string"
                 },
-                "status": {
+                "tier": {
                     "type": "string"
                 }
             }
         },
-        "requests.AddEmailRequest": {
+        "helpers.SuccessResponse": {
             "type": "object",
-            "required": [
-                "email"
-            ],
             "properties": {
-                "email": {
+                "data": {},
+                "message": {
                     "type": "string"
                 }
             }
         },
-        "requests.BroadcastRequest": {
-            "type": "object",
-            "required": [
-                "body",
-                "title"
-            ],
-            "properties": {
-                "body": {
-                    "type": "string",
-                    "maxLength": 500
-                },
-                "title": {
-                    "type": "string",
-                    "maxLength": 100
-                }
-            }
-        },
-        "requests.CreateQueueRequest": {
-            "type": "object",
-            "required": [
-                "lat",
-                "lng"
-            ],
-            "properties": {
-                "avg_service_mins": {
-                    "type": "integer"
-                },
-                "lat": {
-                    "type": "number"
-                },
-                "lng": {
-                    "type": "number"
-                },
-                "radius_m": {
-                    "type": "integer"
-                }
-            }
-        },
-        "requests.JoinByCodeRequest": {
-            "type": "object",
-            "required": [
-                "fcm_token",
-                "join_code",
-                "lat",
-                "lng"
-            ],
-            "properties": {
-                "display_name": {
-                    "type": "string"
-                },
-                "fcm_token": {
-                    "type": "string"
-                },
-                "join_code": {
-                    "type": "string"
-                },
-                "lat": {
-                    "type": "number"
-                },
-                "lng": {
-                    "type": "number"
-                },
-                "pin": {
-                    "type": "string"
-                }
-            }
-        },
-        "requests.JoinRequest": {
-            "type": "object",
-            "required": [
-                "fcm_token",
-                "lat",
-                "lng"
-            ],
-            "properties": {
-                "display_name": {
-                    "type": "string"
-                },
-                "fcm_token": {
-                    "type": "string"
-                },
-                "lat": {
-                    "type": "number"
-                },
-                "lng": {
-                    "type": "number"
-                },
-                "pin": {
-                    "type": "string"
-                }
-            }
-        },
-        "requests.RegisterRequest": {
+        "queuebuzz_internal_modules_auth_dto.RegisterRequest": {
             "type": "object",
             "properties": {
                 "email": {
                     "type": "string"
                 },
                 "phone": {
-                    "type": "string"
-                }
-            }
-        },
-        "requests.RejoinPINRequest": {
-            "type": "object",
-            "required": [
-                "pin",
-                "ticket_no"
-            ],
-            "properties": {
-                "pin": {
-                    "type": "string"
-                },
-                "ticket_no": {
-                    "type": "string"
-                }
-            }
-        },
-        "requests.SetPINRequest": {
-            "type": "object",
-            "required": [
-                "pin"
-            ],
-            "properties": {
-                "pin": {
-                    "type": "string"
-                }
-            }
-        },
-        "requests.VerifyRequest": {
-            "type": "object",
-            "properties": {
-                "otp": {
-                    "type": "string"
-                },
-                "phone": {
-                    "type": "string"
-                },
-                "token": {
                     "type": "string"
                 }
             }

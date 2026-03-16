@@ -4,28 +4,47 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// SuccessResponse is the standard envelope for successful API responses.
 type SuccessResponse struct {
-	Data    interface{} `json:"data,omitempty"`
 	Message string      `json:"message,omitempty"`
+	Data    interface{} `json:"data,omitempty"`
 }
 
-// OK sends a 200 response with data.
-func OK(c fiber.Ctx, data interface{}) error {
+func NewSuccessResponse(message string, data interface{}) *SuccessResponse {
+	return &SuccessResponse{
+		Message: message,
+		Data:    data,
+	}
+}
+
+func (sc SuccessResponse) OK(c fiber.Ctx) error {
+	return c.Status(fiber.StatusOK).JSON(sc)
+}
+
+func (sc SuccessResponse) Created(c fiber.Ctx) error {
+	return c.Status(fiber.StatusCreated).JSON(sc)
+}
+
+func (sc SuccessResponse) MessageResponse(c fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(SuccessResponse{
-		Data: data,
+		Message: sc.Message,
 	})
 }
 
-// Created sends a 201 response with data.
-func Created(c fiber.Ctx, data interface{}) error {
-	return c.Status(fiber.StatusCreated).JSON(SuccessResponse{
-		Data: data,
-	})
+type ErrorResponse struct {
+	Message string `json:"message"`
+	Error   any    `json:"error,omitempty"`
 }
 
-func MessageResponse(c fiber.Ctx, msg string) error {
-	return c.Status(fiber.StatusOK).JSON(SuccessResponse{
-		Message: msg,
+func NewErrorResponse(message string, err any) *ErrorResponse {
+	return &ErrorResponse{
+		Message: message,
+		Error:   err,
+	}
+}
+
+func (e ErrorResponse) JSON(c fiber.Ctx, status int) error {
+	return c.Status(status).JSON(fiber.Map{
+		"message": e.Message,
+		"error":   e.Error,
 	})
 }

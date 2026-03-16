@@ -5,7 +5,9 @@ import (
 
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
+	"queuebuzz/internal/helpers"
 	authservice "queuebuzz/internal/modules/auth/service"
+	"queuebuzz/internal/modules/host/dto"
 	hostservice "queuebuzz/internal/modules/host/service"
 	queueservice "queuebuzz/internal/modules/queue/service"
 	legacyservices "queuebuzz/internal/services"
@@ -68,27 +70,19 @@ func (h *Handler) Claim(c fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "Queue claimed successfully"})
 }
 
-func (h *Handler) Logout(c fiber.Ctx) error {
-	refreshToken := c.Cookies("refresh_token")
-	if refreshToken != "" {
-		_ = h.redisService.DeleteRefreshToken(c.Context(), refreshToken)
-	}
-
-	for _, name := range []string{"access_token", "refresh_token"} {
-		c.Cookie(&fiber.Cookie{
-			Name:     name,
-			Value:    "",
-			Expires:  time.Unix(0, 0),
-			MaxAge:   -1,
-			HTTPOnly: true,
-			Secure:   h.cfg.IsProduction(),
-			SameSite: "Lax",
-			Path:     "/",
-		})
-	}
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "Signed out successfully"})
-}
-
+// GetMe godoc
+// @Summary Get authenticated host
+// @Description Gets the authenticated host profile.
+// @Tags Host
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Host profile"
+// @Param phone query string false "Phone number"
+// @Param otp query string false "OTP code"
+// @Success 302 {object} helpers.SuccessResponse{Data=dto.GetMeResponse}
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /auth/verify [get]
 func (h *Handler) GetMe(c fiber.Ctx) error {
 	hostID, _ := c.Locals("host_id").(string)
 	if hostID == "" {
@@ -108,15 +102,14 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 		name = email
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"id":            host.ID,
-		"public_id":     host.PublicID,
-		"name":          name,
-		"email":         email,
-		"business_name": "QueueBuzz Host",
-		"tier":          host.Tier,
-		"avatar":        nil,
-	})
+	return helpers.NewSuccessResponse("", dto.GetMeResponse{
+		ID:       host.ID,
+		PublicID: host.PublicID,
+		Name:     name,
+		Email:    email,
+		Tier:     host.Tier,
+		Avatar:   "",
+	}).OK(c)
 }
 
 func (h *Handler) GetProfile(c fiber.Ctx) error {
@@ -124,12 +117,13 @@ func (h *Handler) GetProfile(c fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound)
 	}
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+
+	return helpers.NewSuccessResponse("", fiber.Map{
 		"id":         host.ID,
 		"public_id":  host.PublicID,
 		"tier":       host.Tier,
 		"created_at": host.CreatedAt.Format(time.RFC3339),
-	})
+	}).OK(c)
 }
 
 func (h *Handler) GetQueues(c fiber.Ctx) error {

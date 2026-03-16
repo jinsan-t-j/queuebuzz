@@ -28,8 +28,8 @@ var (
 	// JoinRateLimiter — 5 req / IP / min for join endpoints
 	JoinRateLimiter = RateLimiter(5, 1*time.Minute)
 
-	// RegisterRateLimiter — 3 req / IP / 10 min for registration
-	RegisterRateLimiter = RateLimiter(3, 10*time.Minute)
+	// RegisterRateLimiter — 5 req / IP / 5 min for registration
+	RegisterRateLimiter = RateLimiter(5, 5*time.Minute)
 
 	// VerifyRateLimiter — 5 req / IP / 15 min for auth verification
 	VerifyRateLimiter = RateLimiter(5, 15*time.Minute)

@@ -1,125 +1,31 @@
 basePath: /api
 definitions:
-  models.Queue:
+  dto.GetMeResponse:
     properties:
-      avg_service_mins:
-        type: integer
-      created_at:
+      avatar:
         type: string
-      expires_at:
-        type: string
-      host_public_id:
+      email:
         type: string
       id:
         type: string
-      join_code:
+      name:
         type: string
-      radius_m:
-        type: integer
-      status:
+      public_id:
+        type: string
+      tier:
         type: string
     type: object
-  requests.AddEmailRequest:
+  helpers.SuccessResponse:
     properties:
-      email:
+      data: {}
+      message:
         type: string
-    required:
-    - email
     type: object
-  requests.BroadcastRequest:
-    properties:
-      body:
-        maxLength: 500
-        type: string
-      title:
-        maxLength: 100
-        type: string
-    required:
-    - body
-    - title
-    type: object
-  requests.CreateQueueRequest:
-    properties:
-      avg_service_mins:
-        type: integer
-      lat:
-        type: number
-      lng:
-        type: number
-      radius_m:
-        type: integer
-    required:
-    - lat
-    - lng
-    type: object
-  requests.JoinByCodeRequest:
-    properties:
-      display_name:
-        type: string
-      fcm_token:
-        type: string
-      join_code:
-        type: string
-      lat:
-        type: number
-      lng:
-        type: number
-      pin:
-        type: string
-    required:
-    - fcm_token
-    - join_code
-    - lat
-    - lng
-    type: object
-  requests.JoinRequest:
-    properties:
-      display_name:
-        type: string
-      fcm_token:
-        type: string
-      lat:
-        type: number
-      lng:
-        type: number
-      pin:
-        type: string
-    required:
-    - fcm_token
-    - lat
-    - lng
-    type: object
-  requests.RegisterRequest:
+  queuebuzz_internal_modules_auth_dto.RegisterRequest:
     properties:
       email:
         type: string
       phone:
-        type: string
-    type: object
-  requests.RejoinPINRequest:
-    properties:
-      pin:
-        type: string
-      ticket_no:
-        type: string
-    required:
-    - pin
-    - ticket_no
-    type: object
-  requests.SetPINRequest:
-    properties:
-      pin:
-        type: string
-    required:
-    - pin
-    type: object
-  requests.VerifyRequest:
-    properties:
-      otp:
-        type: string
-      phone:
-        type: string
-      token:
         type: string
     type: object
 host: localhost:8080
@@ -134,141 +40,66 @@ info:
   title: QueueBuzz API
   version: "1.0"
 paths:
-  /host/{public_id}:
-    get:
-      consumes:
-      - application/json
-      description: Returns the host's public profile based on public_id
-      parameters:
-      - description: Host Public ID
-        in: path
-        name: public_id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Get host profile
-      tags:
-      - Host
-  /host/{public_id}/queues:
-    get:
-      consumes:
-      - application/json
-      description: Returns a list of the host's active queues based on public_id
-      parameters:
-      - description: Host Public ID
-        in: path
-        name: public_id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/models.Queue'
-            type: array
-        "500":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Get active queues for host
-      tags:
-      - Host
-  /host/claim:
+  /api/v1/auth/logout:
     post:
-      consumes:
-      - application/json
-      description: Allows an anonymous host to claim their queue as a registered host
+      description: Clears host auth cookies and revokes the refresh token if present
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Error response
+            $ref: '#/definitions/helpers.SuccessResponse'
+      summary: Logout host
+      tags:
+      - Host
+  /api/v1/auth/refresh:
+    post:
+      description: Uses the refresh token cookie to issue a new access token and refresh
+        token
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/helpers.SuccessResponse'
         "401":
           description: Error response
           schema:
             additionalProperties:
               type: string
             type: object
-        "403":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Claim an anonymous queue
+      summary: Refresh access token
       tags:
       - Host
-  /host/register:
+  /api/v1/auth/register:
     post:
       consumes:
       - application/json
       description: Triggers Magic Link (email) or OTP (phone) for host registration
       parameters:
-      - description: Register Request
+      - description: Register host request
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/requests.RegisterRequest'
+          $ref: '#/definitions/queuebuzz_internal_modules_auth_dto.RegisterRequest'
       produces:
       - application/json
       responses:
         "200":
-          description: OK
+          description: Magic link sent. Check your email.
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/helpers.SuccessResponse'
         "400":
-          description: Error response
+          description: Invalid request
           schema:
             additionalProperties:
               type: string
             type: object
         "500":
-          description: Error response
+          description: Internal server error
           schema:
             additionalProperties:
               type: string
@@ -276,27 +107,31 @@ paths:
       summary: Register a Host
       tags:
       - Host
-  /host/verify:
-    post:
-      consumes:
-      - application/json
-      description: Validates the magic link token or OTP and issues a JWT pair for
-        the host
+  /auth/social/{provider}/callback:
+    get:
+      description: Handles OAuth provider callbacks, creates or links a host account,
+        sets auth cookies, and redirects to the dashboard.
       parameters:
-      - description: Verify Request
-        in: body
-        name: request
+      - description: Social provider
+        in: path
+        name: provider
         required: true
-        schema:
-          $ref: '#/definitions/requests.VerifyRequest'
+        type: string
+      - description: OAuth code
+        in: query
+        name: code
+        type: string
+      - description: OAuth state
+        in: query
+        name: state
+        type: string
       produces:
-      - application/json
+      - text/html
       responses:
-        "200":
-          description: OK
+        "302":
+          description: Redirect to dashboard
           schema:
-            additionalProperties: true
-            type: object
+            type: string
         "400":
           description: Error response
           schema:
@@ -315,359 +150,27 @@ paths:
             additionalProperties:
               type: string
             type: object
-      summary: Verify Magic Link or OTP
+      summary: Complete social sign in
       tags:
       - Host
-  /queues:
-    post:
-      consumes:
-      - application/json
-      description: Creates a new queue. If no Authorization header is present, it
-        creates an anonymous queue and returns an owner token.
-      parameters:
-      - description: Create Queue Request payload
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/requests.CreateQueueRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Create a new queue
-      tags:
-      - Queue
-  /queues/{id}/broadcast:
-    post:
-      consumes:
-      - application/json
-      description: Sends a push notification to all WAITING users in a specified queue
-      parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Broadcast Request payload
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/requests.BroadcastRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Broadcast notification to queue
-      tags:
-      - Notification
-  /queues/{id}/call:
-    post:
-      consumes:
-      - application/json
-      description: Host calls the next waiting user in the queue
-      parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Call next user
-      tags:
-      - Queue
-  /queues/{id}/close:
-    post:
-      consumes:
-      - application/json
-      description: Host closes a queue, disconnecting users and cleaning up
-      parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Close a queue
-      tags:
-      - Queue
-  /queues/{id}/heartbeat:
-    post:
-      consumes:
-      - application/json
-      description: Processes the 45s activity ping from a user to keep their position
-        active
-      parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: User JWT session token
-        in: header
-        name: X-User-Token
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: string
-        "401":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: User Heartbeat
-      tags:
-      - Queue
-  /queues/{id}/join:
-    post:
-      consumes:
-      - application/json
-      description: Joins a queue directly by its queue ID (often used via QR scanning)
-      parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Join Request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/requests.JoinRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Join a queue by ID
-      tags:
-      - Queue
-  /queues/{id}/ping/{token}:
-    post:
-      consumes:
-      - application/json
-      description: Host specifically buzzes a user in the queue
-      parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: User session token
-        in: path
-        name: token
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Ping/buzz a user
-      tags:
-      - Queue
-  /queues/{id}/remove/{token}:
-    post:
-      consumes:
-      - application/json
-      description: Host forcibly removes a specific user from the queue
-      parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: User session token
-        in: path
-        name: token
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Remove a user from queue
-      tags:
-      - Queue
-  /queues/{id}/status:
+  /auth/social/{provider}/start:
     get:
-      consumes:
-      - application/json
-      description: Returns the public status of a queue
+      description: Starts the provider OAuth authorization code flow and redirects
+        the browser to the selected provider.
       parameters:
-      - description: Queue ID
+      - description: Social provider
         in: path
-        name: id
+        name: provider
         required: true
         type: string
       produces:
-      - application/json
+      - text/html
       responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Get Queue Status
-      tags:
-      - Queue
-  /queues/{id}/user/email:
-    post:
-      consumes:
-      - application/json
-      description: Adds an optional email to a user's queue entry after they have
-        joined
-      parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: User Token
-        in: header
-        name: X-User-Token
-        required: true
-        type: string
-      - description: Email Request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/requests.AddEmailRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
+        "302":
+          description: Redirect to provider
           schema:
             type: string
         "400":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
           description: Error response
           schema:
             additionalProperties:
@@ -679,179 +182,59 @@ paths:
             additionalProperties:
               type: string
             type: object
-      summary: Add email to queue entry
+      summary: Start social sign in
       tags:
-      - User
-  /queues/{id}/user/pin:
-    post:
-      consumes:
-      - application/json
-      description: Sets or updates a 4-digit recovery PIN for a queue entry
-      parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: User Token
-        in: header
-        name: X-User-Token
-        required: true
-        type: string
-      - description: PIN Request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/requests.SetPINRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: string
-        "400":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Set PIN for queue entry
-      tags:
-      - User
-  /queues/{id}/user/rejoin:
-    post:
-      consumes:
-      - application/json
-      description: Restores a user session by token (primary) or by ticket number
-        and PIN (fallback)
-      parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: User Token
-        in: header
-        name: X-User-Token
-        type: string
-      - description: Rejoin Request
-        in: body
-        name: request
-        schema:
-          $ref: '#/definitions/requests.RejoinPINRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Rejoin a queue session
-      tags:
-      - User
-  /queues/join:
-    post:
-      consumes:
-      - application/json
-      description: Resolves a 6-character join code and adds the user to the queue
-      parameters:
-      - description: Join By Code Request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/requests.JoinByCodeRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Join a queue via short-code
-      tags:
-      - Queue
-  /ws/queues/{id}:
+      - Host
+  /auth/verify:
     get:
-      description: Initiates a WebSocket connection for a Host to manage a queue in
-        real-time
+      description: Gets the authenticated host profile.
       parameters:
-      - description: Queue ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Host Token (or Owner Token for anonymous)
+      - description: Phone number
         in: query
-        name: token
-        required: true
+        name: phone
         type: string
+      - description: OTP code
+        in: query
+        name: otp
+        type: string
+      produces:
+      - application/json
       responses:
-        "101":
-          description: Switching Protocols
+        "200":
+          description: Host profile
           schema:
-            type: string
+            additionalProperties: true
+            type: object
+        "302":
+          description: Found
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  $ref: '#/definitions/dto.GetMeResponse'
+              type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "401":
           description: Error response
           schema:
             additionalProperties:
               type: string
             type: object
-        "403":
+        "500":
           description: Error response
           schema:
             additionalProperties:
               type: string
             type: object
-        "404":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Connect to Queue WebSocket
+      summary: Get authenticated host
       tags:
-      - WebSocket
+      - Host
 securityDefinitions:
   BearerAuth:
     description: 'RS256 JWT — format: Bearer {token}'

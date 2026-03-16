@@ -76,7 +76,7 @@ func NewContainer() *Container {
 	expiryListener.StartKeyspaceListener(ctx)
 	go expiryListener.RunCronSweep(ctx)
 
-	authHandler := authhttp.NewHandler(cfg, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
+	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc)
 	queueHandler := queuehttp.NewHandler(queueSvc, authSvc, joinCodeSvc, redisSvc)
 	customerHandler := customerhttp.NewHandler(queueSvc, redisSvc)

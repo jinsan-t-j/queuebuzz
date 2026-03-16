@@ -15,6 +15,7 @@ import (
 
 type Handler struct {
 	cfg               *config.Config
+	redisService      *legacyservices.RedisService
 	authService       *authservice.AuthService
 	socialAuthService *authservice.SocialAuthService
 	magicLinkService  *legacyservices.MagicLinkService
@@ -25,6 +26,7 @@ type Handler struct {
 
 func NewHandler(
 	cfg *config.Config,
+	redisSvc *legacyservices.RedisService,
 	authSvc *authservice.AuthService,
 	socialAuthSvc *authservice.SocialAuthService,
 	magicLinkSvc *legacyservices.MagicLinkService,
@@ -34,6 +36,7 @@ func NewHandler(
 ) *Handler {
 	return &Handler{
 		cfg:               cfg,
+		redisService:      redisSvc,
 		authService:       authSvc,
 		socialAuthService: socialAuthSvc,
 		magicLinkService:  magicLinkSvc,
@@ -43,6 +46,17 @@ func NewHandler(
 	}
 }
 
+// Register godoc
+// @Summary Register a Host
+// @Description Triggers Magic Link (email) or OTP (phone) for host registration
+// @Tags Host
+// @Accept json
+// @Produce json
+// @Param request body authdto.RegisterRequest true "Register host request"
+// @Success 200 {object} helpers.SuccessResponse "Magic link sent. Check your email."
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /api/v1/auth/register [post]
 func (h *Handler) Register(c fiber.Ctx) error {
 	var req authdto.RegisterRequest
 	if err := c.Bind().JSON(&req); err != nil {
@@ -59,14 +73,24 @@ func (h *Handler) Register(c fiber.Ctx) error {
 		if err := h.emailService.SendMagicLink(*req.Email, token); err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
-		return helpers.MessageResponse(c, "Magic link sent. Check your email.")
+		return helpers.NewSuccessResponse("Magic link sent. Check your email.", nil).MessageResponse(c)
 	}
 	if _, err := h.otpService.GenerateAndStoreOTP(c.Context(), *req.Phone); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError)
 	}
-	return helpers.MessageResponse(c, "OTP sent.")
+	return helpers.NewSuccessResponse("OTP sent.", nil).MessageResponse(c)
 }
 
+// SocialLogin godoc
+// @Summary Start social sign in
+// @Description Starts the provider OAuth authorization code flow and redirects the browser to the selected provider.
+// @Tags Host
+// @Produce html
+// @Param provider path string true "Social provider"
+// @Success 302 {string} string "Redirect to provider"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /auth/social/{provider}/start [get]
 func (h *Handler) SocialLogin(c fiber.Ctx) error {
 	url, err := h.socialAuthService.StartAuth(c.Context(), c.Params("provider"))
 	if err != nil {
@@ -75,6 +99,19 @@ func (h *Handler) SocialLogin(c fiber.Ctx) error {
 	return c.Redirect().To(url)
 }
 
+// SocialCallback godoc
+// @Summary Complete social sign in
+// @Description Handles OAuth provider callbacks, creates or links a host account, sets auth cookies, and redirects to the dashboard.
+// @Tags Host
+// @Produce html
+// @Param provider path string true "Social provider"
+// @Param code query string false "OAuth code"
+// @Param state query string false "OAuth state"
+// @Success 302 {string} string "Redirect to dashboard"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /auth/social/{provider}/callback [get]
 func (h *Handler) SocialCallback(c fiber.Ctx) error {
 	provider := c.Params("provider")
 	code := c.Query("code")
@@ -105,6 +142,19 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 	return c.Redirect().To(h.cfg.AuthCallbackURL)
 }
 
+// Verify godoc
+// @Summary Verify magic link or OTP
+// @Description Verifies a magic link or OTP, creates or links a host account, sets auth cookies, and redirects to the dashboard.
+// @Tags Host
+// @Produce html
+// @Param token query string false "Magic link token"
+// @Param phone query string false "Phone number"
+// @Param otp query string false "OTP code"
+// @Success 302 {string} string "Redirect to dashboard"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /auth/verify [get]
 func (h *Handler) Verify(c fiber.Ctx) error {
 	var email string
 	var phone string
@@ -137,6 +187,57 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 	}
 	h.setAuthCookies(c, accessToken, refreshToken, accessExp, refreshExp)
 	return c.Redirect().To(h.cfg.AuthCallbackURL)
+}
+
+// Refresh godoc
+// @Summary Refresh access token
+// @Description Uses the refresh token cookie to issue a new access token and refresh token
+// @Tags Host
+// @Produce json
+// @Success 200 {object} helpers.SuccessResponse
+// @Failure 401 {object} map[string]string "Error response"
+// @Router /api/v1/auth/refresh [post]
+func (h *Handler) Refresh(c fiber.Ctx) error {
+	refreshToken := c.Cookies("refresh_token")
+	if refreshToken == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "missing refresh token")
+	}
+
+	accessToken, newRefreshToken, accessExp, refreshExp, err := h.authService.RefreshTokenPair(c.Context(), refreshToken)
+	if err != nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "invalid or expired refresh token")
+	}
+
+	h.setAuthCookies(c, accessToken, newRefreshToken, accessExp, refreshExp)
+	return helpers.NewSuccessResponse("Token refreshed successfully", nil).MessageResponse(c)
+}
+
+// Logout godoc
+// @Summary Logout host
+// @Description Clears host auth cookies and revokes the refresh token if present
+// @Tags Host
+// @Produce json
+// @Success 200 {object} helpers.SuccessResponse
+// @Router /api/v1/auth/logout [post]
+func (h *Handler) Logout(c fiber.Ctx) error {
+	refreshToken := c.Cookies("refresh_token")
+	if refreshToken != "" {
+		_ = h.redisService.DeleteRefreshToken(c.Context(), refreshToken)
+	}
+
+	for _, name := range []string{"access_token", "refresh_token"} {
+		c.Cookie(&fiber.Cookie{
+			Name:     name,
+			Value:    "",
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+			HTTPOnly: true,
+			Secure:   h.cfg.IsProduction(),
+			SameSite: "Lax",
+			Path:     "/",
+		})
+	}
+	return helpers.NewSuccessResponse("Signed out successfully", nil).MessageResponse(c)
 }
 
 func (h *Handler) setAuthCookies(c fiber.Ctx, accessToken, refreshToken string, accessExp, refreshExp time.Time) {

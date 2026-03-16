@@ -43,6 +43,7 @@ func (s *AuthService) IssueAnonymousToken(ctx context.Context, queueID string) (
 		Role:    constants.RoleAnonymousHost,
 		QueueID: queueID,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "queuebuzz",
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
@@ -84,6 +85,7 @@ func (s *AuthService) IssueAccessToken(hostID string) (string, time.Time, error)
 	claims := QueueBuzzClaims{
 		Role: constants.RoleRegisteredHost,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "queuebuzz",
 			Subject:   hostID,
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -141,11 +143,11 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, oldRefreshToken stri
 
 func (s *AuthService) VerifyToken(tokenString string) (*QueueBuzzClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &QueueBuzzClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+		if token.Method != jwt.SigningMethodRS256 {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return s.publicKey, nil
-	})
+	}, jwt.WithIssuer("queuebuzz"))
 	if err != nil {
 		return nil, err
 	}

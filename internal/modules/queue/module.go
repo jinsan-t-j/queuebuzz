@@ -23,6 +23,8 @@ func New(queueHandler *queuehttp.Handler, notificationHandler *notificationhttp.
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	queue := router.Group("/queue")
 	queue.Post("/create", middlewares.OptionalAuthMiddleware(), m.QueueHandler.Create)
+	queue.Get("/:public_id/live", middlewares.AuthMiddleware(), m.QueueHandler.GetLiveQueue)
+	queue.Get("/slug-check", m.QueueHandler.CheckSlug)
 	queue.Get("/:id", m.QueueHandler.GetStatus)
 	queue.Post("/join-by-code", middlewares.JoinRateLimiter, m.QueueHandler.JoinByCode)
 	queue.Post("/:id/join", middlewares.JoinRateLimiter, m.QueueHandler.JoinByID)

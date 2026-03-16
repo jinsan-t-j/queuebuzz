@@ -41,15 +41,19 @@ func (s *JoinCodeService) GenerateJoinCode(ctx context.Context, queueID string) 
 		key := fmt.Sprintf("joincode:%s", code)
 
 		// Use SET NX to atomically check-and-set (only if key doesn't exist)
-		ok, err := s.rdb.SetNX(ctx, key, queueID, ttl).Result()
+		err = s.rdb.SetArgs(ctx, key, queueID, redis.SetArgs{
+			Mode: "NX",
+			TTL:  ttl,
+		}).Err()
+		if err == redis.Nil {
+			// Collision — try again
+			continue
+		}
 		if err != nil {
 			return "", fmt.Errorf("failed to store join code: %w", err)
 		}
 
-		if ok {
-			return code, nil
-		}
-		// Collision — try again
+		return code, nil
 	}
 
 	return "", fmt.Errorf("failed to generate unique join code after %d attempts", maxAttempts)

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"strings"
 	"time"
 
 	"queuebuzz/internal/constants"
@@ -25,8 +26,9 @@ type AuthService struct {
 }
 
 type QueueBuzzClaims struct {
-	Role    string `json:"role"`
-	QueueID string `json:"queue_id,omitempty"`
+	Role     string `json:"role"`
+	QueueID  string `json:"queue_id,omitempty"`
+	PublicID string `json:"public_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -79,7 +81,7 @@ func (s *AuthService) VerifyAnonymousOwnership(ctx context.Context, tokenString,
 	return nil
 }
 
-func (s *AuthService) IssueAccessToken(hostID string) (string, time.Time, error) {
+func (s *AuthService) IssueAccessToken(hostID, publicID string) (string, time.Time, error) {
 	expiresAt := time.Now().Add(15 * time.Minute)
 
 	claims := QueueBuzzClaims{
@@ -103,24 +105,29 @@ func (s *AuthService) IssueAccessToken(hostID string) (string, time.Time, error)
 	return tokenString, expiresAt, nil
 }
 
-func (s *AuthService) IssueRefreshToken(ctx context.Context, hostID string) (string, time.Time, error) {
+func (s *AuthService) IssueRefreshToken(ctx context.Context, hostID, publicID string) (string, time.Time, error) {
 	token := uuid.New().String()
 	expiresAt := time.Now().Add(7 * 24 * time.Hour)
 
-	if err := s.redisService.SetRefreshToken(ctx, token, hostID, 7*24*time.Hour); err != nil {
+	payload := hostID
+	if publicID != "" {
+		payload = fmt.Sprintf("%s:%s", hostID, publicID)
+	}
+
+	if err := s.redisService.SetRefreshToken(ctx, token, payload, 7*24*time.Hour); err != nil {
 		return "", time.Time{}, fmt.Errorf("failed to store refresh token: %w", err)
 	}
 
 	return token, expiresAt, nil
 }
 
-func (s *AuthService) IssueTokenPair(ctx context.Context, hostID string) (string, string, time.Time, time.Time, error) {
-	accessToken, accessExpiresAt, err := s.IssueAccessToken(hostID)
+func (s *AuthService) IssueTokenPair(ctx context.Context, hostID, publicID string) (string, string, time.Time, time.Time, error) {
+	accessToken, accessExpiresAt, err := s.IssueAccessToken(hostID, publicID)
 	if err != nil {
 		return "", "", time.Time{}, time.Time{}, err
 	}
 
-	refreshToken, refreshExpiresAt, err := s.IssueRefreshToken(ctx, hostID)
+	refreshToken, refreshExpiresAt, err := s.IssueRefreshToken(ctx, hostID, publicID)
 	if err != nil {
 		return "", "", time.Time{}, time.Time{}, err
 	}
@@ -129,16 +136,26 @@ func (s *AuthService) IssueTokenPair(ctx context.Context, hostID string) (string
 }
 
 func (s *AuthService) RefreshTokenPair(ctx context.Context, oldRefreshToken string) (string, string, time.Time, time.Time, error) {
-	hostID, err := s.redisService.GetRefreshToken(ctx, oldRefreshToken)
+	payload, err := s.redisService.GetRefreshToken(ctx, oldRefreshToken)
 	if err != nil {
 		return "", "", time.Time{}, time.Time{}, fmt.Errorf("failed to get refresh token: %w", err)
 	}
-	if hostID == "" {
+	if payload == "" {
 		return "", "", time.Time{}, time.Time{}, fmt.Errorf("invalid or expired refresh token")
 	}
 
 	_ = s.redisService.DeleteRefreshToken(ctx, oldRefreshToken)
-	return s.IssueTokenPair(ctx, hostID)
+
+	hostID := payload
+	publicID := ""
+
+	if strings.Contains(payload, ":") {
+		parts := strings.SplitN(payload, ":", 2)
+		hostID = parts[0]
+		publicID = parts[1]
+	}
+
+	return s.IssueTokenPair(ctx, hostID, publicID)
 }
 
 func (s *AuthService) VerifyToken(tokenString string) (*QueueBuzzClaims, error) {

@@ -31,7 +31,6 @@ const (
 
 // Default values
 const (
-	DefaultRadiusM        = 200
 	DefaultAvgServiceMins = 5
 	DefaultQueueExpiryH   = 24
 	DefaultIdleTimeoutMin = 3

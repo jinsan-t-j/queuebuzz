@@ -45,16 +45,13 @@ func New(
 type CreateQueueParams struct {
 	HostID         *string
 	HostPublicID   *string
-	HostLat        float64
-	HostLng        float64
-	RadiusM        int
+	Name           string
+	Slug           string
 	AvgServiceMins int
 }
 
 type JoinQueueParams struct {
 	QueueID     string
-	Lat         float64
-	Lng         float64
 	FCMToken    string
 	DisplayName *string
 	PIN         *string
@@ -71,16 +68,8 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*q
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if params.RadiusM <= 0 {
-		params.RadiusM = constants.DefaultRadiusM
-	}
 	if params.AvgServiceMins <= 0 {
 		params.AvgServiceMins = constants.DefaultAvgServiceMins
-	}
-
-	joinCode, err := s.joinCodeSvc.GenerateJoinCode(ctx, "")
-	if err != nil {
-		return nil, err
 	}
 
 	now := time.Now()
@@ -88,27 +77,36 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*q
 		ID:             uuid.New().String(),
 		HostID:         params.HostID,
 		HostPublicID:   params.HostPublicID,
-		HostLat:        params.HostLat,
-		HostLng:        params.HostLng,
-		RadiusM:        params.RadiusM,
-		JoinCode:       joinCode,
+		Name:           params.Name,
+		Slug:           params.Slug,
 		Status:         constants.QueueStatusActive,
 		CreatedAt:      now,
 		ExpiresAt:      now.Add(time.Duration(constants.DefaultQueueExpiryH) * time.Hour),
 		AvgServiceMins: params.AvgServiceMins,
 	}
 
-	_ = s.joinCodeSvc.DeleteJoinCode(ctx, joinCode)
-	joinCode, err = s.joinCodeSvc.GenerateJoinCode(ctx, queue.ID)
+	joinCode, err := s.joinCodeSvc.GenerateJoinCode(ctx, queue.ID)
 	if err != nil {
 		return nil, err
 	}
-	queue.JoinCode = joinCode
 
+	queue.JoinCode = joinCode
 	if _, err := s.queueCol.InsertOne(ctx, queue); err != nil {
 		return nil, fmt.Errorf("failed to create queue: %w", err)
 	}
+
 	return &queue, nil
+}
+
+func (s *Service) CheckSlugAvailability(ctx context.Context, slug string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	count, err := s.queueCol.CountDocuments(ctx, bson.M{"slug": slug})
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
 }
 
 func (s *Service) GetQueue(ctx context.Context, queueID string) (*queuedomain.Queue, error) {
@@ -142,9 +140,6 @@ func (s *Service) JoinQueue(ctx context.Context, params JoinQueueParams) (*JoinQ
 	}
 	if time.Now().After(queue.ExpiresAt) {
 		return nil, fmt.Errorf("queue has expired")
-	}
-	if !s.geoService.IsWithinRadius(queue.HostLat, queue.HostLng, params.Lat, params.Lng, queue.RadiusM) {
-		return nil, fmt.Errorf("you are too far from the queue location")
 	}
 
 	userToken := uuid.New().String()
@@ -361,4 +356,17 @@ func (s *Service) GetActiveQueuesForHost(ctx context.Context, hostPublicID strin
 		return nil, err
 	}
 	return queues, nil
+}
+
+func (s *Service) GetLiveQueueForHost(ctx context.Context, hostPublicID string) (*queuedomain.Queue, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var queue queuedomain.Queue
+	if err := s.queueCol.FindOne(ctx, bson.M{"host_public_id": hostPublicID, "status": constants.QueueStatusActive}).Decode(&queue); err != nil {
+		if err == mongodriver.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &queue, nil
 }

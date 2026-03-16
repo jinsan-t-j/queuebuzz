@@ -38,6 +38,7 @@ func AuthMiddleware() fiber.Handler {
 		c.Locals("claims", claims)
 		c.Locals("role", claims.Role)
 		c.Locals("host_id", claims.Subject)
+		c.Locals("host_public_id", claims.PublicID)
 		c.Locals("queue_id", claims.QueueID)
 		c.Locals("raw_token", token)
 
@@ -64,6 +65,7 @@ func OptionalAuthMiddleware() fiber.Handler {
 		c.Locals("claims", claims)
 		c.Locals("role", claims.Role)
 		c.Locals("host_id", claims.Subject)
+		c.Locals("host_public_id", claims.PublicID)
 		c.Locals("queue_id", claims.QueueID)
 		c.Locals("raw_token", token)
 

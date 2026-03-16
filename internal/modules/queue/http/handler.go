@@ -4,12 +4,15 @@ import (
 	"time"
 
 	"queuebuzz/internal/constants"
+	"queuebuzz/internal/helpers"
 	authservice "queuebuzz/internal/modules/auth/service"
+	"queuebuzz/internal/modules/queue/dto"
 	queuedto "queuebuzz/internal/modules/queue/dto"
 	queueservice "queuebuzz/internal/modules/queue/service"
 	legacyservices "queuebuzz/internal/services"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 )
 
 type Handler struct {
@@ -23,6 +26,18 @@ func NewHandler(queueSvc *queueservice.Service, authSvc *authservice.AuthService
 	return &Handler{queueService: queueSvc, authService: authSvc, joinCodeService: joinCodeSvc, redisService: redisSvc}
 }
 
+// Create godoc
+// @Summary Create a new queue
+// @Description Creates a new queue for BOTH authenticated and anonymous host.
+// @Tags Queue
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Queue created"
+// @Param request body queuedto.CreateQueueRequest true "Create queue request"
+// @Success 302 {object} helpers.SuccessResponse{Data=dto.CreateQueueResponse}
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/create [post]
 func (h *Handler) Create(c fiber.Ctx) error {
 	var req queuedto.CreateQueueRequest
 	if err := c.Bind().JSON(&req); err != nil {
@@ -31,6 +46,7 @@ func (h *Handler) Create(c fiber.Ctx) error {
 
 	hostID, _ := c.Locals("host_id").(string)
 	hostPublicID, _ := c.Locals("host_public_id").(string)
+
 	var hostIDPtr, hostPublicIDPtr *string
 	if hostID != "" {
 		hostIDPtr = &hostID
@@ -40,34 +56,90 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		hostPublicIDPtr = &hostPublicID
 	}
 
+	if req.AvgServiceMins == 0 {
+		req.AvgServiceMins = constants.DefaultAvgServiceMins
+	}
+
+	if req.Slug == "" {
+		req.Slug = uuid.New().String()
+	}
+
 	queue, err := h.queueService.CreateQueue(c.Context(), queueservice.CreateQueueParams{
 		HostID:         hostIDPtr,
 		HostPublicID:   hostPublicIDPtr,
-		HostLat:        req.Lat,
-		HostLng:        req.Lng,
-		RadiusM:        req.RadiusM,
+		Name:           req.QueueName,
+		Slug:           req.Slug,
 		AvgServiceMins: req.AvgServiceMins,
 	})
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError)
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	response := fiber.Map{
-		"queue_id":   queue.ID,
-		"join_code":  queue.JoinCode,
-		"status":     queue.Status,
-		"expires_at": queue.ExpiresAt.Format(time.RFC3339),
+	response := dto.CreateQueueResponse{
+		Name:      queue.Name,
+		JoinCode:  queue.JoinCode,
+		Slug:      queue.Slug,
+		Status:    queue.Status,
+		CreatedAt: queue.CreatedAt.Format(time.RFC3339),
+		ExpiresAt: queue.ExpiresAt.Format(time.RFC3339),
 	}
 
 	if hostID == "" {
 		anonHostToken, err := h.authService.IssueAnonymousToken(c.Context(), queue.ID)
 		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError)
+			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
+
 		c.Cookie(&fiber.Cookie{Name: "anon_host_token", Value: anonHostToken, Expires: time.Now().Add(30 * 24 * time.Hour), HTTPOnly: true, Secure: true, SameSite: "Strict", Path: "/"})
-		response["anon_host_token"] = anonHostToken
 	}
-	return c.Status(fiber.StatusCreated).JSON(response)
+
+	return helpers.NewSuccessResponse("Queue created", response).Created(c)
+}
+
+// CheckSlug godoc
+// @Summary Check if a slug is available
+// @Description Checks whether a queue slug is unique and available.
+// @Tags Queue
+// @Produce json
+// @Param slug query string true "Slug to check"
+// @Success 200 {object} helpers.SuccessResponse{Data=dto.CheckSlugResponse}
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/slug-check [get]
+func (h *Handler) CheckSlug(c fiber.Ctx) error {
+	slug := c.Query("slug")
+	if slug == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "slug is required")
+	}
+
+	available, err := h.queueService.CheckSlugAvailability(c.Context(), slug)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to check slug availability")
+	}
+
+	return helpers.NewSuccessResponse("Slug availability checked", dto.CheckSlugResponse{IsAvailable: available}).OK(c)
+}
+
+// GetLiveQueue godoc
+// @Summary Get live queue
+// @Description Gets the live queue for the authenticated host.
+// @Tags Host
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Live queue"
+// @Success 302 {object} helpers.SuccessResponse{Data=dto.GetLiveQueueResponse}
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/:public_id/live [get]
+func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
+	queue, err := h.queueService.GetLiveQueueForHost(c.Context(), c.Params("public_id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	if queue == nil {
+		return fiber.NewError(fiber.StatusNotFound, "live queue not found")
+	}
+	return helpers.NewSuccessResponse("Live queue fetched", queue).OK(c)
 }
 
 func (h *Handler) GetStatus(c fiber.Ctx) error {
@@ -102,7 +174,7 @@ func (h *Handler) JoinByCode(c fiber.Ctx) error {
 	if err != nil || queueID == "" {
 		return fiber.NewError(fiber.StatusNotFound, "Invalid or expired queue code")
 	}
-	return h.joinQueue(c, queueID, req.Lat, req.Lng, req.FCMToken, req.DisplayName, req.PIN)
+	return h.joinQueue(c, queueID, req.FCMToken, req.DisplayName, req.PIN)
 }
 
 func (h *Handler) JoinByID(c fiber.Ctx) error {
@@ -110,14 +182,12 @@ func (h *Handler) JoinByID(c fiber.Ctx) error {
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}
-	return h.joinQueue(c, c.Params("id"), req.Lat, req.Lng, req.FCMToken, req.DisplayName, req.PIN)
+	return h.joinQueue(c, c.Params("id"), req.FCMToken, req.DisplayName, req.PIN)
 }
 
-func (h *Handler) joinQueue(c fiber.Ctx, queueID string, lat, lng float64, fcmToken string, displayName, pin *string) error {
+func (h *Handler) joinQueue(c fiber.Ctx, queueID string, fcmToken string, displayName, pin *string) error {
 	result, err := h.queueService.JoinQueue(c.Context(), queueservice.JoinQueueParams{
 		QueueID:     queueID,
-		Lat:         lat,
-		Lng:         lng,
 		FCMToken:    fcmToken,
 		DisplayName: displayName,
 		PIN:         pin,

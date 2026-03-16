@@ -17,10 +17,6 @@ func New(handler *authhttp.Handler, service *authservice.AuthService) *Module {
 	return &Module{Handler: handler, Service: service}
 }
 
-// RegisterRoutes registers the host authentication routes
-// @Summary Register authentication routes
-// @Description Register authentication routes
-// @Tags auth
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	router.Get("/auth/social/:provider/start", middlewares.RegisterRateLimiter, m.Handler.SocialLogin)
 	router.Get("/auth/social/:provider/callback", middlewares.RegisterRateLimiter, m.Handler.SocialCallback)

@@ -35,6 +35,7 @@ func (h *Handler) Create(c fiber.Ctx) error {
 	if hostID != "" {
 		hostIDPtr = &hostID
 	}
+
 	if hostPublicID != "" {
 		hostPublicIDPtr = &hostPublicID
 	}
@@ -57,13 +58,14 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		"status":     queue.Status,
 		"expires_at": queue.ExpiresAt.Format(time.RFC3339),
 	}
+
 	if hostID == "" {
-		ownerToken, err := h.authService.IssueAnonymousToken(c.Context(), queue.ID)
+		anonHostToken, err := h.authService.IssueAnonymousToken(c.Context(), queue.ID)
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
-		c.Cookie(&fiber.Cookie{Name: "owner_token", Value: ownerToken, Expires: time.Now().Add(30 * 24 * time.Hour), HTTPOnly: true, Secure: true, SameSite: "Strict", Path: "/"})
-		response["owner_token"] = ownerToken
+		c.Cookie(&fiber.Cookie{Name: "anon_host_token", Value: anonHostToken, Expires: time.Now().Add(30 * 24 * time.Hour), HTTPOnly: true, Secure: true, SameSite: "Strict", Path: "/"})
+		response["anon_host_token"] = anonHostToken
 	}
 	return c.Status(fiber.StatusCreated).JSON(response)
 }

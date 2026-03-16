@@ -39,19 +39,19 @@ func (h *Handler) Claim(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden)
 	}
 
-	ownerCookie := c.Cookies("owner_token")
-	if ownerCookie == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "missing owner token cookie")
+	anonHostCookie := c.Cookies("anon_host_token")
+	if anonHostCookie == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "missing anon host token cookie")
 	}
 
-	anonClaims, err := h.authService.VerifyToken(ownerCookie)
+	anonClaims, err := h.authService.VerifyToken(anonHostCookie)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized)
 	}
 	if anonClaims.Role != constants.RoleAnonymousHost || anonClaims.QueueID == "" {
 		return fiber.NewError(fiber.StatusForbidden)
 	}
-	if err := h.authService.VerifyAnonymousOwnership(c.Context(), ownerCookie, anonClaims.QueueID); err != nil {
+	if err := h.authService.VerifyAnonymousOwnership(c.Context(), anonHostCookie, anonClaims.QueueID); err != nil {
 		return fiber.NewError(fiber.StatusForbidden)
 	}
 
@@ -66,7 +66,7 @@ func (h *Handler) Claim(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError)
 	}
 
-	_ = h.redisService.DeleteOwnerToken(c.Context(), anonClaims.QueueID)
+	_ = h.redisService.DeleteAnonHostToken(c.Context(), anonClaims.QueueID)
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "Queue claimed successfully"})
 }
 
@@ -82,7 +82,7 @@ func (h *Handler) Claim(c fiber.Ctx) error {
 // @Failure 400 {object} map[string]string "Error response"
 // @Failure 401 {object} map[string]string "Error response"
 // @Failure 500 {object} map[string]string "Error response"
-// @Router /auth/verify [get]
+// @Router /host/me [get]
 func (h *Handler) GetMe(c fiber.Ctx) error {
 	hostID, _ := c.Locals("host_id").(string)
 	if hostID == "" {
@@ -97,10 +97,7 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 	if host.Email != nil {
 		email = *host.Email
 	}
-	name := host.PublicID
-	if email != "" {
-		name = email
-	}
+	name := host.Name
 
 	return helpers.NewSuccessResponse("", dto.GetMeResponse{
 		ID:       host.ID,

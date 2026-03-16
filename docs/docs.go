@@ -29,7 +29,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Host"
+                    "Auth"
                 ],
                 "summary": "Logout host",
                 "responses": {
@@ -49,7 +49,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Host"
+                    "Auth"
                 ],
                 "summary": "Refresh access token",
                 "responses": {
@@ -81,7 +81,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Host"
+                    "Auth"
                 ],
                 "summary": "Register a Host",
                 "parameters": [
@@ -130,7 +130,7 @@ const docTemplate = `{
                     "text/html"
                 ],
                 "tags": [
-                    "Host"
+                    "Auth"
                 ],
                 "summary": "Complete social sign in",
                 "parameters": [
@@ -198,7 +198,7 @@ const docTemplate = `{
                     "text/html"
                 ],
                 "tags": [
-                    "Host"
+                    "Auth"
                 ],
                 "summary": "Start social sign in",
                 "parameters": [
@@ -239,6 +239,73 @@ const docTemplate = `{
             }
         },
         "/auth/verify": {
+            "get": {
+                "description": "Verifies a magic link or OTP, creates or links a host account, sets auth cookies, and redirects to the dashboard.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Verify magic link or OTP",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Magic link token",
+                        "name": "token",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Phone number",
+                        "name": "phone",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "OTP code",
+                        "name": "otp",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to dashboard",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/host/me": {
             "get": {
                 "description": "Gets the authenticated host profile.",
                 "produces": [

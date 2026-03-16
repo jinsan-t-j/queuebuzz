@@ -138,23 +138,23 @@ func (s *RedisService) IsUserActive(ctx context.Context, queueID, token string) 
 	return n > 0, nil
 }
 
-// --- Owner token management ---
+// --- Anon host token management ---
 
-// SetOwnerToken stores the SHA256 hash of the anonymous host's JWT.
-func (s *RedisService) SetOwnerToken(ctx context.Context, queueID, tokenHash string, ttl time.Duration) error {
+// SetAnonHostToken stores the SHA256 hash of the anonymous host's JWT.
+func (s *RedisService) SetAnonHostToken(ctx context.Context, queueID, tokenHash string, ttl time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	key := fmt.Sprintf("owner:%s", queueID)
+	key := fmt.Sprintf("anon_host:%s", queueID)
 	return s.rdb.Set(ctx, key, tokenHash, ttl).Err()
 }
 
-// GetOwnerToken retrieves the stored owner token hash.
-func (s *RedisService) GetOwnerToken(ctx context.Context, queueID string) (string, error) {
+// GetAnonHostToken retrieves the stored anon host token hash.
+func (s *RedisService) GetAnonHostToken(ctx context.Context, queueID string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	key := fmt.Sprintf("owner:%s", queueID)
+	key := fmt.Sprintf("anon_host:%s", queueID)
 	val, err := s.rdb.Get(ctx, key).Result()
 	if err == redis.Nil {
 		return "", nil
@@ -162,12 +162,12 @@ func (s *RedisService) GetOwnerToken(ctx context.Context, queueID string) (strin
 	return val, err
 }
 
-// DeleteOwnerToken removes the owner token hash.
-func (s *RedisService) DeleteOwnerToken(ctx context.Context, queueID string) error {
+// DeleteAnonHostToken removes the anon host token hash.
+func (s *RedisService) DeleteAnonHostToken(ctx context.Context, queueID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	key := fmt.Sprintf("owner:%s", queueID)
+	key := fmt.Sprintf("anon_host:%s", queueID)
 	return s.rdb.Del(ctx, key).Err()
 }
 
@@ -264,7 +264,7 @@ func (s *RedisService) DeleteQueueKeys(ctx context.Context, queueID string) erro
 	patterns := []string{
 		fmt.Sprintf("queue_positions:%s", queueID),
 		fmt.Sprintf("ticket_counter:%s", queueID),
-		fmt.Sprintf("owner:%s", queueID),
+		fmt.Sprintf("anon_host:%s", queueID),
 	}
 
 	pipe := s.rdb.Pipeline()

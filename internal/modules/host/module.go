@@ -20,6 +20,10 @@ func New(registerHandler *authhttp.Handler, hostHandler *hosthttp.Handler) *Modu
 	}
 }
 
+// RegisterRoutes registers the host routes
+// @Summary Register host routes
+// @Description Register host routes
+// @Tags host
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	host := router.Group("/host")
 	host.Post("/register", middlewares.RegisterRateLimiter, m.RegisterHandler.Register)

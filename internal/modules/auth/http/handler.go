@@ -49,7 +49,7 @@ func NewHandler(
 // Register godoc
 // @Summary Register a Host
 // @Description Triggers Magic Link (email) or OTP (phone) for host registration
-// @Tags Host
+// @Tags Auth
 // @Accept json
 // @Produce json
 // @Param request body authdto.RegisterRequest true "Register host request"
@@ -84,7 +84,7 @@ func (h *Handler) Register(c fiber.Ctx) error {
 // SocialLogin godoc
 // @Summary Start social sign in
 // @Description Starts the provider OAuth authorization code flow and redirects the browser to the selected provider.
-// @Tags Host
+// @Tags Auth
 // @Produce html
 // @Param provider path string true "Social provider"
 // @Success 302 {string} string "Redirect to provider"
@@ -102,7 +102,7 @@ func (h *Handler) SocialLogin(c fiber.Ctx) error {
 // SocialCallback godoc
 // @Summary Complete social sign in
 // @Description Handles OAuth provider callbacks, creates or links a host account, sets auth cookies, and redirects to the dashboard.
-// @Tags Host
+// @Tags Auth
 // @Produce html
 // @Param provider path string true "Social provider"
 // @Param code query string false "OAuth code"
@@ -145,7 +145,7 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 // Verify godoc
 // @Summary Verify magic link or OTP
 // @Description Verifies a magic link or OTP, creates or links a host account, sets auth cookies, and redirects to the dashboard.
-// @Tags Host
+// @Tags Auth
 // @Produce html
 // @Param token query string false "Magic link token"
 // @Param phone query string false "Phone number"
@@ -192,7 +192,7 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 // Refresh godoc
 // @Summary Refresh access token
 // @Description Uses the refresh token cookie to issue a new access token and refresh token
-// @Tags Host
+// @Tags Auth
 // @Produce json
 // @Success 200 {object} helpers.SuccessResponse
 // @Failure 401 {object} map[string]string "Error response"
@@ -215,7 +215,7 @@ func (h *Handler) Refresh(c fiber.Ctx) error {
 // Logout godoc
 // @Summary Logout host
 // @Description Clears host auth cookies and revokes the refresh token if present
-// @Tags Host
+// @Tags Auth
 // @Produce json
 // @Success 200 {object} helpers.SuccessResponse
 // @Router /api/v1/auth/logout [post]

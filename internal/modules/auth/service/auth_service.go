@@ -58,20 +58,20 @@ func (s *AuthService) IssueAnonymousToken(ctx context.Context, queueID string) (
 	}
 
 	tokenHash := sha256Hash(tokenString)
-	if err := s.redisService.SetOwnerToken(ctx, queueID, tokenHash, 24*time.Hour); err != nil {
-		return "", fmt.Errorf("failed to store owner token hash: %w", err)
+	if err := s.redisService.SetAnonHostToken(ctx, queueID, tokenHash, 24*time.Hour); err != nil {
+		return "", fmt.Errorf("failed to store anon host token hash: %w", err)
 	}
 
 	return tokenString, nil
 }
 
 func (s *AuthService) VerifyAnonymousOwnership(ctx context.Context, tokenString, queueID string) error {
-	storedHash, err := s.redisService.GetOwnerToken(ctx, queueID)
+	storedHash, err := s.redisService.GetAnonHostToken(ctx, queueID)
 	if err != nil {
-		return fmt.Errorf("failed to get owner token hash: %w", err)
+		return fmt.Errorf("failed to get anon host token hash: %w", err)
 	}
 	if storedHash == "" {
-		return fmt.Errorf("no owner token found for queue")
+		return fmt.Errorf("no anon host token found for queue")
 	}
 	if sha256Hash(tokenString) != storedHash {
 		return fmt.Errorf("token hash mismatch")

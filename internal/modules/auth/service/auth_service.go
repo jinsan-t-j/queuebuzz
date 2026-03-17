@@ -28,7 +28,7 @@ type AuthService struct {
 type QueueBuzzClaims struct {
 	Role     string `json:"role"`
 	QueueID  string `json:"queue_id,omitempty"`
-	PublicID string `json:"public_id,omitempty"`
+	PublicID string `json:"public_id"`
 	jwt.RegisteredClaims
 }
 
@@ -94,6 +94,7 @@ func (s *AuthService) IssueAccessToken(hostID, publicID string) (string, time.Ti
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			ID:        uuid.New().String(),
 		},
+		PublicID: publicID,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)

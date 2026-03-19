@@ -21,7 +21,7 @@ func (h *Handler) AddEmail(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	token := c.Get("X-User-Token")
 	if token == "" {
-		return fiber.NewError(fiber.StatusUnauthorized)
+		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 	var req customerdto.AddEmailRequest
 	if err := c.Bind().JSON(&req); err != nil {
@@ -29,7 +29,7 @@ func (h *Handler) AddEmail(c fiber.Ctx) error {
 	}
 	exists, err := h.redisService.UserSessionExists(c.Context(), queueID, token)
 	if err != nil || !exists {
-		return fiber.NewError(fiber.StatusUnauthorized)
+		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 	if err := h.queueService.SetUserEmail(c.Context(), queueID, token, req.Email); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError)
@@ -41,7 +41,7 @@ func (h *Handler) SetPIN(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	token := c.Get("X-User-Token")
 	if token == "" {
-		return fiber.NewError(fiber.StatusUnauthorized)
+		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 	var req customerdto.SetPINRequest
 	if err := c.Bind().JSON(&req); err != nil {
@@ -49,7 +49,7 @@ func (h *Handler) SetPIN(c fiber.Ctx) error {
 	}
 	exists, err := h.redisService.UserSessionExists(c.Context(), queueID, token)
 	if err != nil || !exists {
-		return fiber.NewError(fiber.StatusUnauthorized)
+		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 	if err := h.queueService.SetUserPIN(c.Context(), queueID, token, req.PIN); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError)

@@ -28,7 +28,7 @@ type AuthService struct {
 type QueueBuzzClaims struct {
 	Role     string `json:"role"`
 	QueueID  string `json:"queue_id,omitempty"`
-	PublicID string `json:"public_id"`
+	PublicID string `json:"public_id,omitempty"`
 	jwt.RegisteredClaims
 }
 

@@ -17,6 +17,15 @@ func InitAuthMiddleware(svc *authservice.AuthService) {
 	authInitialized = true
 }
 
+func setAuthLocals(c fiber.Ctx, claims *authservice.QueueBuzzClaims, token string) {
+	c.Locals("claims", claims)
+	c.Locals("role", claims.Role)
+	c.Locals("host_id", claims.Subject)
+	c.Locals("host_public_id", claims.PublicID)
+	c.Locals("queue_id", claims.QueueID)
+	c.Locals("raw_access_token", token)
+}
+
 func AuthMiddleware() fiber.Handler {
 	return func(c fiber.Ctx) error {
 		if !authInitialized {
@@ -25,22 +34,20 @@ func AuthMiddleware() fiber.Handler {
 		}
 
 		token := c.Cookies("access_token")
+		if token == "" {
+			token = c.Cookies("queuebuzz_host_token")
+		}
 
 		if token == "" {
-			return fiber.NewError(fiber.StatusUnauthorized)
+			return c.SendStatus(fiber.StatusUnauthorized)
 		}
 
 		claims, err := authService.VerifyToken(token)
 		if err != nil {
-			return fiber.NewError(fiber.StatusUnauthorized)
+			return c.SendStatus(fiber.StatusUnauthorized)
 		}
 
-		c.Locals("claims", claims)
-		c.Locals("role", claims.Role)
-		c.Locals("host_id", claims.Subject)
-		c.Locals("host_public_id", claims.PublicID)
-		c.Locals("queue_id", claims.QueueID)
-		c.Locals("raw_token", token)
+		setAuthLocals(c, claims, token)
 
 		return c.Next()
 	}
@@ -54,6 +61,10 @@ func OptionalAuthMiddleware() fiber.Handler {
 
 		token := c.Cookies("access_token")
 		if token == "" {
+			token = c.Cookies("queuebuzz_host_token")
+		}
+
+		if token == "" {
 			return c.Next()
 		}
 
@@ -62,12 +73,7 @@ func OptionalAuthMiddleware() fiber.Handler {
 			return c.Next()
 		}
 
-		c.Locals("claims", claims)
-		c.Locals("role", claims.Role)
-		c.Locals("host_id", claims.Subject)
-		c.Locals("host_public_id", claims.PublicID)
-		c.Locals("queue_id", claims.QueueID)
-		c.Locals("raw_token", token)
+		setAuthLocals(c, claims, token)
 
 		return c.Next()
 	}

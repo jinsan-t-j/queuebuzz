@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -120,10 +121,22 @@ func (s *Service) GetQueue(ctx context.Context, queueID string) (*queuedomain.Qu
 	return &queue, nil
 }
 
-func (s *Service) CloseQueue(ctx context.Context, queueID string) error {
+func (s *Service) TerminateQueue(ctx context.Context, queueID string) error {
+	return s.updateQueueStatus(ctx, queueID, constants.QueueStatusClosed)
+}
+
+func (s *Service) PauseQueue(ctx context.Context, queueID string) error {
+	return s.updateQueueStatus(ctx, queueID, constants.QueueStatusPaused)
+}
+
+func (s *Service) ResumeQueue(ctx context.Context, queueID string) error {
+	return s.updateQueueStatus(ctx, queueID, constants.QueueStatusActive)
+}
+
+func (s *Service) updateQueueStatus(ctx context.Context, queueID, status string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{"$set": bson.M{"status": constants.QueueStatusClosed}})
+	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{"$set": bson.M{"status": status}})
 	return err
 }
 
@@ -222,10 +235,10 @@ func (s *Service) GetEntryByToken(ctx context.Context, queueID, token string) (*
 	return &entry, nil
 }
 
-func (s *Service) UpdateEntryStatus(ctx context.Context, queueID, token, status string) error {
+func (s *Service) UpdateEntryStatus(ctx context.Context, queueID, status string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := s.entryCol.UpdateOne(ctx, bson.M{"queue_id": queueID, "token": token}, bson.M{"$set": bson.M{"status": status}})
+	_, err := s.entryCol.UpdateOne(ctx, bson.M{"queue_id": queueID}, bson.M{"$set": bson.M{"status": status}})
 	return err
 }
 
@@ -243,7 +256,7 @@ func (s *Service) CallNextUser(ctx context.Context, queueID string) (*queuedomai
 			continue
 		}
 		if entry.Status == constants.EntryStatusWaiting {
-			if err := s.UpdateEntryStatus(ctx, queueID, token, constants.EntryStatusCalled); err != nil {
+			if err := s.UpdateEntryStatus(ctx, queueID, constants.EntryStatusCalled); err != nil {
 				return nil, err
 			}
 			entry.Status = constants.EntryStatusCalled
@@ -254,9 +267,33 @@ func (s *Service) CallNextUser(ctx context.Context, queueID string) (*queuedomai
 }
 
 func (s *Service) RemoveUser(ctx context.Context, queueID, token string) error {
+	return s.finishUserSession(ctx, queueID, token, constants.EntryStatusLeft)
+}
+
+func (s *Service) SkipUser(ctx context.Context, queueID, token string) error {
+	return s.finishUserSession(ctx, queueID, token, constants.EntryStatusSkipped)
+}
+
+func (s *Service) ServeUser(ctx context.Context, queueID, token string) error {
+	return s.finishUserSession(ctx, queueID, token, constants.EntryStatusServed)
+}
+
+func (s *Service) finishUserSession(ctx context.Context, queueID, token, status string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := s.UpdateEntryStatus(ctx, queueID, token, constants.EntryStatusLeft); err != nil {
+	now := time.Now()
+	update := bson.M{
+		"$set": bson.M{
+			"status":      status,
+			"finished_at": now,
+		},
+	}
+	if status == constants.EntryStatusServed {
+		update["$set"].(bson.M)["served_at"] = now
+	}
+
+	_, err := s.entryCol.UpdateOne(ctx, bson.M{"queue_id": queueID, "token": token}, update)
+	if err != nil {
 		return err
 	}
 	_ = s.redisService.RemoveFromQueue(ctx, queueID, token)
@@ -369,4 +406,36 @@ func (s *Service) GetLiveQueueForHost(ctx context.Context, hostPublicID string) 
 		return nil, err
 	}
 	return &queue, nil
+}
+
+func (s *Service) GetLiveQueueByID(ctx context.Context, queueID string) (*queuedomain.Queue, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var queue queuedomain.Queue
+	if err := s.queueCol.FindOne(ctx, bson.M{"_id": queueID, "status": constants.QueueStatusActive}).Decode(&queue); err != nil {
+		if err == mongodriver.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &queue, nil
+}
+
+func (s *Service) GetQueueHistory(ctx context.Context, queueID string) ([]queuedomain.Entry, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cursor, err := s.entryCol.Find(ctx, bson.M{
+		"queue_id": queueID,
+		"status":   bson.M{"$in": []string{constants.EntryStatusServed, constants.EntryStatusSkipped, constants.EntryStatusLeft}},
+	}, options.Find().SetSort(bson.M{"joined_at": -1}))
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []queuedomain.Entry
+	if err := cursor.All(ctx, &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }

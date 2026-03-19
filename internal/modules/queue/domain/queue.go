@@ -10,7 +10,7 @@ type Queue struct {
 	JoinCode       string    `bson:"join_code" json:"join_code"`
 	Slug           string    `bson:"slug" json:"slug"`
 	Status         string    `bson:"status" json:"status"`
+	AvgServiceMins int       `bson:"avg_service_mins" json:"avg_service_mins"`
 	CreatedAt      time.Time `bson:"created_at" json:"created_at"`
 	ExpiresAt      time.Time `bson:"expires_at" json:"expires_at"`
-	AvgServiceMins int       `bson:"avg_service_mins" json:"avg_service_mins"`
 }

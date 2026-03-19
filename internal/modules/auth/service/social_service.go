@@ -137,6 +137,7 @@ func (s *SocialAuthService) CompleteAuth(ctx context.Context, provider, code, st
 	if err != nil {
 		return nil, err
 	}
+
 	if stored == "" {
 		return nil, fmt.Errorf("invalid or expired social auth state")
 	}

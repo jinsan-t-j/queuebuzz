@@ -39,20 +39,18 @@ func HostOwnerMiddleware() fiber.Handler {
 
 		switch role {
 		case constants.RoleAnonymousHost:
-			// Verify JWT queue_id claim matches :id param
 			claimQueueID, _ := c.Locals("queue_id").(string)
 			if claimQueueID != queueID {
 				return fiber.NewError(fiber.StatusForbidden)
 			}
 
 			// Verify SHA256(jwt) exists in Redis owner:{queue_id}
-			rawToken, _ := c.Locals("raw_token").(string)
+			rawToken, _ := c.Locals("raw_access_token").(string)
 			if err := hostOwnerAuthSvc.VerifyAnonymousOwnership(c.Context(), rawToken, queueID); err != nil {
 				return fiber.NewError(fiber.StatusForbidden)
 			}
 
 		case constants.RoleRegisteredHost:
-			// Fetch queue and verify host_id matches JWT subject
 			hostID, _ := c.Locals("host_id").(string)
 
 			ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)

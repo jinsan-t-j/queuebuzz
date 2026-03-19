@@ -165,12 +165,12 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 	if token != "" {
 		e, err := h.magicLinkService.VerifyMagicLink(c.Context(), token)
 		if err != nil {
-			return fiber.NewError(fiber.StatusUnauthorized)
+			return c.SendStatus(fiber.StatusUnauthorized)
 		}
 		email = e
 	} else if reqPhone != "" && otp != "" {
 		if err := h.otpService.VerifyOTP(c.Context(), reqPhone, otp); err != nil {
-			return fiber.NewError(fiber.StatusUnauthorized)
+			return c.SendStatus(fiber.StatusUnauthorized)
 		}
 		phone = reqPhone
 	} else {

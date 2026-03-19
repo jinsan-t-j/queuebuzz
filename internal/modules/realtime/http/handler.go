@@ -32,12 +32,12 @@ func (h *Handler) Handle(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	tokenStr := c.Query("token")
 	if tokenStr == "" {
-		return fiber.NewError(fiber.StatusUnauthorized)
+		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
 	claims, err := h.authService.VerifyToken(tokenStr)
 	if err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized)
+		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
 	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)

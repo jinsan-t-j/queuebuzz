@@ -39,14 +39,14 @@ func (h *Handler) Claim(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden)
 	}
 
-	anonHostCookie := c.Cookies("anon_host_token")
+	anonHostCookie := c.Cookies("queuebuzz_host_token")
 	if anonHostCookie == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "missing anon host token cookie")
 	}
 
 	anonClaims, err := h.authService.VerifyToken(anonHostCookie)
 	if err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized)
+		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 	if anonClaims.Role != constants.RoleAnonymousHost || anonClaims.QueueID == "" {
 		return fiber.NewError(fiber.StatusForbidden)
@@ -86,7 +86,7 @@ func (h *Handler) Claim(c fiber.Ctx) error {
 func (h *Handler) GetMe(c fiber.Ctx) error {
 	hostID, _ := c.Locals("host_id").(string)
 	if hostID == "" {
-		return fiber.NewError(fiber.StatusUnauthorized)
+		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 	host, err := h.hostService.FindByID(c.Context(), hostID)
 	if err != nil {

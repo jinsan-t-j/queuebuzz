@@ -3,6 +3,7 @@ package constants
 // Queue statuses
 const (
 	QueueStatusActive  = "ACTIVE"
+	QueueStatusPaused  = "PAUSED"
 	QueueStatusClosed  = "CLOSED"
 	QueueStatusExpired = "EXPIRED"
 )

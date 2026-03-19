@@ -15,7 +15,9 @@ type Entry struct {
 	JoinedAt    time.Time `bson:"joined_at" json:"joined_at"`
 	FCMToken    string    `bson:"fcm_token" json:"-"`
 	Email       *string   `bson:"email" json:"-"`
-	DisplayName *string   `bson:"display_name" json:"display_name,omitempty"`
-	PINHash     *string   `bson:"pin_hash" json:"-"`
-	Metadata    bson.M    `bson:"metadata" json:"-"`
+	DisplayName *string    `bson:"display_name" json:"display_name,omitempty"`
+	ServedAt    *time.Time `bson:"served_at" json:"served_at,omitempty"`
+	FinishedAt  *time.Time `bson:"finished_at" json:"finished_at,omitempty"`
+	PINHash     *string    `bson:"pin_hash" json:"-"`
+	Metadata    bson.M     `bson:"metadata" json:"-"`
 }

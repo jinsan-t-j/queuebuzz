@@ -1,18 +1,21 @@
 package http
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
-	"queuebuzz/internal/exceptions"
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
+	"queuebuzz/internal/exceptions"
 	"queuebuzz/internal/helpers"
 	authservice "queuebuzz/internal/modules/auth/service"
 	"queuebuzz/internal/modules/queue/dto"
 	queuedto "queuebuzz/internal/modules/queue/dto"
 	queueservice "queuebuzz/internal/modules/queue/service"
 	legacyservices "queuebuzz/internal/services"
+	"queuebuzz/internal/sse"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -24,10 +27,28 @@ type Handler struct {
 	authService     *authservice.AuthService
 	joinCodeService *legacyservices.JoinCodeService
 	redisService    *legacyservices.RedisService
+	broker          *sse.Broker
+	notifier        *queueservice.QueueNotifier
 }
 
-func NewHandler(cfg *config.Config, queueSvc *queueservice.Service, authSvc *authservice.AuthService, joinCodeSvc *legacyservices.JoinCodeService, redisSvc *legacyservices.RedisService) *Handler {
-	return &Handler{cfg: cfg, queueService: queueSvc, authService: authSvc, joinCodeService: joinCodeSvc, redisService: redisSvc}
+func NewHandler(
+	cfg *config.Config,
+	queueSvc *queueservice.Service,
+	authSvc *authservice.AuthService,
+	joinCodeSvc *legacyservices.JoinCodeService,
+	redisSvc *legacyservices.RedisService,
+	broker *sse.Broker,
+	notifier *queueservice.QueueNotifier,
+) *Handler {
+	return &Handler{
+		cfg:             cfg,
+		queueService:    queueSvc,
+		authService:     authSvc,
+		joinCodeService: joinCodeSvc,
+		redisService:    redisSvc,
+		broker:          broker,
+		notifier:        notifier,
+	}
 }
 
 // Create godoc
@@ -137,7 +158,7 @@ func (h *Handler) CheckSlug(c fiber.Ctx) error {
 // GetLiveQueue godoc
 // @Summary Get live queue
 // @Description Gets the live queue for the authenticated host.
-// @Tags Host
+// @Tags Queue
 // @Produce json
 // @Success 200 {object} map[string]interface{} "Live queue"
 // @Success 302 {object} helpers.SuccessResponse{Data=dto.GetLiveQueueResponse}
@@ -155,7 +176,7 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "live queue not found")
 	}
 
-	response := dto.GetLiveQueueResponse{
+	return helpers.NewSuccessResponse("Live queue fetched", dto.GetLiveQueueResponse{
 		QueueRecord: dto.QueueRecord{
 			ID:                queue.ID,
 			Name:              queue.Name,
@@ -168,18 +189,15 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 			CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
 			ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
 		},
-	}
-
-	return helpers.NewSuccessResponse("Live queue fetched", response).OK(c)
+	}).OK(c)
 }
 
 // GetLiveQueueByID godoc
 // @Summary Get live queue by ID
 // @Description Gets the live queue for the authenticated host.
-// @Tags Host
+// @Tags Queue
 // @Produce json
-// @Success 200 {object} map[string]interface{} "Live queue"
-// @Success 302 {object} helpers.SuccessResponse{Data=dto.GetLiveQueueResponse}
+// @Success 200 {object} helpers.SuccessResponse{Data=dto.GetLiveQueueResponse}
 // @Failure 400 {object} map[string]string "Error response"
 // @Failure 401 {object} map[string]string "Error response"
 // @Failure 500 {object} map[string]string "Error response"
@@ -194,7 +212,7 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "live queue not found")
 	}
 
-	response := dto.GetLiveQueueResponse{
+	return helpers.NewSuccessResponse("Live queue fetched", dto.GetLiveQueueResponse{
 		QueueRecord: dto.QueueRecord{
 			ID:                queue.ID,
 			Name:              queue.Name,
@@ -207,15 +225,48 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 			CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
 			ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
 		},
+	}).OK(c)
+}
+
+// Events godoc
+// @Summary Get live queue events
+// @Description Gets the live queue events for the authenticated host.
+// @Tags Queue
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Live queue events"
+// @Success 302 {object} helpers.SuccessResponse{Data=dto.GetLiveQueueResponse}
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/{id}/events [get]
+func (h *Handler) Events(c fiber.Ctx) error {
+	queueID := c.Params("id")
+	if queueID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "queue id is required")
 	}
 
-	return helpers.NewSuccessResponse("Live queue fetched", response).OK(c)
+	snapshotFn := func() ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		entries, err := h.queueService.GetQueueEntries(ctx, queueID)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(queueservice.SSEMessage{
+			Event: queueservice.EventQueueUpdate,
+			Data:  dto.ToEntryResponses(entries),
+		})
+	}
+
+	return h.broker.ServeHTTP(c, queueID, snapshotFn)
 }
 
 // PauseQueue godoc
 // @Summary Pause a queue
 // @Description Pauses the live queue for the authenticated host.
-// @Tags Host
+// @Tags Queue
 // @Produce json
 // @Param id path string true "Queue ID"
 // @Success 200 {object} map[string]interface{} "Queue paused"
@@ -224,11 +275,13 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /queue/{id}/pause [post]
 func (h *Handler) PauseQueue(c fiber.Ctx) error {
-	queueId := c.Params("id")
+	queueID := c.Params("id")
 
-	if err := h.queueService.PauseQueue(c.Context(), queueId); err != nil {
+	if err := h.queueService.PauseQueue(c.Context(), queueID); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	h.notifier.PublishQueueStatus(queueID, constants.QueueStatusPaused)
 
 	return helpers.NewSuccessResponse("Queue paused", nil).MessageResponse(c)
 }
@@ -236,7 +289,7 @@ func (h *Handler) PauseQueue(c fiber.Ctx) error {
 // ResumeQueue godoc
 // @Summary Resume a queue
 // @Description Resumes the live queue for the authenticated host.
-// @Tags Host
+// @Tags Queue
 // @Produce json
 // @Param id path string true "Queue ID"
 // @Success 200 {object} map[string]interface{} "Queue resumed"
@@ -245,17 +298,20 @@ func (h *Handler) PauseQueue(c fiber.Ctx) error {
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /queue/{id}/resume [post]
 func (h *Handler) ResumeQueue(c fiber.Ctx) error {
-	queueId := c.Params("id")
-	if err := h.queueService.ResumeQueue(c.Context(), queueId); err != nil {
+	queueID := c.Params("id")
+	if err := h.queueService.ResumeQueue(c.Context(), queueID); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	return c.SendStatus(fiber.StatusOK)
+
+	h.notifier.PublishQueueStatus(queueID, constants.QueueStatusActive)
+
+	return helpers.NewSuccessResponse("Queue resumed", nil).MessageResponse(c)
 }
 
-// CloseQueue godoc
+// TerminateQueue godoc
 // @Summary Close a queue
 // @Description Closes the live queue for the authenticated host.
-// @Tags Host
+// @Tags Queue
 // @Produce json
 // @Param id path string true "Queue ID"
 // @Success 200 {object} map[string]interface{} "Queue closed"
@@ -264,10 +320,13 @@ func (h *Handler) ResumeQueue(c fiber.Ctx) error {
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /queue/{id}/close [post]
 func (h *Handler) TerminateQueue(c fiber.Ctx) error {
-	queueId := c.Params("id")
-	if err := h.queueService.TerminateQueue(c.Context(), queueId); err != nil {
+	queueID := c.Params("id")
+	if err := h.queueService.TerminateQueue(c.Context(), queueID); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	// Publish queue closed event
+	h.notifier.PublishQueueExpired(queueID)
 
 	c.Cookie(&fiber.Cookie{
 		Name:     "queuebuzz_host_token",
@@ -285,7 +344,7 @@ func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 // AddEntry godoc
 // @Summary Add a new entry to the queue
 // @Description Adds a new entry to the live queue for the authenticated host.
-// @Tags Host
+// @Tags Queue
 // @Produce json
 // @Param id path string true "Queue ID"
 // @Param name body queuedto.AddEntryRequest true "Add entry request"
@@ -300,9 +359,10 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 		return err
 	}
 
+	queueID := c.Params("id")
 	createdBy := c.Locals("host_id").(string)
 	result, err := h.queueService.JoinQueue(c.Context(), queueservice.JoinQueueParams{
-		QueueID:   c.Params("id"),
+		QueueID:   queueID,
 		Name:      req.Name,
 		Email:     req.Email,
 		Phone:     req.Phone,
@@ -316,6 +376,8 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 		}
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
+
+	h.notifier.PublishEntryUpdate(result.Entry, int(result.Position))
 
 	response := queuedto.AddEntryResponse{
 		EntryRecord: queuedto.EntryRecord{
@@ -388,6 +450,10 @@ func (h *Handler) joinQueue(c fiber.Ctx, queueID string, fcmToken string, displa
 		}
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
+
+	// Publish queue update after user joins
+	h.notifier.PublishEntryUpdate(result.Entry, int(result.Position))
+
 	return c.Status(fiber.StatusOK).JSON(result)
 }
 
@@ -404,18 +470,27 @@ func (h *Handler) Heartbeat(c fiber.Ctx) error {
 }
 
 func (h *Handler) PingUser(c fiber.Ctx) error {
-	queueSlug := c.Params("slug")
-	if err := h.queueService.UpdateEntryStatus(c.Context(), queueSlug, constants.EntryStatusCalled); err != nil {
+	queueID := c.Params("id")
+	token := c.Params("token")
+	if err := h.queueService.UpdateEntryStatus(c.Context(), queueID, constants.EntryStatusCalled); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError)
 	}
+
+	// Publish user called event
+	h.notifier.PublishUserCalled(queueID, token, constants.EntryStatusCalled)
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "User pinged"})
 }
 
 func (h *Handler) CallNext(c fiber.Ctx) error {
-	entry, err := h.queueService.CallNextUser(c.Context(), c.Params("slug"))
+	queueID := c.Params("id")
+	entry, err := h.queueService.CallNextUser(c.Context(), queueID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, err.Error())
 	}
+
+	h.notifier.PublishUserCalled(queueID, entry.Token, constants.EntryStatusCalled)
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"token":     entry.Token,
 		"ticket_no": entry.TicketNo,

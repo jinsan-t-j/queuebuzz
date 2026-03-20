@@ -19,12 +19,10 @@ import (
 	queuemodule "queuebuzz/internal/modules/queue"
 	queuehttp "queuebuzz/internal/modules/queue/http"
 	queueservice "queuebuzz/internal/modules/queue/service"
-	realtimemodule "queuebuzz/internal/modules/realtime"
-	realtimehttp "queuebuzz/internal/modules/realtime/http"
 	"queuebuzz/internal/mongo"
 	"queuebuzz/internal/redis"
 	"queuebuzz/internal/services"
-	"queuebuzz/internal/ws"
+	"queuebuzz/internal/sse"
 
 	redisdriver "github.com/redis/go-redis/v9"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
@@ -40,7 +38,6 @@ type Container struct {
 	Queue        *queuemodule.Module
 	Customer     *customermodule.Module
 	Notification *notificationmodule.Module
-	Realtime     *realtimemodule.Module
 
 	cancel context.CancelFunc
 }
@@ -72,19 +69,19 @@ func NewContainer() *Container {
 	hostRepo := hostrepo.NewMongoRepository(hostCol, queueCol)
 	hostSvc := hostservice.New(hostRepo)
 
-	hub := ws.NewHub()
-
-	expiryListener := services.NewExpiryListener(rdb, queueCol, entryCol, redisSvc, hub, notifSender)
+	broker := sse.NewBroker()
+	notifier := queueservice.NewQueueNotifier(broker)
+	expirySvc := queueservice.NewExpiryService(rdb, queueCol, entryCol, redisSvc, notifier, notifSender)
 	ctx, cancel := context.WithCancel(context.Background())
-	expiryListener.StartKeyspaceListener(ctx)
-	go expiryListener.RunCronSweep(ctx)
 
 	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc)
-	queueHandler := queuehttp.NewHandler(cfg, queueSvc, authSvc, joinCodeSvc, redisSvc)
+	queueHandler := queuehttp.NewHandler(cfg, queueSvc, authSvc, joinCodeSvc, redisSvc, broker, notifier)
 	customerHandler := customerhttp.NewHandler(queueSvc, redisSvc)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
-	wsHandler := realtimehttp.NewHandler(authSvc, queueSvc, hub)
+
+	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc)
+	queueModule.Start(ctx)
 
 	middlewares.InitAuthMiddleware(authSvc)
 	middlewares.InitHostOwnerMiddleware(authSvc, redisSvc, queueCol)
@@ -96,10 +93,9 @@ func NewContainer() *Container {
 		Redis:        rdb,
 		Auth:         authmodule.New(authHandler, authSvc),
 		Host:         hostmodule.New(authHandler, hostHandler),
-		Queue:        queuemodule.New(queueHandler, notifHandler),
+		Queue:        queueModule,
 		Customer:     customermodule.New(customerHandler),
 		Notification: notificationmodule.New(notifHandler),
-		Realtime:     realtimemodule.New(wsHandler),
 		cancel:       cancel,
 	}
 }

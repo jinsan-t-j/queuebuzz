@@ -440,7 +440,10 @@ func (s *Service) GetLiveQueueForHost(ctx context.Context, hostPublicID string) 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var queue queuedomain.Queue
-	if err := s.queueCol.FindOne(ctx, bson.M{"host_public_id": hostPublicID, "status": constants.QueueStatusActive}).Decode(&queue); err != nil {
+	if err := s.queueCol.FindOne(ctx, bson.M{
+		"host_public_id": hostPublicID,
+		"status":         bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+	}).Decode(&queue); err != nil {
 		if err == mongodriver.ErrNoDocuments {
 			return nil, nil
 		}
@@ -453,7 +456,10 @@ func (s *Service) GetLiveQueueByID(ctx context.Context, queueID string) (*queued
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var queue queuedomain.Queue
-	if err := s.queueCol.FindOne(ctx, bson.M{"_id": queueID, "status": constants.QueueStatusActive}).Decode(&queue); err != nil {
+	if err := s.queueCol.FindOne(ctx, bson.M{
+		"_id":    queueID,
+		"status": bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+	}).Decode(&queue); err != nil {
 		if err == mongodriver.ErrNoDocuments {
 			return nil, nil
 		}

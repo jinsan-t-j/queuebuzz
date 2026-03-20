@@ -1,4 +1,4 @@
-package services
+package service
 
 import (
 	"context"
@@ -7,47 +7,80 @@ import (
 
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/log"
-	"queuebuzz/internal/ws"
+	legacyservices "queuebuzz/internal/services"
 
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-// ExpiryListener manages Redis keyspace notifications and queue expiry cleanup.
-type ExpiryListener struct {
+// SSE event type constants.
+const (
+	EventUserJoined         = "user_joined"
+	EventUserLeft           = "user_left"
+	EventUserStatusChanged  = "user_status_changed"
+	EventUserCalled         = "user_called"
+	EventQueueStatusChanged = "queue_status_changed"
+	EventQueueUpdate        = "queue_update"
+	EventQueueExpired       = "queue_expired"
+)
+
+// SSEMessage is the standard SSE event envelope. The Event field is
+// extracted by the broker to set the SSE "event:" line.
+type SSEMessage struct {
+	Event string      `json:"event"`
+	Data  interface{} `json:"data"`
+}
+
+// UserStatusData is the payload for EventUserStatusChanged.
+type UserStatusData struct {
+	Token  string `json:"token"`
+	Status string `json:"status"`
+}
+
+// QueueExpiredData is the payload for EventQueueExpired.
+type QueueExpiredData struct {
+	QueueID string `json:"queue_id"`
+}
+
+type QueueStatusData struct {
+	Status string `json:"status"`
+}
+
+// ExpiryService manages Redis keyspace notifications and queue expiry cleanup.
+// It lives in the queue module because it directly mutates queue/entry state.
+type ExpiryService struct {
 	rdb          *redis.Client
 	queueCol     *mongo.Collection
 	entryCol     *mongo.Collection
-	redisService *RedisService
-	hub          *ws.Hub
-	notifSender  NotificationSender
+	redisService *legacyservices.RedisService
+	notifier     *QueueNotifier
+	notifSender  legacyservices.NotificationSender
 }
 
-// NewExpiryListener creates a new expiry listener.
-func NewExpiryListener(
+// NewExpiryService creates a new expiry service.
+func NewExpiryService(
 	rdb *redis.Client,
 	queueCol *mongo.Collection,
 	entryCol *mongo.Collection,
-	redisSvc *RedisService,
-	hub *ws.Hub,
-	notifSender NotificationSender,
-) *ExpiryListener {
-	return &ExpiryListener{
+	redisSvc *legacyservices.RedisService,
+	notifier *QueueNotifier,
+	notifSender legacyservices.NotificationSender,
+) *ExpiryService {
+	return &ExpiryService{
 		rdb:          rdb,
 		queueCol:     queueCol,
 		entryCol:     entryCol,
 		redisService: redisSvc,
-		hub:          hub,
+		notifier:     notifier,
 		notifSender:  notifSender,
 	}
 }
 
 // StartKeyspaceListener subscribes to Redis keyspace notifications for expired keys.
 // This runs in a goroutine and handles idle_timer, grace_timer, and queue expiry events.
-func (l *ExpiryListener) StartKeyspaceListener(ctx context.Context) {
-	// Subscribe to expired key events on db 0
-	pubsub := l.rdb.PSubscribe(ctx, "__keyevent@0__:expired")
+func (s *ExpiryService) StartKeyspaceListener(ctx context.Context) {
+	pubsub := s.rdb.PSubscribe(ctx, "__keyevent@0__:expired")
 
 	go func() {
 		defer pubsub.Close()
@@ -61,7 +94,7 @@ func (l *ExpiryListener) StartKeyspaceListener(ctx context.Context) {
 				if !ok {
 					return
 				}
-				l.handleExpiredKey(ctx, msg.Payload)
+				s.handleExpiredKey(ctx, msg.Payload)
 			}
 		}
 	}()
@@ -69,16 +102,16 @@ func (l *ExpiryListener) StartKeyspaceListener(ctx context.Context) {
 	log.Info().Msg("Redis keyspace expiry listener started")
 }
 
-func (l *ExpiryListener) handleExpiredKey(ctx context.Context, key string) {
+func (s *ExpiryService) handleExpiredKey(ctx context.Context, key string) {
 	switch {
 	case strings.HasPrefix(key, "idle_timer:"):
-		l.handleIdleTimerExpiry(ctx, key)
+		s.handleIdleTimerExpiry(ctx, key)
 	case strings.HasPrefix(key, "grace_timer:"):
-		l.handleGraceTimerExpiry(ctx, key)
+		s.handleGraceTimerExpiry(ctx, key)
 	}
 }
 
-func (l *ExpiryListener) handleIdleTimerExpiry(ctx context.Context, key string) {
+func (s *ExpiryService) handleIdleTimerExpiry(ctx context.Context, key string) {
 	// key format: idle_timer:{queue_id}:{token}
 	parts := strings.SplitN(key, ":", 3)
 	if len(parts) != 3 {
@@ -90,7 +123,7 @@ func (l *ExpiryListener) handleIdleTimerExpiry(ctx context.Context, key string) 
 	defer cancel()
 
 	// Update status to IDLE
-	_, err := l.entryCol.UpdateOne(opCtx,
+	_, err := s.entryCol.UpdateOne(opCtx,
 		bson.M{"queue_id": queueID, "token": token},
 		bson.M{"$set": bson.M{"status": constants.EntryStatusIdle}},
 	)
@@ -100,22 +133,19 @@ func (l *ExpiryListener) handleIdleTimerExpiry(ctx context.Context, key string) 
 	}
 
 	// Move user to back of sorted set
-	_ = l.redisService.MoveToBack(opCtx, queueID, token)
+	_ = s.redisService.MoveToBack(opCtx, queueID, token)
 
 	// Set grace timer (5 min)
-	_ = l.redisService.SetGraceTimer(opCtx, queueID, token,
+	_ = s.redisService.SetGraceTimer(opCtx, queueID, token,
 		time.Duration(constants.DefaultGraceTimerSec)*time.Second)
 
-	// Broadcast status change via WebSocket
-	l.hub.Broadcast(queueID, ws.Message{
-		Event: ws.EventUserStatusChanged,
-		Data:  ws.UserStatusData{Token: token, Status: constants.EntryStatusIdle},
-	})
+	// Publish status change via SSE
+	s.notifier.PublishUserStatus(queueID, token, constants.EntryStatusIdle)
 
-	log.Info().Str("queue_id", queueID).Str("token_prefix", token[:8]).Msg("User moved to IDLE")
+	log.Info().Str("queue_id", queueID).Str("token_prefix", tokenPrefix(token)).Msg("User moved to IDLE")
 }
 
-func (l *ExpiryListener) handleGraceTimerExpiry(ctx context.Context, key string) {
+func (s *ExpiryService) handleGraceTimerExpiry(ctx context.Context, key string) {
 	// key format: grace_timer:{queue_id}:{token}
 	parts := strings.SplitN(key, ":", 3)
 	if len(parts) != 3 {
@@ -127,7 +157,7 @@ func (l *ExpiryListener) handleGraceTimerExpiry(ctx context.Context, key string)
 	defer cancel()
 
 	// Update status to SKIPPED
-	_, err := l.entryCol.UpdateOne(opCtx,
+	_, err := s.entryCol.UpdateOne(opCtx,
 		bson.M{"queue_id": queueID, "token": token},
 		bson.M{"$set": bson.M{"status": constants.EntryStatusSkipped}},
 	)
@@ -137,20 +167,17 @@ func (l *ExpiryListener) handleGraceTimerExpiry(ctx context.Context, key string)
 	}
 
 	// Remove from sorted set
-	_ = l.redisService.RemoveFromQueue(opCtx, queueID, token)
+	_ = s.redisService.RemoveFromQueue(opCtx, queueID, token)
 
-	// Broadcast via WebSocket
-	l.hub.Broadcast(queueID, ws.Message{
-		Event: ws.EventUserStatusChanged,
-		Data:  ws.UserStatusData{Token: token, Status: constants.EntryStatusSkipped},
-	})
+	// Publish via SSE
+	s.notifier.PublishUserStatus(queueID, token, constants.EntryStatusSkipped)
 
-	log.Info().Str("queue_id", queueID).Str("token_prefix", token[:8]).Msg("User SKIPPED after grace period")
+	log.Info().Str("queue_id", queueID).Str("token_prefix", tokenPrefix(token)).Msg("User SKIPPED after grace period")
 }
 
 // RunCronSweep checks for expired queues and cleans them up.
 // Acts as a fallback for missed Redis keyspace events.
-func (l *ExpiryListener) RunCronSweep(ctx context.Context) {
+func (s *ExpiryService) RunCronSweep(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -159,17 +186,16 @@ func (l *ExpiryListener) RunCronSweep(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			l.sweepExpiredQueues(ctx)
+			s.sweepExpiredQueues(ctx)
 		}
 	}
 }
 
-func (l *ExpiryListener) sweepExpiredQueues(ctx context.Context) {
+func (s *ExpiryService) sweepExpiredQueues(ctx context.Context) {
 	opCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Find active queues that have passed their expiry time
-	cursor, err := l.queueCol.Find(opCtx, bson.M{
+	cursor, err := s.queueCol.Find(opCtx, bson.M{
 		"status":     constants.QueueStatusActive,
 		"expires_at": bson.M{"$lte": time.Now()},
 	})
@@ -190,7 +216,7 @@ func (l *ExpiryListener) sweepExpiredQueues(ctx context.Context) {
 	}
 
 	for _, q := range expired {
-		l.expireQueue(ctx, q.ID, q.JoinCode)
+		s.expireQueue(ctx, q.ID, q.JoinCode)
 	}
 
 	if len(expired) > 0 {
@@ -198,12 +224,12 @@ func (l *ExpiryListener) sweepExpiredQueues(ctx context.Context) {
 	}
 }
 
-func (l *ExpiryListener) expireQueue(ctx context.Context, queueID, joinCode string) {
+func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode string) {
 	opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	// 1. Update queue status to EXPIRED
-	_, _ = l.queueCol.UpdateOne(opCtx,
+	_, _ = s.queueCol.UpdateOne(opCtx,
 		bson.M{"_id": queueID},
 		bson.M{"$set": bson.M{"status": constants.QueueStatusExpired}},
 	)
@@ -211,23 +237,27 @@ func (l *ExpiryListener) expireQueue(ctx context.Context, queueID, joinCode stri
 	// 2. Delete join code from Redis
 	delCtx, delCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer delCancel()
-	_ = l.rdb.Del(delCtx, "joincode:"+joinCode).Err()
+	_ = s.rdb.Del(delCtx, "joincode:"+joinCode).Err()
 
-	// 3. Disconnect WebSocket clients
-	l.hub.DisconnectQueue(queueID)
-	l.hub.Broadcast(queueID, ws.Message{
-		Event: ws.EventQueueExpired,
-		Data:  ws.QueueExpiredData{QueueID: queueID},
-	})
+	// 3. Publish queue expired event via SSE
+	s.notifier.PublishQueueExpired(queueID)
 
 	// 4. Clean up all Redis keys for this queue
-	_ = l.redisService.DeleteQueueKeys(opCtx, queueID)
+	_ = s.redisService.DeleteQueueKeys(opCtx, queueID)
 
 	// 5. Clear email fields from entries (privacy cleanup)
-	_, _ = l.entryCol.UpdateMany(opCtx,
+	_, _ = s.entryCol.UpdateMany(opCtx,
 		bson.M{"queue_id": queueID},
 		bson.M{"$unset": bson.M{"email": ""}},
 	)
 
 	log.Info().Str("queue_id", queueID).Msg("Queue expired and cleaned up")
+}
+
+
+func tokenPrefix(token string) string {
+	if len(token) <= 8 {
+		return token
+	}
+	return token[:8]
 }

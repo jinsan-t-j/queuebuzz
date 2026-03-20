@@ -13,5 +13,4 @@ func RegisterRoutes(app *fiber.App, c *Container) {
 	c.Host.RegisterRoutes(api)
 	c.Queue.RegisterRoutes(api)
 	c.Customer.RegisterRoutes(api)
-	c.Realtime.RegisterRoutes(app)
 }

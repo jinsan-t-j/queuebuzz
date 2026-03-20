@@ -34,8 +34,8 @@ var (
 	// VerifyRateLimiter — 5 req / IP / 15 min for auth verification
 	VerifyRateLimiter = RateLimiter(5, 15*time.Minute)
 
-	// WSRateLimiter — 10 connections / IP / min for WebSocket upgrades
-	WSRateLimiter = RateLimiter(10, 1*time.Minute)
+	// SSERateLimiter — 10 connections / IP / min for SSE streams
+	SSERateLimiter = RateLimiter(10, 1*time.Minute)
 
 	// GlobalRateLimiter — 100 req / IP / min for all endpoints
 	GlobalRateLimiter = RateLimiter(100, 1*time.Minute)

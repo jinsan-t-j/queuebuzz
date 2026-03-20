@@ -61,16 +61,38 @@ func OptionalAuthMiddleware() fiber.Handler {
 
 		token := c.Cookies("access_token")
 		if token == "" {
-			token = c.Cookies("queuebuzz_host_token")
-		}
-
-		if token == "" {
 			return c.Next()
 		}
 
 		claims, err := authService.VerifyToken(token)
 		if err != nil {
+			return c.SendStatus(fiber.StatusUnauthorized)
+		}
+
+		setAuthLocals(c, claims, token)
+
+		return c.Next()
+	}
+}
+
+func HostAuthMiddleware() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		if !authInitialized {
 			return c.Next()
+		}
+
+		token := c.Cookies("access_token")
+		if token == "" {
+			token = c.Cookies("queuebuzz_host_token")
+		}
+
+		if token == "" {
+			return c.SendStatus(fiber.StatusUnauthorized)
+		}
+
+		claims, err := authService.VerifyToken(token)
+		if err != nil {
+			return c.SendStatus(fiber.StatusUnauthorized)
 		}
 
 		setAuthLocals(c, claims, token)

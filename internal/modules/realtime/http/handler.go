@@ -96,12 +96,18 @@ func (h *Handler) sendSnapshot(queueID string) {
 
 	safe := make([]safeEntry, 0, len(entries))
 	for _, entry := range entries {
+		var displayName *string
+		if entry.Name != "" {
+			name := entry.Name
+			displayName = &name
+		}
+
 		safe = append(safe, safeEntry{
 			Token:       entry.Token,
 			TicketNo:    entry.TicketNo,
 			Position:    entry.Position,
 			Status:      entry.Status,
-			DisplayName: entry.DisplayName,
+			DisplayName: displayName,
 		})
 	}
 

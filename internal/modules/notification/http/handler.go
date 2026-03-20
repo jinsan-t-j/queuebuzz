@@ -35,8 +35,8 @@ func (h *Handler) BroadcastToQueue(c fiber.Ctx) error {
 
 	var tokens []string
 	for _, entry := range entries {
-		if entry.FCMToken != "" {
-			tokens = append(tokens, entry.FCMToken)
+		if entry.FCMToken != nil && *entry.FCMToken != "" {
+			tokens = append(tokens, *entry.FCMToken)
 		}
 	}
 

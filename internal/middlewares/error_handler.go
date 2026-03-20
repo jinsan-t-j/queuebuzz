@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"queuebuzz/internal/exceptions"
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/log"
 
@@ -55,8 +56,20 @@ func (e *ErrorHandler) Handle(c fiber.Ctx, err error) error {
 	var syntaxErr *json.SyntaxError
 	var validationErrors validator.ValidationErrors
 	var fiberError *fiber.Error
+	var fieldEx *exceptions.FieldException
+	var appEx *exceptions.AppException
 
 	switch {
+	case errors.As(err, &fieldEx):
+		statusCode = fieldEx.Code
+		message = validationError
+		details = map[string]string{
+			fieldEx.Field: fieldEx.Message,
+		}
+
+	case errors.As(err, &appEx):
+		statusCode = appEx.Code
+		message = appEx.Message
 
 	case errors.As(err, &unmarshalErr):
 		statusCode = fiber.StatusBadRequest
@@ -96,9 +109,9 @@ func (e *ErrorHandler) Handle(c fiber.Ctx, err error) error {
 	}
 
 	if isProduction {
-		details = nil
 		if statusCode >= 500 {
 			message = genericError
+			details = nil
 		}
 	}
 

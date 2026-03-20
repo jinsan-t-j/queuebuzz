@@ -57,15 +57,18 @@ func NewContainer() *Container {
 
 	redisSvc := services.NewRedisService(rdb)
 	geoSvc := services.NewGeoService()
-	ticketSvc := services.NewTicketService(rdb)
 	joinCodeSvc := services.NewJoinCodeService(rdb)
+
 	authSvc := authservice.NewAuthService(cfg.JWTPrivateKey, cfg.JWTPublicKey, redisSvc)
 	socialAuthSvc := authservice.NewSocialAuthService(cfg, redisSvc)
+
+	queueRedisSvc := queueservice.NewQueueRedisService(rdb)
+	queueSvc := queueservice.New(queueCol, entryCol, redisSvc, queueRedisSvc, joinCodeSvc, geoSvc)
+
 	emailSvc := services.NewEmailService(cfg)
 	otpSvc := services.NewOTPService(rdb)
 	magicLinkSvc := services.NewMagicLinkService(rdb)
 	notifSender := services.NewFirebaseSender(cfg.FirebaseCredentials)
-	queueSvc := queueservice.New(queueCol, entryCol, redisSvc, ticketSvc, joinCodeSvc, geoSvc)
 	hostRepo := hostrepo.NewMongoRepository(hostCol, queueCol)
 	hostSvc := hostservice.New(hostRepo)
 
@@ -78,7 +81,7 @@ func NewContainer() *Container {
 
 	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc)
-	queueHandler := queuehttp.NewHandler(queueSvc, authSvc, joinCodeSvc, redisSvc)
+	queueHandler := queuehttp.NewHandler(cfg, queueSvc, authSvc, joinCodeSvc, redisSvc)
 	customerHandler := customerhttp.NewHandler(queueSvc, redisSvc)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 	wsHandler := realtimehttp.NewHandler(authSvc, queueSvc, hub)

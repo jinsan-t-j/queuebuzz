@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"queuebuzz/internal/exceptions"
 	"queuebuzz/internal/constants"
 	queuedomain "queuebuzz/internal/modules/queue/domain"
 	legacyservices "queuebuzz/internal/services"
@@ -20,7 +21,7 @@ type Service struct {
 	queueCol      *mongodriver.Collection
 	entryCol      *mongodriver.Collection
 	redisService  *legacyservices.RedisService
-	ticketService *legacyservices.TicketService
+	queueRedisSvc *QueueRedisService
 	joinCodeSvc   *legacyservices.JoinCodeService
 	geoService    *legacyservices.GeoService
 }
@@ -29,7 +30,7 @@ func New(
 	queueCol *mongodriver.Collection,
 	entryCol *mongodriver.Collection,
 	redisSvc *legacyservices.RedisService,
-	ticketSvc *legacyservices.TicketService,
+	queueRedisSvc *QueueRedisService,
 	joinCodeSvc *legacyservices.JoinCodeService,
 	geoSvc *legacyservices.GeoService,
 ) *Service {
@@ -37,32 +38,38 @@ func New(
 		queueCol:      queueCol,
 		entryCol:      entryCol,
 		redisService:  redisSvc,
-		ticketService: ticketSvc,
+		queueRedisSvc: queueRedisSvc,
 		joinCodeSvc:   joinCodeSvc,
 		geoService:    geoSvc,
 	}
 }
 
 type CreateQueueParams struct {
-	HostID         *string
-	HostPublicID   *string
-	Name           string
-	Slug           string
-	AvgServiceMins int
+	HostID            *string
+	HostPublicID      *string
+	Name              string
+	Slug              string
+	AvgServiceMins    int
+	AllowPartyJoining *bool
+	MaxPartySize      *int
+	RecoveryEmail     *string
 }
 
 type JoinQueueParams struct {
-	QueueID     string
-	FCMToken    string
-	DisplayName *string
-	PIN         *string
+	QueueID   string
+	Name      string
+	Email     *string
+	Phone     *string
+	PartySize *int
+	FCMToken  *string
+	PIN       *string
+	CreatedBy *string
 }
 
 type JoinQueueResult struct {
-	Token            string `json:"token"`
-	TicketNo         string `json:"ticket_no"`
-	Position         int64  `json:"position"`
-	EstimatedWaitMin int64  `json:"estimated_wait_mins"`
+	queuedomain.Entry
+	Position         int64
+	EstimatedWaitMin int64
 }
 
 func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*queuedomain.Queue, error) {
@@ -75,15 +82,17 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*q
 
 	now := time.Now()
 	queue := queuedomain.Queue{
-		ID:             uuid.New().String(),
-		HostID:         params.HostID,
-		HostPublicID:   params.HostPublicID,
-		Name:           params.Name,
-		Slug:           params.Slug,
-		Status:         constants.QueueStatusActive,
-		CreatedAt:      now,
-		ExpiresAt:      now.Add(time.Duration(constants.DefaultQueueExpiryH) * time.Hour),
-		AvgServiceMins: params.AvgServiceMins,
+		ID:                uuid.New().String(),
+		HostID:            params.HostID,
+		HostPublicID:      params.HostPublicID,
+		Name:              params.Name,
+		Slug:              params.Slug,
+		AvgServiceMins:    params.AvgServiceMins,
+		AllowPartyJoining: *params.AllowPartyJoining,
+		MaxPartySize:      *params.MaxPartySize,
+		Status:            constants.QueueStatusActive,
+		CreatedAt:         now,
+		ExpiresAt:         now.Add(time.Duration(constants.DefaultQueueExpiryH) * time.Hour),
 	}
 
 	joinCode, err := s.joinCodeSvc.GenerateJoinCode(ctx, queue.ID)
@@ -148,15 +157,39 @@ func (s *Service) JoinQueue(ctx context.Context, params JoinQueueParams) (*JoinQ
 	if err != nil {
 		return nil, fmt.Errorf("queue not found")
 	}
+
 	if queue.Status != constants.QueueStatusActive {
 		return nil, fmt.Errorf("queue is not active")
 	}
+
 	if time.Now().After(queue.ExpiresAt) {
 		return nil, fmt.Errorf("queue has expired")
 	}
 
+	if params.Email != nil && *params.Email != "" {
+		count, err := s.entryCol.CountDocuments(ctx, bson.M{
+			"queue_id": params.QueueID,
+			"status":   bson.M{"$in": []string{constants.EntryStatusWaiting, constants.EntryStatusCalled, constants.EntryStatusIdle}},
+			"email":    *params.Email,
+		})
+		if err == nil && count > 0 {
+			return nil, exceptions.Duplicate("email", "Guest already in queue!")
+		}
+	}
+	
+	if params.Phone != nil && *params.Phone != "" {
+		count, err := s.entryCol.CountDocuments(ctx, bson.M{
+			"queue_id": params.QueueID,
+			"status":   bson.M{"$in": []string{constants.EntryStatusWaiting, constants.EntryStatusCalled, constants.EntryStatusIdle}},
+			"phone":    *params.Phone,
+		})
+		if err == nil && count > 0 {
+			return nil, exceptions.Duplicate("phone", "Guest already in queue!")
+		}
+	}
+
 	userToken := uuid.New().String()
-	ticketNo, err := s.ticketService.NextTicket(ctx, params.QueueID)
+	ticketNo, err := s.queueRedisSvc.NextTicket(ctx, params.QueueID)
 	if err != nil {
 		return nil, err
 	}
@@ -172,17 +205,28 @@ func (s *Service) JoinQueue(ctx context.Context, params JoinQueueParams) (*JoinQ
 	}
 
 	entry := queuedomain.Entry{
-		Token:       userToken,
-		QueueID:     params.QueueID,
-		TicketNo:    ticketNo,
-		Status:      constants.EntryStatusWaiting,
-		JoinedAt:    time.Now(),
-		FCMToken:    params.FCMToken,
-		DisplayName: params.DisplayName,
-		PINHash:     pinHash,
+		ID:        uuid.New().String(),
+		Token:     userToken,
+		QueueID:   params.QueueID,
+		TicketNo:  ticketNo,
+		Status:    constants.EntryStatusWaiting,
+		JoinedAt:  time.Now(),
+		FCMToken:  params.FCMToken,
+		Name:      params.Name,
+		Email:     params.Email,
+		Phone:     params.Phone,
+		PartySize: params.PartySize,
+		PINHash:   pinHash,
+		CreatedBy: params.CreatedBy,
 	}
-	if _, err := s.entryCol.InsertOne(ctx, entry); err != nil {
+
+	entryId, err := s.entryCol.InsertOne(ctx, entry)
+	if err != nil {
 		return nil, fmt.Errorf("failed to insert queue entry: %w", err)
+	}
+
+	if err := s.entryCol.FindOne(ctx, bson.M{"_id": entryId.InsertedID}).Decode(&entry); err != nil {
+		return nil, err
 	}
 
 	score := float64(time.Now().Unix())
@@ -199,8 +243,7 @@ func (s *Service) JoinQueue(ctx context.Context, params JoinQueueParams) (*JoinQ
 	}
 
 	return &JoinQueueResult{
-		Token:            userToken,
-		TicketNo:         ticketNo,
+		Entry:            entry,
 		Position:         position + 1,
 		EstimatedWaitMin: position * int64(queue.AvgServiceMins),
 	}, nil
@@ -340,8 +383,7 @@ func (s *Service) RejoinByToken(ctx context.Context, queueID, token string) (*Jo
 		avgMins = queue.AvgServiceMins
 	}
 	return &JoinQueueResult{
-		Token:            token,
-		TicketNo:         entry.TicketNo,
+		Entry:            *entry,
 		Position:         position + 1,
 		EstimatedWaitMin: position * int64(avgMins),
 	}, nil
@@ -374,8 +416,7 @@ func (s *Service) RejoinByPIN(ctx context.Context, queueID, ticketNo, pin string
 		avgMins = queue.AvgServiceMins
 	}
 	return &JoinQueueResult{
-		Token:            newToken,
-		TicketNo:         entry.TicketNo,
+		Entry:            entry,
 		Position:         position + 1,
 		EstimatedWaitMin: position * int64(avgMins),
 	}, nil

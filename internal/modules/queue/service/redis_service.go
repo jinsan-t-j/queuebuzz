@@ -1,4 +1,4 @@
-package services
+package service
 
 import (
 	"context"
@@ -8,17 +8,15 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type TicketService struct {
+type QueueRedisService struct {
 	rdb *redis.Client
 }
 
-func NewTicketService(rdb *redis.Client) *TicketService {
-	return &TicketService{rdb: rdb}
+func NewQueueRedisService(rdb *redis.Client) *QueueRedisService {
+	return &QueueRedisService{rdb: rdb}
 }
 
-// NextTicket atomically increments the ticket counter for the given queue
-// and returns a formatted ticket number like "Q-0042".
-func (s *TicketService) NextTicket(ctx context.Context, queueID string) (string, error) {
+func (s *QueueRedisService) NextTicket(ctx context.Context, queueID string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

@@ -1,9 +1,12 @@
 package dto
 
 type CreateQueueRequest struct {
-	QueueName      string `json:"queue_name" validate:"required,min=3,max=50"`
-	Slug           string `json:"slug" validate:"omitempty,min=3,max=20,alphanum"`
-	AvgServiceMins int    `json:"avg_service_mins" validate:"omitempty,min=1,max=60"`
+	Name              string  `json:"name" validate:"required,min=3,max=50"`
+	Slug              string  `json:"slug" validate:"omitempty,min=3,max=20,alphanum"`
+	AvgServiceMins    *int    `json:"avg_service_mins" validate:"omitempty,min=1,max=60"`
+	AllowPartyJoining *bool   `json:"allow_party_joining" validate:"omitempty"`
+	MaxPartySize      *int    `json:"max_party_size" validate:"omitempty,min=1,max=100"`
+	RecoveryEmail     *string `json:"recovery_email" validate:"omitempty,email"`
 }
 
 type JoinByCodeRequest struct {
@@ -17,4 +20,11 @@ type JoinRequest struct {
 	FCMToken    string  `json:"fcm_token" validate:"required"`
 	DisplayName *string `json:"display_name"`
 	PIN         *string `json:"pin" validate:"omitempty,len=4"`
+}
+
+type AddEntryRequest struct {
+	Name      string  `json:"name" validate:"required,min=3,max=50"`
+	Email     *string `json:"email" validate:"omitempty,email"`
+	Phone     *string `json:"phone" validate:"omitempty,len=10"`
+	PartySize *int    `json:"party_size" validate:"omitempty,min=1,max=100"`
 }

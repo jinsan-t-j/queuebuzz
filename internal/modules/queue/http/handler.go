@@ -1,8 +1,11 @@
 package http
 
 import (
+	"errors"
 	"time"
 
+	"queuebuzz/internal/exceptions"
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
 	authservice "queuebuzz/internal/modules/auth/service"
@@ -16,14 +19,15 @@ import (
 )
 
 type Handler struct {
+	cfg             *config.Config
 	queueService    *queueservice.Service
 	authService     *authservice.AuthService
 	joinCodeService *legacyservices.JoinCodeService
 	redisService    *legacyservices.RedisService
 }
 
-func NewHandler(queueSvc *queueservice.Service, authSvc *authservice.AuthService, joinCodeSvc *legacyservices.JoinCodeService, redisSvc *legacyservices.RedisService) *Handler {
-	return &Handler{queueService: queueSvc, authService: authSvc, joinCodeService: joinCodeSvc, redisService: redisSvc}
+func NewHandler(cfg *config.Config, queueSvc *queueservice.Service, authSvc *authservice.AuthService, joinCodeSvc *legacyservices.JoinCodeService, redisSvc *legacyservices.RedisService) *Handler {
+	return &Handler{cfg: cfg, queueService: queueSvc, authService: authSvc, joinCodeService: joinCodeSvc, redisService: redisSvc}
 }
 
 // Create godoc
@@ -56,8 +60,9 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		hostPublicIDPtr = &hostPublicID
 	}
 
-	if req.AvgServiceMins == 0 {
-		req.AvgServiceMins = constants.DefaultAvgServiceMins
+	if req.AvgServiceMins == nil {
+		defaultMins := constants.DefaultAvgServiceMins
+		req.AvgServiceMins = &defaultMins
 	}
 
 	if req.Slug == "" {
@@ -65,11 +70,14 @@ func (h *Handler) Create(c fiber.Ctx) error {
 	}
 
 	queue, err := h.queueService.CreateQueue(c.Context(), queueservice.CreateQueueParams{
-		HostID:         hostIDPtr,
-		HostPublicID:   hostPublicIDPtr,
-		Name:           req.QueueName,
-		Slug:           req.Slug,
-		AvgServiceMins: req.AvgServiceMins,
+		HostID:            hostIDPtr,
+		HostPublicID:      hostPublicIDPtr,
+		Name:              req.Name,
+		Slug:              req.Slug,
+		AvgServiceMins:    *req.AvgServiceMins,
+		AllowPartyJoining: req.AllowPartyJoining,
+		MaxPartySize:      req.MaxPartySize,
+		RecoveryEmail:     req.RecoveryEmail,
 	})
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
@@ -77,14 +85,16 @@ func (h *Handler) Create(c fiber.Ctx) error {
 
 	response := dto.CreateQueueResponse{
 		QueueRecord: dto.QueueRecord{
-			ID:             queue.ID,
-			Name:           queue.Name,
-			JoinCode:       queue.JoinCode,
-			Slug:           queue.Slug,
-			Status:         queue.Status,
-			AvgServiceMins: queue.AvgServiceMins,
-			CreatedAt:      queue.CreatedAt.Format(time.RFC3339),
-			ExpiresAt:      queue.ExpiresAt.Format(time.RFC3339),
+			ID:                queue.ID,
+			Name:              queue.Name,
+			JoinCode:          queue.JoinCode,
+			Slug:              queue.Slug,
+			Status:            queue.Status,
+			AvgServiceMins:    queue.AvgServiceMins,
+			AllowPartyJoining: queue.AllowPartyJoining,
+			MaxPartySize:      queue.MaxPartySize,
+			CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
+			ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
 		},
 	}
 
@@ -147,14 +157,16 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 
 	response := dto.GetLiveQueueResponse{
 		QueueRecord: dto.QueueRecord{
-			ID:             queue.ID,
-			Name:           queue.Name,
-			JoinCode:       queue.JoinCode,
-			Slug:           queue.Slug,
-			Status:         queue.Status,
-			AvgServiceMins: queue.AvgServiceMins,
-			CreatedAt:      queue.CreatedAt.Format(time.RFC3339),
-			ExpiresAt:      queue.ExpiresAt.Format(time.RFC3339),
+			ID:                queue.ID,
+			Name:              queue.Name,
+			JoinCode:          queue.JoinCode,
+			Slug:              queue.Slug,
+			Status:            queue.Status,
+			AvgServiceMins:    queue.AvgServiceMins,
+			AllowPartyJoining: queue.AllowPartyJoining,
+			MaxPartySize:      queue.MaxPartySize,
+			CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
+			ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
 		},
 	}
 
@@ -184,14 +196,16 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 
 	response := dto.GetLiveQueueResponse{
 		QueueRecord: dto.QueueRecord{
-			ID:             queue.ID,
-			Name:           queue.Name,
-			JoinCode:       queue.JoinCode,
-			Slug:           queue.Slug,
-			Status:         queue.Status,
-			AvgServiceMins: queue.AvgServiceMins,
-			CreatedAt:      queue.CreatedAt.Format(time.RFC3339),
-			ExpiresAt:      queue.ExpiresAt.Format(time.RFC3339),
+			ID:                queue.ID,
+			Name:              queue.Name,
+			JoinCode:          queue.JoinCode,
+			Slug:              queue.Slug,
+			Status:            queue.Status,
+			AvgServiceMins:    queue.AvgServiceMins,
+			AllowPartyJoining: queue.AllowPartyJoining,
+			MaxPartySize:      queue.MaxPartySize,
+			CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
+			ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
 		},
 	}
 
@@ -254,7 +268,67 @@ func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 	if err := h.queueService.TerminateQueue(c.Context(), queueId); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	c.Cookie(&fiber.Cookie{
+		Name:     "queuebuzz_host_token",
+		Value:    "",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HTTPOnly: true,
+		Secure:   h.cfg.IsProduction(),
+		SameSite: "Lax",
+		Path:     "/",
+	})
 	return c.SendStatus(fiber.StatusOK)
+}
+
+// AddEntry godoc
+// @Summary Add a new entry to the queue
+// @Description Adds a new entry to the live queue for the authenticated host.
+// @Tags Host
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param name body queuedto.AddEntryRequest true "Add entry request"
+// @Success 200 {object} map[string]interface{} "Entry added"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/{id}/add-entry [post]
+func (h *Handler) AddEntry(c fiber.Ctx) error {
+	var req queuedto.AddEntryRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return err
+	}
+
+	createdBy := c.Locals("host_id").(string)
+	result, err := h.queueService.JoinQueue(c.Context(), queueservice.JoinQueueParams{
+		QueueID:   c.Params("id"),
+		Name:      req.Name,
+		Email:     req.Email,
+		Phone:     req.Phone,
+		PartySize: req.PartySize,
+		CreatedBy: &createdBy,
+	})
+	if err != nil {
+		var fieldEx *exceptions.FieldException
+		if errors.As(err, &fieldEx) {
+			return err
+		}
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
+	response := queuedto.AddEntryResponse{
+		EntryRecord: queuedto.EntryRecord{
+			ID:               result.ID,
+			TicketNo:         result.TicketNo,
+			Name:             result.Name,
+			Status:           result.Status,
+			EstimatedWaitMin: result.EstimatedWaitMin,
+			PartySize:        result.PartySize,
+		},
+	}
+
+	return helpers.NewSuccessResponse("Entry added", response).OK(c)
 }
 
 func (h *Handler) GetStatus(c fiber.Ctx) error {
@@ -302,12 +376,16 @@ func (h *Handler) JoinByID(c fiber.Ctx) error {
 
 func (h *Handler) joinQueue(c fiber.Ctx, queueID string, fcmToken string, displayName, pin *string) error {
 	result, err := h.queueService.JoinQueue(c.Context(), queueservice.JoinQueueParams{
-		QueueID:     queueID,
-		FCMToken:    fcmToken,
-		DisplayName: displayName,
-		PIN:         pin,
+		QueueID:  queueID,
+		FCMToken: &fcmToken,
+		Name:     *displayName,
+		PIN:      pin,
 	})
 	if err != nil {
+		var fieldEx *exceptions.FieldException
+		if errors.As(err, &fieldEx) {
+			return err
+		}
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	return c.Status(fiber.StatusOK).JSON(result)
@@ -371,7 +449,7 @@ func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 
 		response.Entries[i] = dto.HistoryEntry{
 			TicketNo:    e.TicketNo,
-			DisplayName: helpers.DerefString(e.DisplayName),
+			DisplayName: helpers.DerefString(&e.Name),
 			Status:      e.Status,
 			WaitTimeMin: waitTime,
 			ServedAt:    servedAt,

@@ -1,5 +1,98 @@
 basePath: /api
 definitions:
+  dto.AddEntryRequest:
+    properties:
+      email:
+        type: string
+      name:
+        maxLength: 50
+        minLength: 3
+        type: string
+      party_size:
+        maximum: 100
+        minimum: 1
+        type: integer
+      phone:
+        type: string
+    required:
+    - name
+    type: object
+  dto.CheckSlugResponse:
+    properties:
+      is_available:
+        type: boolean
+    type: object
+  dto.CreateQueueRequest:
+    properties:
+      allow_party_joining:
+        type: boolean
+      avg_service_mins:
+        maximum: 60
+        minimum: 1
+        type: integer
+      max_party_size:
+        maximum: 100
+        minimum: 1
+        type: integer
+      name:
+        maxLength: 50
+        minLength: 3
+        type: string
+      recovery_email:
+        type: string
+      slug:
+        maxLength: 20
+        minLength: 3
+        type: string
+    required:
+    - name
+    type: object
+  dto.CreateQueueResponse:
+    properties:
+      allow_party_joining:
+        type: boolean
+      avg_service_mins:
+        type: integer
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      join_code:
+        type: string
+      max_party_size:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+    type: object
+  dto.GetLiveQueueResponse:
+    properties:
+      allow_party_joining:
+        type: boolean
+      avg_service_mins:
+        type: integer
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      join_code:
+        type: string
+      max_party_size:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+    type: object
   dto.GetMeResponse:
     properties:
       avatar:
@@ -280,6 +373,366 @@ paths:
       summary: Get authenticated host
       tags:
       - Host
+  /queue/{id}/add-entry:
+    post:
+      description: Adds a new entry to the live queue for the authenticated host.
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Add entry request
+        in: body
+        name: name
+        required: true
+        schema:
+          $ref: '#/definitions/dto.AddEntryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Entry added
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Add a new entry to the queue
+      tags:
+      - Queue
+  /queue/{id}/close:
+    post:
+      description: Closes the live queue for the authenticated host.
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Queue closed
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Close a queue
+      tags:
+      - Queue
+  /queue/{id}/events:
+    get:
+      description: Gets the live queue events for the authenticated host.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Live queue events
+          schema:
+            additionalProperties: true
+            type: object
+        "302":
+          description: Found
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  $ref: '#/definitions/dto.GetLiveQueueResponse'
+              type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get live queue events
+      tags:
+      - Queue
+  /queue/{id}/live:
+    get:
+      description: Gets the live queue for the authenticated host.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  $ref: '#/definitions/dto.GetLiveQueueResponse'
+              type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get live queue by ID
+      tags:
+      - Queue
+  /queue/{id}/pause:
+    post:
+      description: Pauses the live queue for the authenticated host.
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Queue paused
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Pause a queue
+      tags:
+      - Queue
+  /queue/{id}/resume:
+    post:
+      description: Resumes the live queue for the authenticated host.
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Queue resumed
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Resume a queue
+      tags:
+      - Queue
+  /queue/create:
+    post:
+      description: Creates a new queue for BOTH authenticated and anonymous host.
+      parameters:
+      - description: Create queue request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateQueueRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Queue created
+          schema:
+            additionalProperties: true
+            type: object
+        "302":
+          description: Found
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  $ref: '#/definitions/dto.CreateQueueResponse'
+              type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new queue
+      tags:
+      - Queue
+  /queue/live:
+    get:
+      description: Gets the live queue for the authenticated host.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Live queue
+          schema:
+            additionalProperties: true
+            type: object
+        "302":
+          description: Found
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  $ref: '#/definitions/dto.GetLiveQueueResponse'
+              type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get live queue
+      tags:
+      - Queue
+  /queue/slug-check:
+    get:
+      description: Checks whether a queue slug is unique and available.
+      parameters:
+      - description: Slug to check
+        in: query
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  $ref: '#/definitions/dto.CheckSlugResponse'
+              type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Check if a slug is available
+      tags:
+      - Queue
 securityDefinitions:
   BearerAuth:
     description: 'RS256 JWT — format: Bearer {token}'

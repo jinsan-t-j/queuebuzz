@@ -13,6 +13,7 @@ type Queue struct {
 	AvgServiceMins    int       `bson:"avg_service_mins" json:"avg_service_mins"`
 	AllowPartyJoining bool      `bson:"allow_party_joining" json:"allow_party_joining"`
 	MaxPartySize      int       `bson:"max_party_size" json:"max_party_size"`
+	RecoveryEmail     *string   `bson:"recovery_email" json:"recovery_email,omitempty"`
 	CreatedAt         time.Time `bson:"created_at" json:"created_at"`
 	ExpiresAt         time.Time `bson:"expires_at" json:"expires_at"`
 }

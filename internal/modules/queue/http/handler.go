@@ -19,6 +19,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type Handler struct {
@@ -186,6 +187,7 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 			AvgServiceMins:    queue.AvgServiceMins,
 			AllowPartyJoining: queue.AllowPartyJoining,
 			MaxPartySize:      queue.MaxPartySize,
+			RecoveryEmail:     queue.RecoveryEmail,
 			CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
 			ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
 		},
@@ -222,6 +224,7 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 			AvgServiceMins:    queue.AvgServiceMins,
 			AllowPartyJoining: queue.AllowPartyJoining,
 			MaxPartySize:      queue.MaxPartySize,
+			RecoveryEmail:     queue.RecoveryEmail,
 			CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
 			ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
 		},
@@ -284,6 +287,56 @@ func (h *Handler) PauseQueue(c fiber.Ctx) error {
 	h.notifier.PublishQueueStatus(queueID, constants.QueueStatusPaused)
 
 	return helpers.NewSuccessResponse("Queue paused", nil).MessageResponse(c)
+}
+
+// Update godoc
+// @Summary Update queue settings
+// @Description Updates the queue settings for the host (name, avg service mins, recovery email).
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param request body queuedto.UpdateQueueRequest true "Update queue request"
+// @Success 200 {object} helpers.SuccessResponse{Data=nil} "Queue updated"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/{id} [patch]
+func (h *Handler) Update(c fiber.Ctx) error {
+	queueID := c.Params("id")
+	var req queuedto.UpdateQueueRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return err
+	}
+
+	updates := make(bson.M)
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.AvgServiceMins != nil {
+		updates["avg_service_mins"] = *req.AvgServiceMins
+	}
+	if req.RecoveryEmail != nil {
+		updates["recovery_email"] = *req.RecoveryEmail
+	}
+	if req.Slug != nil {
+		updates["slug"] = *req.Slug
+	}
+	if req.AllowPartyJoining != nil {
+		updates["allow_party_joining"] = *req.AllowPartyJoining
+	}
+	if req.MaxPartySize != nil {
+		updates["max_party_size"] = *req.MaxPartySize
+	}
+
+	if len(updates) == 0 {
+		return fiber.NewError(fiber.StatusBadRequest, "No fields to update")
+	}
+
+	if err := h.queueService.UpdateQueue(c.Context(), queueID, updates); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helpers.NewSuccessResponse("Queue updated", nil).OK(c)
 }
 
 // ResumeQueue godoc

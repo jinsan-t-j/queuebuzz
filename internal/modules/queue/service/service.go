@@ -142,6 +142,13 @@ func (s *Service) ResumeQueue(ctx context.Context, queueID string) error {
 	return s.updateQueueStatus(ctx, queueID, constants.QueueStatusActive)
 }
 
+func (s *Service) UpdateQueue(ctx context.Context, queueID string, updates bson.M) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{"$set": updates})
+	return err
+}
+
 func (s *Service) updateQueueStatus(ctx context.Context, queueID, status string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

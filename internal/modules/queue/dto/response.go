@@ -6,16 +6,17 @@ import (
 )
 
 type QueueRecord struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	JoinCode          string `json:"join_code"`
-	Slug              string `json:"slug"`
-	Status            string `json:"status"`
-	AvgServiceMins    int    `json:"avg_service_mins"`
-	AllowPartyJoining bool   `json:"allow_party_joining"`
-	MaxPartySize      int    `json:"max_party_size"`
-	CreatedAt         string `json:"created_at"`
-	ExpiresAt         string `json:"expires_at"`
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	JoinCode          string  `json:"join_code"`
+	Slug              string  `json:"slug"`
+	Status            string  `json:"status"`
+	AvgServiceMins    int     `json:"avg_service_mins"`
+	AllowPartyJoining bool    `json:"allow_party_joining"`
+	MaxPartySize      int     `json:"max_party_size"`
+	RecoveryEmail     *string `json:"recovery_email,omitempty"`
+	CreatedAt         string  `json:"created_at"`
+	ExpiresAt         string  `json:"expires_at"`
 }
 
 type EntryRecord struct {

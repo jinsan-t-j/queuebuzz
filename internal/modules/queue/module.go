@@ -51,6 +51,8 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	// SSE stream — authenticated host only
 
 	queueHost := queue.Group("/:id", middlewares.HostAuthMiddleware(), middlewares.HostOwnerMiddleware())
+	queueHost.Patch("/", m.QueueHandler.Update)
+
 	queueHost.Get("/live", m.QueueHandler.GetLiveQueueByID)
 	queueHost.Get("/events", middlewares.SSERateLimiter, m.QueueHandler.Events)
 	queueHost.Post("/ping/:token", m.QueueHandler.PingUser)

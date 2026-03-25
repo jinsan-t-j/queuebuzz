@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"queuebuzz/internal/exceptions"
 	"queuebuzz/internal/constants"
+	"queuebuzz/internal/exceptions"
 	queuedomain "queuebuzz/internal/modules/queue/domain"
 	legacyservices "queuebuzz/internal/services"
 
@@ -142,11 +142,17 @@ func (s *Service) ResumeQueue(ctx context.Context, queueID string) error {
 	return s.updateQueueStatus(ctx, queueID, constants.QueueStatusActive)
 }
 
-func (s *Service) UpdateQueue(ctx context.Context, queueID string, updates bson.M) error {
+func (s *Service) UpdateQueue(ctx context.Context, queueID string, updates bson.M) (*queuedomain.Queue, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{"$set": updates})
-	return err
+
+	var queue queuedomain.Queue
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+	err := s.queueCol.FindOneAndUpdate(ctx, bson.M{"_id": queueID}, bson.M{"$set": updates}, opts).Decode(&queue)
+	if err != nil {
+		return nil, err
+	}
+	return &queue, nil
 }
 
 func (s *Service) updateQueueStatus(ctx context.Context, queueID, status string) error {
@@ -165,7 +171,12 @@ func (s *Service) JoinQueue(ctx context.Context, params JoinQueueParams) (*JoinQ
 		return nil, fmt.Errorf("queue not found")
 	}
 
-	if queue.Status != constants.QueueStatusActive {
+	status := queue.Status
+	if status == constants.QueueStatusPaused {
+		status = constants.QueueStatusActive
+	}
+
+	if status != constants.QueueStatusActive {
 		return nil, fmt.Errorf("queue is not active")
 	}
 
@@ -183,7 +194,7 @@ func (s *Service) JoinQueue(ctx context.Context, params JoinQueueParams) (*JoinQ
 			return nil, exceptions.Duplicate("email", "Guest already in queue!")
 		}
 	}
-	
+
 	if params.Phone != nil && *params.Phone != "" {
 		count, err := s.entryCol.CountDocuments(ctx, bson.M{
 			"queue_id": params.QueueID,

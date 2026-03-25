@@ -95,3 +95,19 @@ func ToEntryResponses(entries []domain.Entry) []EntryRecord {
 	}
 	return responses
 }
+
+func ToQueueResponse(queue domain.Queue) QueueRecord {
+	return QueueRecord{
+		ID:                queue.ID,
+		Name:              queue.Name,
+		JoinCode:          queue.JoinCode,
+		Slug:              queue.Slug,
+		Status:            queue.Status,
+		AvgServiceMins:    queue.AvgServiceMins,
+		AllowPartyJoining: queue.AllowPartyJoining,
+		MaxPartySize:      queue.MaxPartySize,
+		RecoveryEmail:     queue.RecoveryEmail,
+		CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
+		ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
+	}
+}

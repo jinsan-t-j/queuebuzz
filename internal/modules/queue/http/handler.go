@@ -332,11 +332,12 @@ func (h *Handler) Update(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "No fields to update")
 	}
 
-	if err := h.queueService.UpdateQueue(c.Context(), queueID, updates); err != nil {
+	queue, err := h.queueService.UpdateQueue(c.Context(), queueID, updates)
+	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helpers.NewSuccessResponse("Queue updated", nil).OK(c)
+	return helpers.NewSuccessResponse("Queue updated", dto.ToQueueResponse(*queue)).OK(c)
 }
 
 // ResumeQueue godoc

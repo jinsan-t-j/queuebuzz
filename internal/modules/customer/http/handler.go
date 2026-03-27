@@ -77,3 +77,12 @@ func (h *Handler) Rejoin(c fiber.Ctx) error {
 	}
 	return c.Status(fiber.StatusOK).JSON(result)
 }
+
+func (h *Handler) GetStatus(c fiber.Ctx) error {
+	entryID := c.Params("id")
+	result, err := h.queueService.GetEntryStatusByID(c.Context(), entryID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Ticket not found")
+	}
+	return c.Status(fiber.StatusOK).JSON(result)
+}

@@ -248,19 +248,36 @@ func (h *Handler) Events(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "queue id is required")
 	}
 
-	snapshotFn := func() ([]byte, error) {
+	snapshotFn := func() ([][]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
+		queue, err := h.queueService.GetQueue(ctx, queueID)
+		if err != nil {
+			return nil, err
+		}
 		entries, err := h.queueService.GetQueueEntries(ctx, queueID)
 		if err != nil {
 			return nil, err
 		}
 
-		return json.Marshal(queueservice.SSEMessage{
+		var results [][]byte
+
+		entriesData, _ := json.Marshal(queueservice.SSEMessage{
 			Event: queueservice.EventQueueUpdate,
 			Data:  dto.ToEntryResponses(entries),
 		})
+		results = append(results, entriesData)
+
+		if queue.Status != constants.QueueStatusActive {
+			statusData, _ := json.Marshal(queueservice.SSEMessage{
+				Event: queueservice.EventQueueStatusChanged,
+				Data:  queueservice.QueueStatusData{Status: queue.Status},
+			})
+			results = append(results, statusData)
+		}
+
+		return results, nil
 	}
 
 	return h.broker.ServeHTTP(c, queueID, snapshotFn)
@@ -431,43 +448,54 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	h.notifier.PublishEntryUpdate(result.Entry, int(result.Position))
+	record := dto.ToEntryResponse(result.Entry, result.Position)
+	h.notifier.PublishEntryUpdate(result.Entry.QueueID, record)
 
-	response := queuedto.AddEntryResponse{
-		EntryRecord: queuedto.EntryRecord{
-			ID:               result.ID,
-			TicketNo:         result.TicketNo,
-			Name:             result.Name,
-			Status:           result.Status,
-			EstimatedWaitMin: result.EstimatedWaitMin,
-			PartySize:        result.PartySize,
-		},
-	}
-
+	response := queuedto.AddEntryResponse{EntryRecord: record}
 	return helpers.NewSuccessResponse("Entry added", response).OK(c)
 }
 
-func (h *Handler) GetStatus(c fiber.Ctx) error {
+// GetLiveQueueStatus godoc
+// @Summary Get live queue status
+// @Description Gets the live queue status for the authenticated host.
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Success 200 {object} queuedto.GetStatusResponse "Live queue status"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/{id}/live/status [get]
+func (h *Handler) GetLiveQueueStatus(c fiber.Ctx) error {
 	queueID := c.Params("id")
-	queue, err := h.queueService.GetQueue(c.Context(), queueID)
+	queue, err := h.queueService.GetLiveQueueByID(c.Context(), queueID)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound)
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	entries, _ := h.queueService.GetQueueEntries(c.Context(), queueID)
-	waitingCount := 0
-	for _, e := range entries {
-		if e.Status == constants.EntryStatusWaiting {
-			waitingCount++
-		}
+	if queue == nil {
+		return fiber.NewError(fiber.StatusNotFound, "live queue not found")
 	}
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"id":               queue.ID,
-		"status":           queue.Status,
-		"join_code":        queue.JoinCode,
-		"waiting_count":    waitingCount,
-		"avg_service_mins": queue.AvgServiceMins,
-		"expires_at":       queue.ExpiresAt.Format(time.RFC3339),
-	})
+	return helpers.NewSuccessResponse("Queue status fetched", dto.ToQueueResponse(*queue)).OK(c)
+}
+
+// JoinByID godoc
+// @Summary Join a queue by ID
+// @Description Joins a queue by ID for the authenticated host.
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param name body queuedto.JoinRequest true "Join request"
+// @Success 200 {object} queuedto.EntryRecord "Entry added"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/{id}/join [post]
+func (h *Handler) JoinByID(c fiber.Ctx) error {
+	var req queuedto.JoinRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return err
+	}
+	return h.joinQueue(c, c.Params("id"), req.FCMToken, req.DisplayName, req.Email, req.PIN, req.PartySize)
 }
 
 func (h *Handler) JoinByCode(c fiber.Ctx) error {
@@ -477,25 +505,54 @@ func (h *Handler) JoinByCode(c fiber.Ctx) error {
 	}
 	queueID, err := h.joinCodeService.ResolveJoinCode(c.Context(), req.JoinCode)
 	if err != nil || queueID == "" {
-		return fiber.NewError(fiber.StatusNotFound, "Invalid or expired queue code")
+		// Fallback to database
+		queue, dbErr := h.queueService.GetQueueByJoinCode(c.Context(), req.JoinCode)
+		if dbErr == nil && queue != nil {
+			queueID = queue.ID
+		} else {
+			return fiber.NewError(fiber.StatusNotFound, "Invalid or expired queue code")
+		}
 	}
-	return h.joinQueue(c, queueID, req.FCMToken, req.DisplayName, req.PIN)
+	return h.joinQueue(c, queueID, req.FCMToken, req.DisplayName, req.Email, req.PIN, req.PartySize)
 }
 
-func (h *Handler) JoinByID(c fiber.Ctx) error {
-	var req queuedto.JoinRequest
-	if err := c.Bind().JSON(&req); err != nil {
-		return err
+func (h *Handler) ResolveCode(c fiber.Ctx) error {
+	code := c.Params("code")
+	queueID, err := h.joinCodeService.ResolveJoinCode(c.Context(), code)
+	if err != nil || queueID == "" {
+		// Fallback to database
+		queue, dbErr := h.queueService.GetQueueByJoinCode(c.Context(), code)
+		if dbErr == nil && queue != nil {
+			queueID = queue.ID
+		} else {
+			return fiber.NewError(fiber.StatusNotFound, "Invalid or expired queue code")
+		}
 	}
-	return h.joinQueue(c, c.Params("id"), req.FCMToken, req.DisplayName, req.PIN)
+
+	queue, err := h.queueService.GetQueue(c.Context(), queueID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"queue_id":   queue.ID,
+		"queue_name": queue.Name,
+	})
 }
 
-func (h *Handler) joinQueue(c fiber.Ctx, queueID string, fcmToken string, displayName, pin *string) error {
+func (h *Handler) joinQueue(c fiber.Ctx, queueID string, fcmToken string, displayName, email, pin *string, partySize *int) error {
+	name := "Guest"
+	if displayName != nil && *displayName != "" {
+		name = *displayName
+	}
+
 	result, err := h.queueService.JoinQueue(c.Context(), queueservice.JoinQueueParams{
-		QueueID:  queueID,
-		FCMToken: &fcmToken,
-		Name:     *displayName,
-		PIN:      pin,
+		QueueID:   queueID,
+		FCMToken:  &fcmToken,
+		Name:      name,
+		Email:     email,
+		PartySize: partySize,
+		PIN:       pin,
 	})
 	if err != nil {
 		var fieldEx *exceptions.FieldException
@@ -505,10 +562,10 @@ func (h *Handler) joinQueue(c fiber.Ctx, queueID string, fcmToken string, displa
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Publish queue update after user joins
-	h.notifier.PublishEntryUpdate(result.Entry, int(result.Position))
+	record := queuedto.ToEntryResponse(result.Entry, result.Position)
+	h.notifier.PublishEntryUpdate(result.Entry.QueueID, record)
 
-	return c.Status(fiber.StatusOK).JSON(result)
+	return c.Status(fiber.StatusOK).JSON(record)
 }
 
 func (h *Handler) Heartbeat(c fiber.Ctx) error {
@@ -566,9 +623,9 @@ func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 	for i, e := range entries {
 		var waitTime int
 		if e.FinishedAt != nil {
-			waitTime = int(e.FinishedAt.Sub(e.JoinedAt).Minutes())
+			waitTime = int(e.FinishedAt.Sub(e.CreatedAt).Minutes())
 		} else {
-			waitTime = int(time.Since(e.JoinedAt).Minutes())
+			waitTime = int(time.Since(e.CreatedAt).Minutes())
 		}
 
 		var servedAt string

@@ -120,7 +120,7 @@ func (b *Broker) buildFrame(payload []byte) ([]byte, bool) {
 	return frame, true
 }
 
-func (b *Broker) ServeHTTP(c fiber.Ctx, topic string, snapshot func() ([]byte, error)) error {
+func (b *Broker) ServeHTTP(c fiber.Ctx, topic string, snapshot func() ([][]byte, error)) error {
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
@@ -133,19 +133,20 @@ func (b *Broker) ServeHTTP(c fiber.Ctx, topic string, snapshot func() ([]byte, e
 		defer unsub()
 
 		if snapshot != nil {
-			payload, err := snapshot()
+			payloads, err := snapshot()
 			if err != nil {
 				return
 			}
-			if frame, ok := b.buildFrame(payload); ok {
-				if _, err := w.Write(frame); err != nil {
-					return
-				}
-				if err := w.Flush(); err != nil {
-					return
+			for _, payload := range payloads {
+				if frame, ok := b.buildFrame(payload); ok {
+					if _, err := w.Write(frame); err != nil {
+						return
+					}
 				}
 			}
+			_ = w.Flush()
 		}
+
 
 		ticker := time.NewTicker(keepaliveInterval)
 		defer ticker.Stop()

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 
 	"queuebuzz/internal/log"
-	"queuebuzz/internal/modules/queue/domain"
 	"queuebuzz/internal/modules/queue/dto"
 	"queuebuzz/internal/sse"
 )
@@ -22,10 +21,10 @@ func NewQueueNotifier(broker *sse.Broker) *QueueNotifier {
 }
 
 // PublishEntryUpdate notifies subscribers that a new entry joined the queue.
-func (n *QueueNotifier) PublishEntryUpdate(entry domain.Entry, position int) {
-	n.publish(entry.QueueID, SSEMessage{
+func (n *QueueNotifier) PublishEntryUpdate(queueID string, entry dto.EntryRecord) {
+	n.publish(queueID, SSEMessage{
 		Event: EventUserJoined,
-		Data:  dto.ToEntryResponse(entry, position),
+		Data:  entry,
 	})
 }
 

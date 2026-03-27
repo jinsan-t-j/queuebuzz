@@ -17,6 +17,7 @@ func New(handler *customerhttp.Handler) *Module {
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	queue := router.Group("/queue")
 	queue.Get("/:id/rejoin", m.Handler.Rejoin)
+	queue.Get("/:id/status", m.Handler.GetStatus)
 
 	queueUser := queue.Group("/:id/user")
 	queueUser.Post("/email", m.Handler.AddEmail)

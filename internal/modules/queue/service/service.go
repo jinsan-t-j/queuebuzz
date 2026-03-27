@@ -68,8 +68,9 @@ type JoinQueueParams struct {
 
 type JoinQueueResult struct {
 	queuedomain.Entry
-	Position         int64
-	EstimatedWaitMin int64
+	Position     int64 `json:"position"`
+	TotalInQueue int64 `json:"totalInQueue"`
+	ServedCount  int64 `json:"servedCount"`
 }
 
 func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*queuedomain.Queue, error) {
@@ -228,7 +229,6 @@ func (s *Service) JoinQueue(ctx context.Context, params JoinQueueParams) (*JoinQ
 		QueueID:   params.QueueID,
 		TicketNo:  ticketNo,
 		Status:    constants.EntryStatusWaiting,
-		JoinedAt:  time.Now(),
 		FCMToken:  params.FCMToken,
 		Name:      params.Name,
 		Email:     params.Email,
@@ -248,22 +248,26 @@ func (s *Service) JoinQueue(ctx context.Context, params JoinQueueParams) (*JoinQ
 	}
 
 	score := float64(time.Now().Unix())
-	if err := s.redisService.AddToQueue(ctx, params.QueueID, userToken, score); err != nil {
+	if err := s.redisService.AddToQueue(ctx, params.QueueID, entry.ID, score); err != nil {
 		return nil, fmt.Errorf("failed to add to queue positions: %w", err)
 	}
-	if err := s.redisService.SetUserSession(ctx, params.QueueID, userToken, 24*time.Hour); err != nil {
+	if err := s.redisService.SetUserSession(ctx, params.QueueID, entry.ID, 24*time.Hour); err != nil {
 		return nil, fmt.Errorf("failed to set user session: %w", err)
 	}
 
-	position, err := s.redisService.GetPosition(ctx, params.QueueID, userToken)
+	position, err := s.redisService.GetPosition(ctx, params.QueueID, entry.ID)
 	if err != nil {
 		position = 0
 	}
 
+	total, _ := s.redisService.GetQueueSize(ctx, params.QueueID)
+	served, _ := s.entryCol.CountDocuments(ctx, bson.M{"queue_id": params.QueueID, "status": "served"})
+
 	return &JoinQueueResult{
-		Entry:            entry,
-		Position:         position + 1,
-		EstimatedWaitMin: position * int64(queue.AvgServiceMins),
+		Entry:        entry,
+		Position:     position + 1,
+		TotalInQueue: total,
+		ServedCount:  served,
 	}, nil
 }
 
@@ -274,7 +278,7 @@ func (s *Service) GetQueueEntries(ctx context.Context, queueID string) ([]queued
 	cursor, err := s.entryCol.Find(ctx, bson.M{
 		"queue_id": queueID,
 		"status":   bson.M{"$in": []string{constants.EntryStatusWaiting, constants.EntryStatusCalled, constants.EntryStatusIdle}},
-	})
+	}, options.Find().SetSort(bson.M{"created_at": 1}))
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +311,7 @@ func (s *Service) CallNextUser(ctx context.Context, queueID string) (*queuedomai
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	tokens, err := s.redisService.GetAllTokensInOrder(ctx, queueID)
+	tokens, err := s.redisService.GetAllQueuePositionsInOrder(ctx, queueID)
 	if err != nil || len(tokens) == 0 {
 		return nil, fmt.Errorf("no users in queue")
 	}
@@ -380,6 +384,31 @@ func (s *Service) SetUserPIN(ctx context.Context, queueID, token, pin string) er
 	return err
 }
 
+func (s *Service) GetEntryStatusByID(ctx context.Context, entryID string) (*JoinQueueResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var entry queuedomain.Entry
+	if err := s.entryCol.FindOne(ctx, bson.M{"_id": entryID}).Decode(&entry); err != nil {
+		return nil, err
+	}
+
+	position, err := s.redisService.GetPosition(ctx, entry.QueueID, entry.Token)
+	if err != nil {
+		position = 0
+	}
+
+	total, _ := s.redisService.GetQueueSize(ctx, entry.QueueID)
+	served, _ := s.entryCol.CountDocuments(ctx, bson.M{"queue_id": entry.QueueID, "status": "served"})
+
+	return &JoinQueueResult{
+		Entry:        entry,
+		Position:     position + 1,
+		TotalInQueue: total,
+		ServedCount:  served,
+	}, nil
+}
+
 func (s *Service) RejoinByToken(ctx context.Context, queueID, token string) (*JoinQueueResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -395,15 +424,9 @@ func (s *Service) RejoinByToken(ctx context.Context, queueID, token string) (*Jo
 		return nil, fmt.Errorf("your queue session has ended")
 	}
 	position, _ := s.redisService.GetPosition(ctx, queueID, token)
-	queue, _ := s.GetQueue(ctx, queueID)
-	avgMins := 5
-	if queue != nil {
-		avgMins = queue.AvgServiceMins
-	}
 	return &JoinQueueResult{
-		Entry:            *entry,
-		Position:         position + 1,
-		EstimatedWaitMin: position * int64(avgMins),
+		Entry:    *entry,
+		Position: position + 1,
 	}, nil
 }
 
@@ -426,17 +449,11 @@ func (s *Service) RejoinByPIN(ctx context.Context, queueID, ticketNo, pin string
 		return nil, err
 	}
 	_ = s.redisService.RemoveFromQueue(ctx, queueID, entry.Token)
-	_ = s.redisService.AddToQueue(ctx, queueID, newToken, float64(entry.JoinedAt.Unix()))
+	_ = s.redisService.AddToQueue(ctx, queueID, newToken, float64(entry.CreatedAt.Unix()))
 	position, _ := s.redisService.GetPosition(ctx, queueID, newToken)
-	queue, _ := s.GetQueue(ctx, queueID)
-	avgMins := 5
-	if queue != nil {
-		avgMins = queue.AvgServiceMins
-	}
 	return &JoinQueueResult{
-		Entry:            entry,
-		Position:         position + 1,
-		EstimatedWaitMin: position * int64(avgMins),
+		Entry:    entry,
+		Position: position + 1,
 	}, nil
 }
 
@@ -461,6 +478,7 @@ func (s *Service) GetLiveQueueForHost(ctx context.Context, hostPublicID string) 
 	if err := s.queueCol.FindOne(ctx, bson.M{
 		"host_public_id": hostPublicID,
 		"status":         bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+		"expires_at":     bson.M{"$gt": time.Now()},
 	}).Decode(&queue); err != nil {
 		if err == mongodriver.ErrNoDocuments {
 			return nil, nil
@@ -475,8 +493,26 @@ func (s *Service) GetLiveQueueByID(ctx context.Context, queueID string) (*queued
 	defer cancel()
 	var queue queuedomain.Queue
 	if err := s.queueCol.FindOne(ctx, bson.M{
-		"_id":    queueID,
-		"status": bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+		"_id":        queueID,
+		"status":     bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+		"expires_at": bson.M{"$gt": time.Now()},
+	}).Decode(&queue); err != nil {
+		if err == mongodriver.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &queue, nil
+}
+
+func (s *Service) GetQueueByJoinCode(ctx context.Context, joinCode string) (*queuedomain.Queue, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var queue queuedomain.Queue
+	if err := s.queueCol.FindOne(ctx, bson.M{
+		"join_code": joinCode,
+		"status":    bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+		"expires_at": bson.M{"$gt": time.Now()},
 	}).Decode(&queue); err != nil {
 		if err == mongodriver.ErrNoDocuments {
 			return nil, nil

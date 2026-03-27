@@ -19,20 +19,28 @@ type QueueRecord struct {
 	ExpiresAt         string  `json:"expires_at"`
 }
 
+type QueueStatus struct {
+	ID             string `json:"id"`
+	Status         string `json:"status"`
+	JoinCode       string `json:"join_code"`
+	AvgServiceMins int    `json:"avg_service_mins"`
+	ExpiresAt      string `json:"expires_at"`
+}
+
 type EntryRecord struct {
-	ID               string  `json:"id"`
-	TicketNo         string  `json:"ticket_no"`
-	Position         int     `json:"position"`
-	Name             string  `json:"name"`
-	Status           string  `json:"status"`
-	EstimatedWaitMin int64   `json:"estimated_wait_min"`
-	PartySize        *int    `json:"party_size"`
-	JoinedAt         string  `json:"joined_at"`
-	ServedAt         string  `json:"served_at,omitempty"`
-	FinishedAt       string  `json:"finished_at,omitempty"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
-	CreatedBy        *string `json:"created_by,omitempty"`
+	ID         string  `json:"id"`
+	TicketNo   string  `json:"ticket_no"`
+	Position   int64   `json:"position"`
+	Name       string  `json:"name"`
+	Email      *string `json:"email,omitempty"`
+	Phone      *string `json:"phone,omitempty"`
+	Status     string  `json:"status"`
+	PartySize  *int    `json:"party_size"`
+	ServedAt   string  `json:"served_at,omitempty"`
+	FinishedAt string  `json:"finished_at,omitempty"`
+	CreatedAt  string  `json:"created_at"`
+	UpdatedAt  string  `json:"updated_at"`
+	CreatedBy  *string `json:"created_by,omitempty"`
 }
 
 type CreateQueueResponse struct {
@@ -49,6 +57,11 @@ type CheckSlugResponse struct {
 
 type AddEntryResponse struct {
 	EntryRecord
+}
+
+type GetStatusResponse struct {
+	Queue        QueueStatus `json:"queue"`
+	WaitingCount int64       `json:"waiting_count"`
 }
 
 type QueueHistoryResponse struct {
@@ -71,16 +84,17 @@ func formatOptionalTime(value *time.Time) string {
 	return value.Format(time.RFC3339)
 }
 
-func ToEntryResponse(entry domain.Entry, position int) EntryRecord {
+func ToEntryResponse(entry domain.Entry, position int64) EntryRecord {
 	return EntryRecord{
 		ID:         entry.ID,
 		TicketNo:   entry.TicketNo,
 		Position:   position,
 		Status:     entry.Status,
 		Name:       entry.Name,
+		Email:      entry.Email,
+		Phone:      entry.Phone,
 		PartySize:  entry.PartySize,
 		CreatedBy:  entry.CreatedBy,
-		JoinedAt:   entry.JoinedAt.Format(time.RFC3339),
 		ServedAt:   formatOptionalTime(entry.ServedAt),
 		FinishedAt: formatOptionalTime(entry.FinishedAt),
 		CreatedAt:  entry.CreatedAt.Format(time.RFC3339),
@@ -89,11 +103,11 @@ func ToEntryResponse(entry domain.Entry, position int) EntryRecord {
 }
 
 func ToEntryResponses(entries []domain.Entry) []EntryRecord {
-	responses := make([]EntryRecord, 0, len(entries))
-	for _, entry := range entries {
-		responses = append(responses, ToEntryResponse(entry, entry.Position))
+	records := make([]EntryRecord, len(entries))
+	for i, e := range entries {
+		records[i] = ToEntryResponse(e, int64(i+1))
 	}
-	return responses
+	return records
 }
 
 func ToQueueResponse(queue domain.Queue) QueueRecord {

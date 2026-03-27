@@ -108,8 +108,8 @@ func (s *RedisService) GetQueueSize(ctx context.Context, queueID string) (int64,
 	})
 }
 
-// GetAllTokensInOrder returns all tokens in the queue sorted by score (join time).
-func (s *RedisService) GetAllTokensInOrder(ctx context.Context, queueID string) ([]string, error) {
+// GetAllQueuePositionsInOrder returns all tokens in the queue sorted by score (join time).
+func (s *RedisService) GetAllQueuePositionsInOrder(ctx context.Context, queueID string) ([]string, error) {
 	key := fmt.Sprintf("queue_positions:%s", queueID)
 	return withRetry(ctx, func(tCtx context.Context) ([]string, error) {
 		return s.rdb.ZRangeArgs(tCtx, redis.ZRangeArgs{
@@ -193,7 +193,7 @@ func (s *RedisService) GetAnonHostToken(ctx context.Context, queueID string) (st
 	val, err := withRetry(ctx, func(tCtx context.Context) (string, error) {
 		return s.rdb.Get(tCtx, key).Result()
 	})
-	
+
 	if err == redis.Nil {
 		return "", nil
 	}

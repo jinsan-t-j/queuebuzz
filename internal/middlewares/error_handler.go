@@ -91,11 +91,21 @@ func (e *ErrorHandler) Handle(c fiber.Ctx, err error) error {
 		statusCode = fiberError.Code
 		message = fiberError.Message
 
-		log.Error().
-			Err(fiberError).
-			Str("method", c.Method()).
-			Str("path", c.Path()).
-			Msg("Fiber Error")
+		if statusCode >= fiber.StatusInternalServerError {
+			log.Error().
+				Err(fiberError).
+				Str("method", c.Method()).
+				Str("path", c.Path()).
+				Int("status", statusCode).
+				Msg("Fiber Server Error")
+		} else {
+			log.Info().
+				Err(fiberError).
+				Str("method", c.Method()).
+				Str("path", c.Path()).
+				Int("status", statusCode).
+				Msg("Fiber Client Error")
+		}
 
 	default:
 		statusCode = fiber.StatusInternalServerError
@@ -105,7 +115,7 @@ func (e *ErrorHandler) Handle(c fiber.Ctx, err error) error {
 			Err(err).
 			Str("method", c.Method()).
 			Str("path", c.Path()).
-			Msg("Server Error")
+			Msg("Unhandled Server Error")
 	}
 
 	if isProduction {

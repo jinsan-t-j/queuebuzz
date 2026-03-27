@@ -43,16 +43,15 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	queue.Post("/create", middlewares.OptionalAuthMiddleware(), m.QueueHandler.Create)
 	queue.Get("/live", middlewares.AuthMiddleware(), m.QueueHandler.GetLiveQueue)
 	queue.Get("/slug-check", m.QueueHandler.CheckSlug)
-	queue.Get("/:id", m.QueueHandler.GetStatus)
+	queue.Get("/:id/live/status", m.QueueHandler.GetLiveQueueStatus)
+
 	queue.Post("/join-by-code", middlewares.JoinRateLimiter, m.QueueHandler.JoinByCode)
+	queue.Get("/resolve-code/:code", middlewares.JoinRateLimiter, m.QueueHandler.ResolveCode)
 	queue.Post("/:id/join", middlewares.JoinRateLimiter, m.QueueHandler.JoinByID)
 	queue.Post("/:id/heartbeat", m.QueueHandler.Heartbeat)
 
-	// SSE stream — authenticated host only
-
 	queueHost := queue.Group("/:id", middlewares.HostAuthMiddleware(), middlewares.HostOwnerMiddleware())
 	queueHost.Patch("/", m.QueueHandler.Update)
-
 	queueHost.Get("/live", m.QueueHandler.GetLiveQueueByID)
 	queueHost.Get("/events", middlewares.SSERateLimiter, m.QueueHandler.Events)
 	queueHost.Post("/ping/:token", m.QueueHandler.PingUser)
@@ -61,6 +60,7 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	queueHost.Post("/resume", m.QueueHandler.ResumeQueue)
 	queueHost.Post("/terminate", m.QueueHandler.TerminateQueue)
 	queueHost.Post("/add-entry", m.QueueHandler.AddEntry)
+
 	queueHost.Get("/history", m.QueueHandler.GetHistory)
 	queueHost.Post("/broadcast", m.NotificationHandler.BroadcastToQueue)
 }

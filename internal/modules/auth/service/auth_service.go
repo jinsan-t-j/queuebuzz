@@ -29,6 +29,7 @@ type QueueBuzzClaims struct {
 	Role     string `json:"role"`
 	QueueID  string `json:"queue_id,omitempty"`
 	PublicID string `json:"public_id,omitempty"`
+	EntryID  string `json:"entry_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -38,6 +39,29 @@ func NewAuthService(privateKeyPEM, publicKeyPEM string, redisService *legacyserv
 		publicKey:    parseRSAPublicKey(publicKeyPEM),
 		redisService: redisService,
 	}
+}
+
+func (s *AuthService) IssueGuestEntryToken(queueID, entryID string) (string, error) {
+	claims := QueueBuzzClaims{
+		Role:    "guest",
+		QueueID: queueID,
+		EntryID: entryID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "queuebuzz",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			ID:        uuid.New().String(),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	tokenString, err := token.SignedString(s.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign guest token: %w", err)
+	}
+
+	return tokenString, nil
 }
 
 func (s *AuthService) IssueAnonymousToken(ctx context.Context, queueID string) (string, error) {

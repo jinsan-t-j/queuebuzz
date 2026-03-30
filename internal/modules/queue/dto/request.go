@@ -23,6 +23,7 @@ type JoinByCodeRequest struct {
 	FCMToken    *string `json:"fcm_token" validate:"omitempty"`
 	DisplayName *string `json:"display_name"`
 	Email       *string `json:"email" validate:"omitempty,email"`
+	Phone       *string `json:"phone" validate:"omitempty,len=10"`
 	PartySize   *int    `json:"party_size" validate:"omitempty,min=1,max=100"`
 	PIN         *string `json:"pin" validate:"omitempty,len=4"`
 }
@@ -31,6 +32,7 @@ type JoinRequest struct {
 	FCMToken    *string `json:"fcm_token" validate:"omitempty"`
 	DisplayName *string `json:"display_name"`
 	Email       *string `json:"email" validate:"omitempty,email"`
+	Phone       *string `json:"phone" validate:"omitempty,len=10"`
 	PartySize   *int    `json:"party_size" validate:"omitempty,min=1,max=100"`
 	PIN         *string `json:"pin" validate:"omitempty,len=4"`
 }

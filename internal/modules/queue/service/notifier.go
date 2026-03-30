@@ -21,25 +21,32 @@ func NewQueueNotifier(broker *sse.Broker) *QueueNotifier {
 // entryTopic returns the per-entry SSE topic key ("entry:{id}").
 func entryTopic(entryID string) string { return "entry:" + entryID }
 
+// pubTopic returns the public SSE topic key ("queue_public:{id}").
+func pubTopic(queueID string) string { return "queue_public:" + queueID }
+
 // PublishEntryUpdate notifies the host that a user joined the queue.
 func (n *QueueNotifier) PublishEntryUpdate(queueID string, entry dto.EntryRecord) {
 	n.publish(queueID, events.Wrap(events.EventUserJoined, entry))
 }
 
 func (n *QueueNotifier) PublishQueueStatus(queueID, status string) {
-	n.publish(queueID, events.Wrap(events.EventQueueStatusChanged, events.QueueStatusData{Status: status}))
+	msg := events.Wrap(events.EventQueueStatusChanged, events.QueueStatusData{Status: status})
+	n.publish(queueID, msg)
+	n.publish(pubTopic(queueID), msg)
 }
 
 func (n *QueueNotifier) PublishQueueExpired(queueID string) {
-	n.publish(queueID, events.Wrap(events.EventQueueExpired, events.QueueExpiredData{QueueID: queueID}))
+	msg := events.Wrap(events.EventQueueExpired, events.QueueExpiredData{QueueID: queueID})
+	n.publish(queueID, msg)
+	n.publish(pubTopic(queueID), msg)
 }
 
-func (n *QueueNotifier) PublishUserCalled(queueID, token, status string) {
-	n.publish(queueID, events.Wrap(events.EventUserCalled, events.UserStatusData{Token: token, Status: status}))
+func (n *QueueNotifier) PublishUserCalled(queueID, entryID, status string) {
+	n.publish(queueID, events.Wrap(events.EventUserCalled, events.UserStatusData{ID: entryID, Status: status}))
 }
 
-func (n *QueueNotifier) PublishUserStatus(queueID, token, status string) {
-	n.publish(queueID, events.Wrap(events.EventUserStatusChanged, events.UserStatusData{Token: token, Status: status}))
+func (n *QueueNotifier) PublishUserStatus(queueID, entryID, status string) {
+	n.publish(queueID, events.Wrap(events.EventUserStatusChanged, events.UserStatusData{ID: entryID, Status: status}))
 }
 
 // PublishPositionUpdates broadcasts positions to all waiting entries.
@@ -53,6 +60,10 @@ func (n *QueueNotifier) PublishPositionUpdates(entryIDs []string) {
 // PublishEntryStatusChanged pushed an individual status change.
 func (n *QueueNotifier) PublishEntryStatusChanged(entryID, status string) {
 	n.publish(entryTopic(entryID), events.Wrap(events.EventEntryStatusChanged, events.EntryStatusChangedData{Status: status}))
+}
+
+func (n *QueueNotifier) PublishWaitingCount(queueID string, count int64) {
+	n.publish(pubTopic(queueID), events.Wrap("waiting_count_updated", map[string]interface{}{"count": count}))
 }
 
 func (n *QueueNotifier) publish(topic string, msg sse.Message) {

@@ -18,7 +18,6 @@ QueueBuzz is a modern, high-performance virtual queue management platform API. I
 - **Framework**: [Fiber v3](https://docs.gofiber.io/)
 - **Database**: MongoDB (via `mongo-driver/v2`)
 - **Caching & Pub/Sub**: Redis (via `go-redis/v9`)
-- **WebSockets**: `fasthttp/websocket`
 - **Email**: Resend API
 - **Push Notifications**: Firebase Admin SDK
 - **Containerization**: Docker (multi-stage to `distroless/static-debian12`)

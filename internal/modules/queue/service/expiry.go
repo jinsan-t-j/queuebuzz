@@ -17,14 +17,6 @@ import (
 
 // ExpiryService manages Redis keyspace notifications and queue expiry cleanup.
 // It lives in the queue module because it directly mutates queue/entry state.
-func (s *ExpiryService) timerPrefix(key string) string {
-	parts := strings.Split(key, ":")
-	if len(parts) > 0 {
-		return parts[0]
-	}
-	return ""
-}
-
 type ExpiryService struct {
 	rdb          *redis.Client
 	queueCol     *mongo.Collection
@@ -206,6 +198,9 @@ func (s *ExpiryService) BroadcastPositionsForQueue(ctx context.Context, queueID 
 	if err != nil {
 		return
 	}
+
+	s.notifier.PublishWaitingCount(queueID, int64(len(ids)))
+
 	if len(ids) > 0 {
 		s.notifier.PublishPositionUpdates(ids)
 	}
@@ -240,7 +235,6 @@ func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode strin
 
 	log.Info().Str("queue_id", queueID).Msg("Queue expired and cleaned up")
 }
-
 
 func tokenPrefix(token string) string {
 	if len(token) <= 8 {

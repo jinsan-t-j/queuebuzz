@@ -40,19 +40,24 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	queue := router.Group("/queue")
 	queue.Post("/create", middlewares.OptionalAuthMiddleware(), m.QueueHandler.Create)
 	queue.Get("/live", middlewares.AuthMiddleware(), m.QueueHandler.GetLiveQueue)
+
 	queue.Get("/slug-check", m.QueueHandler.CheckSlug)
-	queue.Get("/:id/live/status", m.QueueHandler.GetLiveQueueStatus)
 
 	queue.Post("/join-by-code", middlewares.JoinRateLimiter, m.QueueHandler.JoinByCode)
 	queue.Get("/resolve-code/:code", middlewares.JoinRateLimiter, m.QueueHandler.ResolveCode)
+	queue.Get("/recover-session", m.QueueHandler.RecoverSession)
 	queue.Post("/:id/join", middlewares.JoinRateLimiter, m.QueueHandler.JoinByID)
+	queue.Post("/leave", m.QueueHandler.LeaveQueue)
 	queue.Post("/:id/heartbeat", m.QueueHandler.Heartbeat)
+
+	queue.Get("/:id/live", m.QueueHandler.GetLiveQueueByID)
+	queue.Get("/:id/events/public", m.QueueHandler.PublicEvents)
 
 	queueHost := queue.Group("/:id", middlewares.HostAuthMiddleware(), middlewares.HostOwnerMiddleware())
 	queueHost.Patch("/", m.QueueHandler.Update)
-	queueHost.Get("/live", m.QueueHandler.GetLiveQueueByID)
-	queueHost.Get("/events", middlewares.SSERateLimiter, m.QueueHandler.Events)
-	queueHost.Post("/ping/:token", m.QueueHandler.PingUser)
+	queueHost.Get("/events", middlewares.SSERateLimiter, m.QueueHandler.StreamEvents)
+	queueHost.Post("/ping/:entry_id", m.QueueHandler.PingUser)
+	queueHost.Post("/serve/:entry_id", m.QueueHandler.Serve)
 	queueHost.Post("/next", m.QueueHandler.CallNext)
 	queueHost.Post("/pause", m.QueueHandler.PauseQueue)
 	queueHost.Post("/resume", m.QueueHandler.ResumeQueue)

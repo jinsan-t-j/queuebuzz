@@ -6,20 +6,22 @@ import (
 
 // List of all SSE event types used in the queue module.
 const (
-	EventUserJoined         = "user_joined"
-	EventUserLeft           = "user_left"
-	EventUserStatusChanged  = "user_status_changed"
-	EventUserCalled         = "user_called"
-	EventQueueStatusChanged = "queue_status_changed"
-	EventQueueUpdate        = "queue_update"
-	EventQueueExpired       = "queue_expired"
-	EventPositionUpdate     = "position_update"
-	EventEntryStatusChanged = "entry_status_changed"
+	EventUserJoined          = "user_joined"
+	EventUserLeft            = "user_left"
+	EventUserStatusChanged   = "user_status_changed"
+	EventUserCalled          = "user_called"
+	EventQueueStatusChanged  = "queue_status_changed"
+	EventQueueUpdate         = "queue_update"
+	EventQueueExpired        = "queue_expired"
+	EventPositionUpdate      = "position_update"
+	EventEntryStatusChanged  = "entry_status_changed"
+	EventQueueInit           = "queue_init"
+	EventWaitingCountUpdated = "waiting_count_updated"
 )
 
 // UserStatusData is the payload for EventUserStatusChanged.
 type UserStatusData struct {
-	Token  string `json:"token"`
+	ID     string `json:"id"`
 	Status string `json:"status"`
 }
 

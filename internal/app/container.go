@@ -10,6 +10,7 @@ import (
 	authservice "queuebuzz/internal/modules/auth/service"
 	customermodule "queuebuzz/internal/modules/customer"
 	customerhttp "queuebuzz/internal/modules/customer/http"
+	customerservice "queuebuzz/internal/modules/customer/service"
 	hostmodule "queuebuzz/internal/modules/host"
 	hosthttp "queuebuzz/internal/modules/host/http"
 	hostrepo "queuebuzz/internal/modules/host/repository"
@@ -84,7 +85,8 @@ func NewContainer() *Container {
 	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc)
 	queueHandler := queuehttp.NewHandler(cfg, queueSvc, authSvc, joinCodeSvc, redisSvc, broker, notifier, broadcaster)
-	customerHandler := customerhttp.NewHandler(queueSvc, redisSvc, broker)
+	customerSvc := customerservice.New(entryCol, redisSvc, queueSvc)
+	customerHandler := customerhttp.NewHandler(customerSvc, redisSvc, broker)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 
 	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, broadcaster)

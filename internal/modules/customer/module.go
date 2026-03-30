@@ -1,6 +1,7 @@
 package customer
 
 import (
+	"queuebuzz/internal/middlewares"
 	customerhttp "queuebuzz/internal/modules/customer/http"
 
 	"github.com/gofiber/fiber/v3"
@@ -16,11 +17,11 @@ func New(handler *customerhttp.Handler) *Module {
 
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	entry := router.Group("/entry")
-	entry.Get("/:id/rejoin", m.Handler.Rejoin)
-	entry.Get("/:id/status", m.Handler.GetStatus)
-	entry.Get("/:id/events", m.Handler.StreamEvents)
+	entry.Get("/rejoin", middlewares.OptionalCustomerAuthMiddleware(), m.Handler.Rejoin)
+	entry.Get("/", middlewares.CustomerAuthMiddleware(), m.Handler.GetEntry)
+	entry.Get("/events", middlewares.CustomerAuthMiddleware(), m.Handler.StreamEvents)
 
-	entryUser := entry.Group("/:id/user")
+	entryUser := entry.Group("/user", middlewares.CustomerAuthMiddleware())
 	entryUser.Post("/email", m.Handler.AddEmail)
 	entryUser.Post("/pin", m.Handler.SetPIN)
 }

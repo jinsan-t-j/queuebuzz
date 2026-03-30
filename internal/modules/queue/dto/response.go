@@ -28,19 +28,21 @@ type QueueStatus struct {
 }
 
 type EntryRecord struct {
-	ID         string  `json:"id"`
-	TicketNo   string  `json:"ticket_no"`
-	Position   int64   `json:"position"`
-	Name       string  `json:"name"`
-	Email      *string `json:"email,omitempty"`
-	Phone      *string `json:"phone,omitempty"`
-	Status     string  `json:"status"`
-	PartySize  *int    `json:"party_size"`
-	ServedAt   string  `json:"served_at,omitempty"`
-	FinishedAt string  `json:"finished_at,omitempty"`
-	CreatedAt  string  `json:"created_at"`
-	UpdatedAt  string  `json:"updated_at"`
-	CreatedBy  *string `json:"created_by,omitempty"`
+	ID          string  `json:"id"`
+	QueueID     string  `json:"queue_id"`
+	TicketNo    string  `json:"ticket_no"`
+	Position    int64   `json:"position"`
+	Name        string  `json:"name"`
+	Email       *string `json:"email,omitempty"`
+	Phone       *string `json:"phone,omitempty"`
+	Status      string  `json:"status"`
+	PartySize   *int    `json:"party_size"`
+	ServedAt    *string `json:"served_at,omitempty"`
+	FinishedAt  *string `json:"finished_at,omitempty"`
+	WaitTimeMin int     `json:"wait_time_min"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
+	CreatedBy   *string `json:"created_by,omitempty"`
 }
 
 type CheckSlugResponse struct {
@@ -63,29 +65,39 @@ type HistoryEntry struct {
 	ServedAt    string `json:"served_at,omitempty"`
 }
 
-func formatOptionalTime(value *time.Time) string {
+func formatOptionalTime(value *time.Time) *string {
 	if value == nil {
-		return ""
+		return nil
 	}
 
-	return value.Format(time.RFC3339)
+	formatted := value.Format(time.RFC3339)
+	return &formatted
 }
 
 func ToEntryResponse(entry domain.Entry, position int64) EntryRecord {
+	var waitTime int
+	if entry.ServedAt != nil {
+		waitTime = int(entry.ServedAt.Sub(entry.CreatedAt).Minutes())
+	} else if entry.FinishedAt != nil {
+		waitTime = int(entry.FinishedAt.Sub(entry.CreatedAt).Minutes())
+	}
+
 	return EntryRecord{
-		ID:         entry.ID,
-		TicketNo:   entry.TicketNo,
-		Position:   position,
-		Status:     entry.Status,
-		Name:       entry.Name,
-		Email:      entry.Email,
-		Phone:      entry.Phone,
-		PartySize:  entry.PartySize,
-		CreatedBy:  entry.CreatedBy,
-		ServedAt:   formatOptionalTime(entry.ServedAt),
-		FinishedAt: formatOptionalTime(entry.FinishedAt),
-		CreatedAt:  entry.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:  entry.UpdatedAt.Format(time.RFC3339),
+		ID:          entry.ID,
+		QueueID:     entry.QueueID,
+		TicketNo:    entry.TicketNo,
+		Position:    position,
+		Name:        entry.Name,
+		Email:       entry.Email,
+		Phone:       entry.Phone,
+		Status:      entry.Status,
+		PartySize:   entry.PartySize,
+		ServedAt:    formatOptionalTime(entry.ServedAt),
+		FinishedAt:  formatOptionalTime(entry.FinishedAt),
+		WaitTimeMin: waitTime,
+		CreatedAt:   entry.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   entry.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:   entry.CreatedBy,
 	}
 }
 

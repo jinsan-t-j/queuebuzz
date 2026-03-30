@@ -5,67 +5,61 @@ import (
 
 	"queuebuzz/internal/log"
 	"queuebuzz/internal/modules/queue/dto"
+	"queuebuzz/internal/modules/queue/events"
 	"queuebuzz/internal/sse"
 )
 
-// QueueNotifier publishes SSE events to queue subscribers.
-// It centralises all event construction so that neither the HTTP handler
-// nor the expiry service need to know about JSON marshalling or broker calls.
+// QueueNotifier publishes SSE events to queue and entry topics.
 type QueueNotifier struct {
 	broker *sse.Broker
 }
 
-// NewQueueNotifier creates a new QueueNotifier backed by the given SSE broker.
 func NewQueueNotifier(broker *sse.Broker) *QueueNotifier {
 	return &QueueNotifier{broker: broker}
 }
 
-// PublishEntryUpdate notifies subscribers that a new entry joined the queue.
+// entryTopic returns the per-entry SSE topic key ("entry:{id}").
+func entryTopic(entryID string) string { return "entry:" + entryID }
+
+// PublishEntryUpdate notifies the host that a user joined the queue.
 func (n *QueueNotifier) PublishEntryUpdate(queueID string, entry dto.EntryRecord) {
-	n.publish(queueID, SSEMessage{
-		Event: EventUserJoined,
-		Data:  entry,
-	})
+	n.publish(queueID, events.Wrap(events.EventUserJoined, entry))
 }
 
-// PublishQueueStatus notifies subscribers that the queue status changed.
 func (n *QueueNotifier) PublishQueueStatus(queueID, status string) {
-	n.publish(queueID, SSEMessage{
-		Event: EventQueueStatusChanged,
-		Data:  QueueStatusData{Status: status},
-	})
+	n.publish(queueID, events.Wrap(events.EventQueueStatusChanged, events.QueueStatusData{Status: status}))
 }
 
-// PublishQueueExpired notifies subscribers that a queue has expired.
 func (n *QueueNotifier) PublishQueueExpired(queueID string) {
-	n.publish(queueID, SSEMessage{
-		Event: EventQueueExpired,
-		Data:  QueueExpiredData{QueueID: queueID},
-	})
+	n.publish(queueID, events.Wrap(events.EventQueueExpired, events.QueueExpiredData{QueueID: queueID}))
 }
 
-// PublishUserCalled notifies subscribers that a user has been called.
 func (n *QueueNotifier) PublishUserCalled(queueID, token, status string) {
-	n.publish(queueID, SSEMessage{
-		Event: EventUserCalled,
-		Data:  UserStatusData{Token: token, Status: status},
-	})
+	n.publish(queueID, events.Wrap(events.EventUserCalled, events.UserStatusData{Token: token, Status: status}))
 }
 
-// PublishUserStatus notifies subscribers of a user status change (idle, skipped, etc.).
 func (n *QueueNotifier) PublishUserStatus(queueID, token, status string) {
-	n.publish(queueID, SSEMessage{
-		Event: EventUserStatusChanged,
-		Data:  UserStatusData{Token: token, Status: status},
-	})
+	n.publish(queueID, events.Wrap(events.EventUserStatusChanged, events.UserStatusData{Token: token, Status: status}))
 }
 
-// publish marshals the message and publishes it to the broker.
-func (n *QueueNotifier) publish(queueID string, msg SSEMessage) {
+// PublishPositionUpdates broadcasts positions to all waiting entries.
+// It takes a list of IDs to minimize memory usage.
+func (n *QueueNotifier) PublishPositionUpdates(entryIDs []string) {
+	for i, id := range entryIDs {
+		n.publish(entryTopic(id), events.Wrap(events.EventPositionUpdate, events.PositionUpdateData{Position: int64(i + 1)}))
+	}
+}
+
+// PublishEntryStatusChanged pushed an individual status change.
+func (n *QueueNotifier) PublishEntryStatusChanged(entryID, status string) {
+	n.publish(entryTopic(entryID), events.Wrap(events.EventEntryStatusChanged, events.EntryStatusChangedData{Status: status}))
+}
+
+func (n *QueueNotifier) publish(topic string, msg sse.Message) {
 	payload, err := json.Marshal(msg)
 	if err != nil {
-		log.Error().Err(err).Str("queue_id", queueID).Msg("SSE: failed to marshal event")
+		log.Error().Err(err).Str("topic", topic).Msg("SSE: failed to marshal event")
 		return
 	}
-	n.broker.Publish(queueID, payload)
+	n.broker.Publish(topic, payload)
 }

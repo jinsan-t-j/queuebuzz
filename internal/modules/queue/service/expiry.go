@@ -12,43 +12,19 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
-
-// SSE event type constants.
-const (
-	EventUserJoined         = "user_joined"
-	EventUserLeft           = "user_left"
-	EventUserStatusChanged  = "user_status_changed"
-	EventUserCalled         = "user_called"
-	EventQueueStatusChanged = "queue_status_changed"
-	EventQueueUpdate        = "queue_update"
-	EventQueueExpired       = "queue_expired"
-)
-
-// SSEMessage is the standard SSE event envelope. The Event field is
-// extracted by the broker to set the SSE "event:" line.
-type SSEMessage struct {
-	Event string      `json:"event"`
-	Data  interface{} `json:"data"`
-}
-
-// UserStatusData is the payload for EventUserStatusChanged.
-type UserStatusData struct {
-	Token  string `json:"token"`
-	Status string `json:"status"`
-}
-
-// QueueExpiredData is the payload for EventQueueExpired.
-type QueueExpiredData struct {
-	QueueID string `json:"queue_id"`
-}
-
-type QueueStatusData struct {
-	Status string `json:"status"`
-}
 
 // ExpiryService manages Redis keyspace notifications and queue expiry cleanup.
 // It lives in the queue module because it directly mutates queue/entry state.
+func (s *ExpiryService) timerPrefix(key string) string {
+	parts := strings.Split(key, ":")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
+}
+
 type ExpiryService struct {
 	rdb          *redis.Client
 	queueCol     *mongo.Collection
@@ -58,7 +34,6 @@ type ExpiryService struct {
 	notifSender  legacyservices.NotificationSender
 }
 
-// NewExpiryService creates a new expiry service.
 func NewExpiryService(
 	rdb *redis.Client,
 	queueCol *mongo.Collection,
@@ -77,32 +52,14 @@ func NewExpiryService(
 	}
 }
 
-// StartKeyspaceListener subscribes to Redis keyspace notifications for expired keys.
-// This runs in a goroutine and handles idle_timer, grace_timer, and queue expiry events.
-func (s *ExpiryService) StartKeyspaceListener(ctx context.Context) {
-	pubsub := s.rdb.PSubscribe(ctx, "__keyevent@0__:expired")
-
-	go func() {
-		defer pubsub.Close()
-
-		ch := pubsub.Channel()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case msg, ok := <-ch:
-				if !ok {
-					return
-				}
-				s.handleExpiredKey(ctx, msg.Payload)
-			}
-		}
-	}()
-
-	log.Info().Msg("Redis keyspace expiry listener started")
+// Notifier returns the queue notifier.
+func (s *ExpiryService) Notifier() *QueueNotifier {
+	return s.notifier
 }
 
-func (s *ExpiryService) handleExpiredKey(ctx context.Context, key string) {
+// HandleExpiredKey processes a Redis key that just expired.
+// It delegates to specific timer handlers based on the key prefix.
+func (s *ExpiryService) HandleExpiredKey(ctx context.Context, key string) {
 	switch {
 	case strings.HasPrefix(key, "idle_timer:"):
 		s.handleIdleTimerExpiry(ctx, key)
@@ -142,6 +99,9 @@ func (s *ExpiryService) handleIdleTimerExpiry(ctx context.Context, key string) {
 	// Publish status change via SSE
 	s.notifier.PublishUserStatus(queueID, token, constants.EntryStatusIdle)
 
+	// Refresh positions as users might have shifted
+	s.BroadcastPositionsForQueue(ctx, queueID)
+
 	log.Info().Str("queue_id", queueID).Str("token_prefix", tokenPrefix(token)).Msg("User moved to IDLE")
 }
 
@@ -172,26 +132,14 @@ func (s *ExpiryService) handleGraceTimerExpiry(ctx context.Context, key string) 
 	// Publish via SSE
 	s.notifier.PublishUserStatus(queueID, token, constants.EntryStatusSkipped)
 
+	// Refresh positions as users definitely shifted
+	s.BroadcastPositionsForQueue(ctx, queueID)
+
 	log.Info().Str("queue_id", queueID).Str("token_prefix", tokenPrefix(token)).Msg("User SKIPPED after grace period")
 }
 
-// RunCronSweep checks for expired queues and cleans them up.
-// Acts as a fallback for missed Redis keyspace events.
-func (s *ExpiryService) RunCronSweep(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.sweepExpiredQueues(ctx)
-		}
-	}
-}
-
-func (s *ExpiryService) sweepExpiredQueues(ctx context.Context) {
+// SweepExpiredQueues checks for expired queues and cleans them up.
+func (s *ExpiryService) SweepExpiredQueues(ctx context.Context) {
 	opCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -200,7 +148,7 @@ func (s *ExpiryService) sweepExpiredQueues(ctx context.Context) {
 		"expires_at": bson.M{"$lte": time.Now()},
 	})
 	if err != nil {
-		log.Error().Err(err).Msg("Cron sweep: failed to find expired queues")
+		log.Error().Err(err).Msg("Sweep expired queues: failed to find")
 		return
 	}
 
@@ -211,7 +159,7 @@ func (s *ExpiryService) sweepExpiredQueues(ctx context.Context) {
 
 	var expired []queueDoc
 	if err := cursor.All(opCtx, &expired); err != nil {
-		log.Error().Err(err).Msg("Cron sweep: failed to decode expired queues")
+		log.Error().Err(err).Msg("Sweep expired queues: failed to decode")
 		return
 	}
 
@@ -221,6 +169,45 @@ func (s *ExpiryService) sweepExpiredQueues(ctx context.Context) {
 
 	if len(expired) > 0 {
 		log.Info().Int("count", len(expired)).Msg("Cron sweep: expired queues cleaned up")
+	}
+}
+
+// BroadcastAllActiveQueues updates positions for all currently active queues.
+func (s *ExpiryService) BroadcastAllActiveQueues(ctx context.Context) {
+	opCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	cursor, err := s.queueCol.Find(opCtx, bson.M{
+		"status": bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+	}, options.Find().SetProjection(bson.M{"_id": 1}))
+	if err != nil {
+		log.Error().Err(err).Msg("Broadcaster: failed to find active queues")
+		return
+	}
+
+	var queues []struct {
+		ID string `bson:"_id"`
+	}
+	if err := cursor.All(opCtx, &queues); err != nil {
+		return
+	}
+
+	for _, q := range queues {
+		s.BroadcastPositionsForQueue(ctx, q.ID)
+	}
+}
+
+// BroadcastPositionsForQueue updates positions for a specific queue.
+func (s *ExpiryService) BroadcastPositionsForQueue(ctx context.Context, queueID string) {
+	opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	ids, err := s.redisService.GetAllQueuePositionsInOrder(opCtx, queueID)
+	if err != nil {
+		return
+	}
+	if len(ids) > 0 {
+		s.notifier.PublishPositionUpdates(ids)
 	}
 }
 

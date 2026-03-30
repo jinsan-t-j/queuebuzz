@@ -18,6 +18,7 @@ import (
 	notificationhttp "queuebuzz/internal/modules/notification/http"
 	queuemodule "queuebuzz/internal/modules/queue"
 	queuehttp "queuebuzz/internal/modules/queue/http"
+	"queuebuzz/internal/modules/queue/jobs"
 	queueservice "queuebuzz/internal/modules/queue/service"
 	"queuebuzz/internal/mongo"
 	"queuebuzz/internal/redis"
@@ -72,15 +73,21 @@ func NewContainer() *Container {
 	broker := sse.NewBroker()
 	notifier := queueservice.NewQueueNotifier(broker)
 	expirySvc := queueservice.NewExpiryService(rdb, queueCol, entryCol, redisSvc, notifier, notifSender)
+	broadcaster := jobs.NewBroadcaster(expirySvc)
+	expiryJob := jobs.NewExpiryJob(expirySvc)
+	keyspaceJob := jobs.NewKeyspaceJob(rdb, expirySvc)
 	ctx, cancel := context.WithCancel(context.Background())
+	go broadcaster.Start(ctx)
+	go expiryJob.Start(ctx)
+	go keyspaceJob.Start(ctx)
 
 	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc)
-	queueHandler := queuehttp.NewHandler(cfg, queueSvc, authSvc, joinCodeSvc, redisSvc, broker, notifier)
-	customerHandler := customerhttp.NewHandler(queueSvc, redisSvc)
+	queueHandler := queuehttp.NewHandler(cfg, queueSvc, authSvc, joinCodeSvc, redisSvc, broker, notifier, broadcaster)
+	customerHandler := customerhttp.NewHandler(queueSvc, redisSvc, broker)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 
-	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc)
+	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, broadcaster)
 	queueModule.Start(ctx)
 
 	middlewares.InitAuthMiddleware(authSvc)

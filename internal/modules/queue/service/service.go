@@ -272,7 +272,7 @@ func (s *Service) JoinQueue(ctx context.Context, params JoinQueueParams) (*JoinQ
 }
 
 func (s *Service) GetQueueEntries(ctx context.Context, queueID string) ([]queuedomain.Entry, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	cursor, err := s.entryCol.Find(ctx, bson.M{
@@ -288,6 +288,61 @@ func (s *Service) GetQueueEntries(ctx context.Context, queueID string) ([]queued
 		return nil, err
 	}
 	return entries, nil
+}
+
+// GetWaitingEntryIDs returns only the IDs of entries currently in the queue,
+// sorted by arrival time. Used for high-performance position broadcasting.
+func (s *Service) GetWaitingEntryIDs(ctx context.Context, queueID string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	filter := bson.M{
+		"queue_id": queueID,
+		"status":   bson.M{"$in": []string{constants.EntryStatusWaiting, constants.EntryStatusCalled}},
+	}
+	opts := options.Find().SetProjection(bson.M{"_id": 1}).SetSort(bson.M{"created_at": 1})
+
+	cursor, err := s.entryCol.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []struct {
+		ID string `bson:"_id"`
+	}
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, len(results))
+	for i, r := range results {
+		ids[i] = r.ID
+	}
+	return ids, nil
+}
+
+// GetJoinQueueResultByID reconstructs the full state for a specific entry.
+func (s *Service) GetJoinQueueResultByID(ctx context.Context, entryID string) (*JoinQueueResult, error) {
+	var entry queuedomain.Entry
+	if err := s.entryCol.FindOne(ctx, bson.M{"_id": entryID}).Decode(&entry); err != nil {
+		return nil, err
+	}
+
+	pos, err := s.redisService.GetPosition(ctx, entry.QueueID, entry.ID) // entry.ID is used as token in JoinQueue
+	if err != nil {
+		pos = 0 // Position might not exist in Redis if it's already served/expired
+	}
+	total, err := s.redisService.GetQueueSize(ctx, entry.QueueID)
+	if err != nil {
+		total = 0
+	}
+
+	return &JoinQueueResult{
+		Entry:        entry,
+		Position:     pos,
+		TotalInQueue: total,
+		ServedCount:  0, // RedisService doesn't current track this
+	}, nil
 }
 
 func (s *Service) GetEntryByToken(ctx context.Context, queueID, token string) (*queuedomain.Entry, error) {

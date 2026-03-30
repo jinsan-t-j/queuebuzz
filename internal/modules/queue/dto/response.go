@@ -43,22 +43,9 @@ type EntryRecord struct {
 	CreatedBy  *string `json:"created_by,omitempty"`
 }
 
-type CreateQueueResponse struct {
-	QueueRecord
-}
-
-type GetLiveQueueResponse struct {
-	QueueRecord
-}
-
 type CheckSlugResponse struct {
 	IsAvailable bool `json:"is_available"`
 }
-
-type AddEntryResponse struct {
-	EntryRecord
-}
-
 type GetStatusResponse struct {
 	Queue        QueueStatus `json:"queue"`
 	WaitingCount int64       `json:"waiting_count"`

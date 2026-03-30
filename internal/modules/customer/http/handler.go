@@ -4,6 +4,7 @@ import (
 	customerdto "queuebuzz/internal/modules/customer/dto"
 	queueservice "queuebuzz/internal/modules/queue/service"
 	legacyservices "queuebuzz/internal/services"
+	"queuebuzz/internal/sse"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -11,10 +12,32 @@ import (
 type Handler struct {
 	queueService *queueservice.Service
 	redisService *legacyservices.RedisService
+	broker       *sse.Broker
 }
 
-func NewHandler(queueSvc *queueservice.Service, redisSvc *legacyservices.RedisService) *Handler {
-	return &Handler{queueService: queueSvc, redisService: redisSvc}
+func NewHandler(queueSvc *queueservice.Service, redisSvc *legacyservices.RedisService, broker *sse.Broker) *Handler {
+	return &Handler{
+		queueService: queueSvc,
+		redisService: redisSvc,
+		broker:       broker,
+	}
+}
+
+func (h *Handler) GetStatus(c fiber.Ctx) error {
+	entryID := c.Params("id")
+	result, err := h.queueService.GetJoinQueueResultByID(c.Context(), entryID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Ticket not found")
+	}
+	return c.Status(fiber.StatusOK).JSON(result)
+}
+
+func (h *Handler) StreamEvents(c fiber.Ctx) error {
+	entryID := c.Params("id")
+	topic := "entry:" + entryID
+
+	// Use broker's built-in ServeHTTP for robust SSE handling (heartbeats, auto-cleanup, etc)
+	return h.broker.ServeHTTP(c, topic, nil)
 }
 
 func (h *Handler) AddEmail(c fiber.Ctx) error {
@@ -74,15 +97,6 @@ func (h *Handler) Rejoin(c fiber.Ctx) error {
 	result, err := h.queueService.RejoinByPIN(c.Context(), queueID, req.TicketNo, req.PIN)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, err.Error())
-	}
-	return c.Status(fiber.StatusOK).JSON(result)
-}
-
-func (h *Handler) GetStatus(c fiber.Ctx) error {
-	entryID := c.Params("id")
-	result, err := h.queueService.GetEntryStatusByID(c.Context(), entryID)
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Ticket not found")
 	}
 	return c.Status(fiber.StatusOK).JSON(result)
 }

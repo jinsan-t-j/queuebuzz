@@ -20,7 +20,7 @@ type UpdateQueueRequest struct {
 
 type JoinByCodeRequest struct {
 	JoinCode    string  `json:"join_code" validate:"required,len=6"`
-	FCMToken    string  `json:"fcm_token" validate:"required"`
+	FCMToken    *string `json:"fcm_token" validate:"omitempty"`
 	DisplayName *string `json:"display_name"`
 	Email       *string `json:"email" validate:"omitempty,email"`
 	PartySize   *int    `json:"party_size" validate:"omitempty,min=1,max=100"`
@@ -28,7 +28,7 @@ type JoinByCodeRequest struct {
 }
 
 type JoinRequest struct {
-	FCMToken    string  `json:"fcm_token" validate:"required"`
+	FCMToken    *string `json:"fcm_token" validate:"omitempty"`
 	DisplayName *string `json:"display_name"`
 	Email       *string `json:"email" validate:"omitempty,email"`
 	PartySize   *int    `json:"party_size" validate:"omitempty,min=1,max=100"`

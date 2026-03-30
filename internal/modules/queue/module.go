@@ -6,6 +6,7 @@ import (
 	"queuebuzz/internal/middlewares"
 	notificationhttp "queuebuzz/internal/modules/notification/http"
 	queuehttp "queuebuzz/internal/modules/queue/http"
+	"queuebuzz/internal/modules/queue/jobs"
 	queueservice "queuebuzz/internal/modules/queue/service"
 
 	"github.com/gofiber/fiber/v3"
@@ -15,27 +16,24 @@ type Module struct {
 	QueueHandler        *queuehttp.Handler
 	NotificationHandler *notificationhttp.Handler
 	expiryService       *queueservice.ExpiryService
+	broadcaster         *jobs.Broadcaster
 }
 
 func New(
 	queueHandler *queuehttp.Handler,
 	notificationHandler *notificationhttp.Handler,
 	expiryService *queueservice.ExpiryService,
+	broadcaster *jobs.Broadcaster,
 ) *Module {
 	return &Module{
 		QueueHandler:        queueHandler,
 		NotificationHandler: notificationHandler,
 		expiryService:       expiryService,
+		broadcaster:         broadcaster,
 	}
 }
 
 func (m *Module) Start(ctx context.Context) {
-	if m.expiryService == nil {
-		return
-	}
-
-	m.expiryService.StartKeyspaceListener(ctx)
-	go m.expiryService.RunCronSweep(ctx)
 }
 
 func (m *Module) RegisterRoutes(router fiber.Router) {

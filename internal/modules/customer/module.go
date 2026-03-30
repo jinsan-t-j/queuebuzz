@@ -15,11 +15,12 @@ func New(handler *customerhttp.Handler) *Module {
 }
 
 func (m *Module) RegisterRoutes(router fiber.Router) {
-	queue := router.Group("/queue")
-	queue.Get("/:id/rejoin", m.Handler.Rejoin)
-	queue.Get("/:id/status", m.Handler.GetStatus)
+	entry := router.Group("/entry")
+	entry.Get("/:id/rejoin", m.Handler.Rejoin)
+	entry.Get("/:id/status", m.Handler.GetStatus)
+	entry.Get("/:id/events", m.Handler.StreamEvents)
 
-	queueUser := queue.Group("/:id/user")
-	queueUser.Post("/email", m.Handler.AddEmail)
-	queueUser.Post("/pin", m.Handler.SetPIN)
+	entryUser := entry.Group("/:id/user")
+	entryUser.Post("/email", m.Handler.AddEmail)
+	entryUser.Post("/pin", m.Handler.SetPIN)
 }

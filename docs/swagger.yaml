@@ -47,51 +47,38 @@ definitions:
     required:
     - name
     type: object
-  dto.CreateQueueResponse:
+  dto.EntryRecord:
     properties:
-      allow_party_joining:
-        type: boolean
-      avg_service_mins:
-        type: integer
       created_at:
         type: string
-      expires_at:
+      created_by:
+        type: string
+      email:
+        type: string
+      finished_at:
         type: string
       id:
         type: string
-      join_code:
-        type: string
-      max_party_size:
-        type: integer
       name:
         type: string
-      slug:
+      party_size:
+        type: integer
+      phone:
+        type: string
+      position:
+        type: integer
+      queue_id:
+        type: string
+      served_at:
         type: string
       status:
         type: string
-    type: object
-  dto.GetLiveQueueResponse:
-    properties:
-      allow_party_joining:
-        type: boolean
-      avg_service_mins:
+      ticket_no:
+        type: string
+      updated_at:
+        type: string
+      wait_time_min:
         type: integer
-      created_at:
-        type: string
-      expires_at:
-        type: string
-      id:
-        type: string
-      join_code:
-        type: string
-      max_party_size:
-        type: integer
-      name:
-        type: string
-      slug:
-        type: string
-      status:
-        type: string
     type: object
   dto.GetMeResponse:
     properties:
@@ -108,6 +95,54 @@ definitions:
       tier:
         type: string
     type: object
+  dto.QueueRecord:
+    properties:
+      allow_party_joining:
+        type: boolean
+      avg_service_mins:
+        type: integer
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      join_code:
+        type: string
+      max_party_size:
+        type: integer
+      name:
+        type: string
+      recovery_email:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+    type: object
+  dto.UpdateQueueRequest:
+    properties:
+      allow_party_joining:
+        type: boolean
+      avg_service_mins:
+        maximum: 60
+        minimum: 1
+        type: integer
+      max_party_size:
+        maximum: 100
+        minimum: 1
+        type: integer
+      name:
+        maxLength: 50
+        minLength: 3
+        type: string
+      recovery_email:
+        type: string
+      slug:
+        maxLength: 20
+        minLength: 3
+        type: string
+    type: object
   helpers.SuccessResponse:
     properties:
       data: {}
@@ -119,6 +154,12 @@ definitions:
       email:
         type: string
       phone:
+        type: string
+    type: object
+  sse.Message:
+    properties:
+      data: {}
+      event:
         type: string
     type: object
 host: localhost:8080
@@ -323,6 +364,68 @@ paths:
       summary: Verify magic link or OTP
       tags:
       - Auth
+  /entry/{id}:
+    get:
+      description: Gets an entry by ID for the authenticated host.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Entry added
+          schema:
+            $ref: '#/definitions/dto.EntryRecord'
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get entry by ID
+      tags:
+      - Entry
+  /entry/{id}/stream:
+    get:
+      description: Streams events for an entry.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Entry added
+          schema:
+            $ref: '#/definitions/dto.EntryRecord'
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Stream events for an entry
+      tags:
+      - Entry
   /host/me:
     get:
       description: Gets the authenticated host profile.
@@ -373,6 +476,55 @@ paths:
       summary: Get authenticated host
       tags:
       - Host
+  /queue/{id}:
+    patch:
+      description: Updates the queue settings for the host (name, avg service mins,
+        recovery email).
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update queue request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateQueueRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Queue updated
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  type: object
+              type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update queue settings
+      tags:
+      - Queue
   /queue/{id}/add-entry:
     post:
       description: Adds a new entry to the live queue for the authenticated host.
@@ -459,22 +611,22 @@ paths:
     get:
       description: Gets the live queue events for the authenticated host.
       produces:
-      - application/json
+      - text/event-stream
       responses:
         "200":
-          description: Live queue events
+          description: Stream of live queue events
+          headers:
+            Cache-Control:
+              description: no-cache
+              type: string
+            Connection:
+              description: keep-alive
+              type: string
+            Content-Type:
+              description: text/event-stream
+              type: string
           schema:
-            additionalProperties: true
-            type: object
-        "302":
-          description: Found
-          schema:
-            allOf:
-            - $ref: '#/definitions/helpers.SuccessResponse'
-            - properties:
-                Data:
-                  $ref: '#/definitions/dto.GetLiveQueueResponse'
-              type: object
+            $ref: '#/definitions/sse.Message'
         "400":
           description: Error response
           schema:
@@ -496,6 +648,47 @@ paths:
       summary: Get live queue events
       tags:
       - Queue
+  /queue/{id}/events/public:
+    get:
+      description: Gets the public queue events for the authenticated host.
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: Stream of public queue events
+          headers:
+            Cache-Control:
+              description: no-cache
+              type: string
+            Connection:
+              description: keep-alive
+              type: string
+            Content-Type:
+              description: text/event-stream
+              type: string
+          schema:
+            $ref: '#/definitions/sse.Message'
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get public queue events
+      tags:
+      - Queue
   /queue/{id}/live:
     get:
       description: Gets the live queue for the authenticated host.
@@ -509,7 +702,7 @@ paths:
             - $ref: '#/definitions/helpers.SuccessResponse'
             - properties:
                 Data:
-                  $ref: '#/definitions/dto.GetLiveQueueResponse'
+                  $ref: '#/definitions/dto.QueueRecord'
               type: object
         "400":
           description: Error response
@@ -633,7 +826,7 @@ paths:
             - $ref: '#/definitions/helpers.SuccessResponse'
             - properties:
                 Data:
-                  $ref: '#/definitions/dto.CreateQueueResponse'
+                  $ref: '#/definitions/dto.QueueRecord'
               type: object
         "400":
           description: Error response
@@ -674,7 +867,7 @@ paths:
             - $ref: '#/definitions/helpers.SuccessResponse'
             - properties:
                 Data:
-                  $ref: '#/definitions/dto.GetLiveQueueResponse'
+                  $ref: '#/definitions/dto.QueueRecord'
               type: object
         "400":
           description: Error response

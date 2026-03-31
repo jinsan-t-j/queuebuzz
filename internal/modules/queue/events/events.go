@@ -46,6 +46,6 @@ type EntryStatusChangedData struct {
 }
 
 // Wrap is a helper to wrap payload in an SSE message.
-func Wrap(event string, data interface{}) sse.Message {
-	return sse.NewMessage(event, data)
+func Wrap(msg sse.Message) sse.Message {
+	return msg
 }

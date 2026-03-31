@@ -46,6 +46,16 @@ func NewHandler(
 	}
 }
 
+// Leave godoc
+// @Summary Leave queue
+// @Description Leaves the queue for the authenticated host.
+// @Tags Entry
+// @Produce json
+// @Success 200 {object} helpers.SuccessResponse "Successfully left the queue"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /entry/{id} [get]
 func (h *Handler) Leave(c fiber.Ctx) error {
 	entryID := c.Locals("entry_id").(string)
 	queueID := c.Locals("queue_id").(string)
@@ -66,7 +76,7 @@ func (h *Handler) Leave(c fiber.Ctx) error {
 		Path:     "/",
 	})
 
-	return helpers.NewSuccessResponse("Successfully left the queue", nil).OK(c)
+	return helpers.NewSuccessResponse("Successfully left the queue", nil).MessageResponse(c)
 }
 
 // GetEntry godoc

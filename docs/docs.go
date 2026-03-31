@@ -305,6 +305,100 @@ const docTemplate = `{
                 }
             }
         },
+        "/entry/{id}": {
+            "get": {
+                "description": "Gets an entry by ID for the authenticated host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Entry"
+                ],
+                "summary": "Get entry by ID",
+                "responses": {
+                    "200": {
+                        "description": "Entry added",
+                        "schema": {
+                            "$ref": "#/definitions/dto.EntryRecord"
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/entry/{id}/stream": {
+            "get": {
+                "description": "Streams events for an entry.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Entry"
+                ],
+                "summary": "Stream events for an entry",
+                "responses": {
+                    "200": {
+                        "description": "Entry added",
+                        "schema": {
+                            "$ref": "#/definitions/dto.EntryRecord"
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/host/me": {
             "get": {
                 "description": "Gets the authenticated host profile.",
@@ -425,7 +519,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "Data": {
-                                            "$ref": "#/definitions/dto.CreateQueueResponse"
+                                            "$ref": "#/definitions/dto.QueueRecord"
                                         }
                                     }
                                 }
@@ -491,7 +585,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "Data": {
-                                            "$ref": "#/definitions/dto.GetLiveQueueResponse"
+                                            "$ref": "#/definitions/dto.QueueRecord"
                                         }
                                     }
                                 }
@@ -567,6 +661,83 @@ const docTemplate = `{
                         }
                     },
                     "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/queue/{id}": {
+            "patch": {
+                "description": "Updates the queue settings for the host (name, avg service mins, recovery email).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Update queue settings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update queue request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.UpdateQueueRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Queue updated",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/helpers.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "Data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
                         "description": "Error response",
                         "schema": {
                             "type": "object",
@@ -714,7 +885,7 @@ const docTemplate = `{
             "get": {
                 "description": "Gets the live queue events for the authenticated host.",
                 "produces": [
-                    "application/json"
+                    "text/event-stream"
                 ],
                 "tags": [
                     "Queue"
@@ -722,28 +893,84 @@ const docTemplate = `{
                 "summary": "Get live queue events",
                 "responses": {
                     "200": {
-                        "description": "Live queue events",
+                        "description": "Stream of live queue events",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/sse.Message"
+                        },
+                        "headers": {
+                            "Cache-Control": {
+                                "type": "string",
+                                "description": "no-cache"
+                            },
+                            "Connection": {
+                                "type": "string",
+                                "description": "keep-alive"
+                            },
+                            "Content-Type": {
+                                "type": "string",
+                                "description": "text/event-stream"
+                            }
                         }
                     },
-                    "302": {
-                        "description": "Found",
+                    "400": {
+                        "description": "Error response",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/helpers.SuccessResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "Data": {
-                                            "$ref": "#/definitions/dto.GetLiveQueueResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/queue/{id}/events/public": {
+            "get": {
+                "description": "Gets the public queue events for the authenticated host.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Get public queue events",
+                "responses": {
+                    "200": {
+                        "description": "Stream of public queue events",
+                        "schema": {
+                            "$ref": "#/definitions/sse.Message"
+                        },
+                        "headers": {
+                            "Cache-Control": {
+                                "type": "string",
+                                "description": "no-cache"
+                            },
+                            "Connection": {
+                                "type": "string",
+                                "description": "keep-alive"
+                            },
+                            "Content-Type": {
+                                "type": "string",
+                                "description": "text/event-stream"
+                            }
                         }
                     },
                     "400": {
@@ -798,7 +1025,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "Data": {
-                                            "$ref": "#/definitions/dto.GetLiveQueueResponse"
+                                            "$ref": "#/definitions/dto.QueueRecord"
                                         }
                                     }
                                 }
@@ -1017,73 +1244,53 @@ const docTemplate = `{
                 }
             }
         },
-        "dto.CreateQueueResponse": {
+        "dto.EntryRecord": {
             "type": "object",
             "properties": {
-                "allow_party_joining": {
-                    "type": "boolean"
-                },
-                "avg_service_mins": {
-                    "type": "integer"
-                },
                 "created_at": {
                     "type": "string"
                 },
-                "expires_at": {
+                "created_by": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "finished_at": {
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
-                "join_code": {
-                    "type": "string"
-                },
-                "max_party_size": {
-                    "type": "integer"
-                },
                 "name": {
                     "type": "string"
                 },
-                "slug": {
+                "party_size": {
+                    "type": "integer"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "position": {
+                    "type": "integer"
+                },
+                "queue_id": {
+                    "type": "string"
+                },
+                "served_at": {
                     "type": "string"
                 },
                 "status": {
                     "type": "string"
-                }
-            }
-        },
-        "dto.GetLiveQueueResponse": {
-            "type": "object",
-            "properties": {
-                "allow_party_joining": {
-                    "type": "boolean"
                 },
-                "avg_service_mins": {
+                "ticket_no": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "wait_time_min": {
                     "type": "integer"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "expires_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "join_code": {
-                    "type": "string"
-                },
-                "max_party_size": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "slug": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
                 }
             }
         },
@@ -1110,6 +1317,75 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.QueueRecord": {
+            "type": "object",
+            "properties": {
+                "allow_party_joining": {
+                    "type": "boolean"
+                },
+                "avg_service_mins": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "join_code": {
+                    "type": "string"
+                },
+                "max_party_size": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "recovery_email": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.UpdateQueueRequest": {
+            "type": "object",
+            "properties": {
+                "allow_party_joining": {
+                    "type": "boolean"
+                },
+                "avg_service_mins": {
+                    "type": "integer",
+                    "maximum": 60,
+                    "minimum": 1
+                },
+                "max_party_size": {
+                    "type": "integer",
+                    "maximum": 100,
+                    "minimum": 1
+                },
+                "name": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "minLength": 3
+                },
+                "recovery_email": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string",
+                    "maxLength": 20,
+                    "minLength": 3
+                }
+            }
+        },
         "helpers.SuccessResponse": {
             "type": "object",
             "properties": {
@@ -1126,6 +1402,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "phone": {
+                    "type": "string"
+                }
+            }
+        },
+        "sse.Message": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "event": {
                     "type": "string"
                 }
             }

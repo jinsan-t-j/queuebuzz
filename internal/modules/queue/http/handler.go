@@ -221,9 +221,11 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 // @Summary Get live queue events
 // @Description Gets the live queue events for the authenticated host.
 // @Tags Queue
-// @Produce json
-// @Success 200 {object} map[string]interface{} "Live queue events"
-// @Success 302 {object} helpers.SuccessResponse{Data=dto.GetLiveQueueResponse}
+// @Produce text/event-stream
+// @Success 200 {object} sse.Message "Stream of live queue events"
+// @Header 200 {string} Connection "keep-alive"
+// @Header 200 {string} Content-Type "text/event-stream"
+// @Header 200 {string} Cache-Control "no-cache"
 // @Failure 400 {object} map[string]string "Error response"
 // @Failure 401 {object} map[string]string "Error response"
 // @Failure 500 {object} map[string]string "Error response"
@@ -249,11 +251,11 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 
 		var results [][]byte
 
-		entriesData, _ := json.Marshal(events.Wrap(events.EventQueueUpdate, dto.ToEntryResponses(entries)))
+		entriesData, _ := json.Marshal(events.Wrap(sse.NewMessage(events.EventQueueUpdate, dto.ToEntryResponses(entries))))
 		results = append(results, entriesData)
 
 		if queue.Status != constants.QueueStatusActive {
-			statusData, _ := json.Marshal(events.Wrap(events.EventQueueStatusChanged, events.QueueStatusData{Status: queue.Status}))
+			statusData, _ := json.Marshal(events.Wrap(sse.NewMessage(events.EventQueueStatusChanged, events.QueueStatusData{Status: queue.Status})))
 			results = append(results, statusData)
 		}
 
@@ -267,9 +269,11 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 // @Summary Get public queue events
 // @Description Gets the public queue events for the authenticated host.
 // @Tags Queue
-// @Produce json
-// @Success 200 {object} map[string]interface{} "Public queue events"
-// @Success 302 {object} helpers.SuccessResponse{Data=dto.GetLiveQueueResponse}
+// @Produce text/event-stream
+// @Success 200 {object} sse.Message "Stream of public queue events"
+// @Header 200 {string} Connection "keep-alive"
+// @Header 200 {string} Content-Type "text/event-stream"
+// @Header 200 {string} Cache-Control "no-cache"
 // @Failure 400 {object} map[string]string "Error response"
 // @Failure 401 {object} map[string]string "Error response"
 // @Failure 500 {object} map[string]string "Error response"
@@ -291,16 +295,16 @@ func (h *Handler) PublicEvents(c fiber.Ctx) error {
 
 		queueResponse := dto.ToQueueResponse(*queue)
 		queueResponse.RecoveryEmail = nil
-		initMsg := events.Wrap(events.EventQueueInit, queueResponse)
+		initMsg := events.Wrap(sse.NewMessage(events.EventQueueInit, queueResponse))
 		initPayload, _ := json.Marshal(initMsg)
 
 		// Initial status
-		statusMsg := events.Wrap(events.EventQueueStatusChanged, events.QueueStatusData{Status: queue.Status})
+		statusMsg := events.Wrap(sse.NewMessage(events.EventQueueStatusChanged, events.QueueStatusData{Status: queue.Status}))
 		statusPayload, _ := json.Marshal(statusMsg)
 
 		// Initial wait count
 		count, _ := h.redisRepo.GetSize(ctx, queueID)
-		countMsg := events.Wrap(events.EventWaitingCountUpdated, map[string]interface{}{"count": count})
+		countMsg := events.Wrap(sse.NewMessage(events.EventWaitingCountUpdated, map[string]interface{}{"count": count}))
 		countPayload, _ := json.Marshal(countMsg)
 
 		return [][]byte{initPayload, statusPayload, countPayload}, nil

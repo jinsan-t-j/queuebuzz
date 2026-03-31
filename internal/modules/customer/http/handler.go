@@ -17,6 +17,7 @@ import (
 	"queuebuzz/internal/sse"
 
 	"github.com/gofiber/fiber/v3"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type Handler struct {
@@ -137,27 +138,66 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 	return h.broker.ServeHTTP(c, topic, snapshotFn)
 }
 
-func (h *Handler) AddEmail(c fiber.Ctx) error {
-	queueID := c.Locals("entry_id").(string)
-	entryID := c.Get("X-User-Token")
-	if entryID == "" {
-		return c.SendStatus(fiber.StatusUnauthorized)
-	}
-	var req customerdto.AddEmailRequest
+// UpdateEntry godoc
+// @Summary Update entry details
+// @Description Updates the name, email, or party size for the currently authenticated entry.
+// @Tags Entry
+// @Produce json
+// @Param request body customerdto.UpdateEntryRequest true "Update entry request"
+// @Success 200 {object} map[string]string "Success message"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /entry/update [post]
+func (h *Handler) UpdateEntry(c fiber.Ctx) error {
+	entryID := c.Locals("entry_id").(string)
+	queueID := c.Locals("queue_id").(string)
+
+	var req customerdto.UpdateEntryRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
 	}
+
 	exists, err := h.customerService.SessionExists(c.Context(), queueID, entryID)
 	if err != nil || !exists {
-		return c.SendStatus(fiber.StatusUnauthorized)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized session"})
 	}
-	if err := h.customerService.SetUserEmail(c.Context(), entryID, req.Email); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError)
+
+	updates := make(bson.M)
+	if req.Name != nil {
+		updates["name"] = *req.Name
 	}
-	return c.SendStatus(fiber.StatusOK)
+	if req.Email != nil {
+		updates["email"] = *req.Email
+	}
+	if req.PartySize != nil {
+		updates["party_size"] = *req.PartySize
+	}
+
+	if len(updates) == 0 {
+		return helpers.NewSuccessResponse("No changes applied", nil).OK(c)
+	}
+
+	if err := h.customerService.UpdateEntry(c.Context(), entryID, updates); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update entry")
+	}
+
+	// Broadcaster should notify the host of name/party-size change if relevant
+	// Actually, for simplicity, we just return OK. The host will reflect changes on next refresh or event.
+
+	return helpers.NewSuccessResponse("Entry updated successfully", nil).OK(c)
 }
 
-func (h *Handler) JoinByID(c fiber.Ctx) error {
+// JoinByQueueID godoc
+// @Summary Join queue by ID
+// @Description Joins the queue for the authenticated host.
+// @Tags Entry
+// @Produce json
+// @Success 200 {object} queuedto.EntryRecord "Successfully joined the queue"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /entry/join/{id} [post]
+func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 	var req queuedto.JoinRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err

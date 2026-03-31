@@ -1,7 +1,9 @@
 package dto
 
-type AddEmailRequest struct {
-	Email string `json:"email" validate:"required,email"`
+type UpdateEntryRequest struct {
+	Name      *string `json:"name" validate:"omitempty,min=2"`
+	Email     *string `json:"email" validate:"omitempty,email"`
+	PartySize *int    `json:"party_size" validate:"omitempty,min=1,max=100"`
 }
 
 type SetPINRequest struct {

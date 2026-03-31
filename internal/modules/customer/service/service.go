@@ -120,10 +120,10 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 	return result, nil
 }
 
-func (s *Service) SetUserEmail(ctx context.Context, entryID, email string) error {
+func (s *Service) UpdateEntry(ctx context.Context, entryID string, updates bson.M) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := s.entryCol.UpdateOne(ctx, bson.M{"_id": entryID}, bson.M{"$set": bson.M{"email": email}})
+	_, err := s.entryCol.UpdateOne(ctx, bson.M{"_id": entryID}, bson.M{"$set": updates})
 	return err
 }
 

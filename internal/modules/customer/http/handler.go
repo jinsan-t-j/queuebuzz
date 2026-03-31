@@ -282,16 +282,6 @@ func (h *Handler) ResolveCode(c fiber.Ctx) error {
 	})
 }
 
-func (h *Handler) Heartbeat(c fiber.Ctx) error {
-	queueID := c.Locals("queue_id").(string)
-	entryID := c.Locals("entry_id").(string)
-
-	if err := h.customerService.Heartbeat(c.Context(), queueID, entryID); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update heartbeat")
-	}
-	return c.SendStatus(fiber.StatusOK)
-}
-
 func (h *Handler) ConfirmArrived(c fiber.Ctx) error {
 	queueID := c.Locals("queue_id").(string)
 	entryID := c.Locals("entry_id").(string)

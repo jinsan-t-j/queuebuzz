@@ -145,24 +145,6 @@ func (r *RedisRepository) SetGraceTimer(ctx context.Context, queueID, entryID st
 	})
 }
 
-func (r *RedisRepository) SetHeartbeat(ctx context.Context, queueID, entryID string, ttl time.Duration) error {
-	key := internalredis.UserActiveKey(queueID, entryID)
-	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
-		return r.rdb.Set(tCtx, key, "1", ttl).Err()
-	})
-}
-
-func (r *RedisRepository) IsUserActive(ctx context.Context, queueID, entryID string) (bool, error) {
-	key := internalredis.UserActiveKey(queueID, entryID)
-	n, err := internalredis.WithRetry(ctx, r.rdb, func(tCtx context.Context) (int64, error) {
-		return r.rdb.Exists(tCtx, key).Result()
-	})
-	if err != nil {
-		return false, err
-	}
-	return n > 0, nil
-}
-
 func (r *RedisRepository) DeleteQueueKeys(ctx context.Context, queueID string) error {
 	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
 		keys := []string{

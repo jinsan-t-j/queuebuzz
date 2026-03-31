@@ -180,11 +180,6 @@ func (s *Service) Leave(ctx context.Context, entryID string) error {
 	return s.queueService.RemoveUser(ctx, entryID)
 }
 
-func (s *Service) Heartbeat(ctx context.Context, queueID, entryID string) error {
-	ttl := time.Duration(constants.HeartbeatTTLSec) * time.Second
-	return s.redisRepo.SetHeartbeat(ctx, queueID, entryID, ttl)
-}
-
 func (s *Service) MarkArrived(ctx context.Context, queueID, entryID string) error {
 	// 1. Update status in database
 	_, err := s.entryCol.UpdateOne(ctx,
@@ -196,6 +191,6 @@ func (s *Service) MarkArrived(ctx context.Context, queueID, entryID string) erro
 	}
 
 	// 2. Remove heartbeat so expiry service doesn't trigger idle/grace transitions
-	_ = s.redisRepo.SetHeartbeat(ctx, queueID, entryID, 24*time.Hour) // Keep active but long TTL
+	_ = s.redisRepo.SetUserSession(ctx, queueID, entryID, 24*time.Hour) // Keep active but long TTL
 	return nil
 }

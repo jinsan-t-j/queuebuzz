@@ -2,12 +2,8 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
-	"math/big"
 	"time"
-
-	"queuebuzz/internal/constants"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -18,45 +14,6 @@ type JoinCodeService struct {
 
 func NewJoinCodeService(rdb *redis.Client) *JoinCodeService {
 	return &JoinCodeService{rdb: rdb}
-}
-
-// GenerateJoinCode creates a cryptographically random 6-character join code
-// from the safe charset, checks Redis for collisions, and stores the mapping.
-// Returns the code or an error if all attempts fail.
-func (s *JoinCodeService) GenerateJoinCode(ctx context.Context, queueID string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	charset := constants.JoinCodeCharset
-	codeLen := constants.JoinCodeLength
-	maxAttempts := constants.MaxJoinCodeAttempts
-	ttl := time.Duration(constants.DefaultQueueExpiryH+constants.JoinCodeTTLExtraH) * time.Hour
-
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		code, err := generateRandomCode(charset, codeLen)
-		if err != nil {
-			return "", fmt.Errorf("failed to generate random code: %w", err)
-		}
-
-		key := fmt.Sprintf("joincode:%s", code)
-
-		// Use SET NX to atomically check-and-set (only if key doesn't exist)
-		err = s.rdb.SetArgs(ctx, key, queueID, redis.SetArgs{
-			Mode: "NX",
-			TTL:  ttl,
-		}).Err()
-		if err == redis.Nil {
-			// Collision — try again
-			continue
-		}
-		if err != nil {
-			return "", fmt.Errorf("failed to store join code: %w", err)
-		}
-
-		return code, nil
-	}
-
-	return "", fmt.Errorf("failed to generate unique join code after %d attempts", maxAttempts)
 }
 
 // ResolveJoinCode looks up a join code in Redis and returns the associated queue ID.
@@ -83,19 +40,4 @@ func (s *JoinCodeService) DeleteJoinCode(ctx context.Context, code string) error
 
 	key := fmt.Sprintf("joincode:%s", code)
 	return s.rdb.Del(ctx, key).Err()
-}
-
-func generateRandomCode(charset string, length int) (string, error) {
-	code := make([]byte, length)
-	charsetLen := big.NewInt(int64(len(charset)))
-
-	for i := 0; i < length; i++ {
-		idx, err := rand.Int(rand.Reader, charsetLen)
-		if err != nil {
-			return "", err
-		}
-		code[i] = charset[idx.Int64()]
-	}
-
-	return string(code), nil
 }

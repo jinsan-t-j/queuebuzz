@@ -43,12 +43,7 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 
 	queue.Get("/slug-check", m.QueueHandler.CheckSlug)
 
-	queue.Post("/join-by-code", middlewares.JoinRateLimiter, m.QueueHandler.JoinByCode)
-	queue.Get("/resolve-code/:code", middlewares.JoinRateLimiter, m.QueueHandler.ResolveCode)
-	queue.Get("/recover-session", m.QueueHandler.RecoverSession)
-	queue.Post("/:id/join", middlewares.JoinRateLimiter, m.QueueHandler.JoinByID)
-	queue.Post("/leave", m.QueueHandler.LeaveQueue)
-	queue.Post("/:id/heartbeat", m.QueueHandler.Heartbeat)
+	queue.Post("/:id/join", m.QueueHandler.AddEntry)
 
 	queue.Get("/:id/live", m.QueueHandler.GetLiveQueueByID)
 	queue.Get("/:id/events/public", m.QueueHandler.PublicEvents)

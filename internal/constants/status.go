@@ -16,6 +16,7 @@ const (
 	EntryStatusSkipped = "SKIPPED"
 	EntryStatusServed  = "SERVED"
 	EntryStatusLeft    = "LEFT"
+	EntryStatusArrived = "ARRIVED"
 )
 
 // Host roles (JWT claim values)

@@ -16,12 +16,20 @@ func New(handler *customerhttp.Handler) *Module {
 }
 
 func (m *Module) RegisterRoutes(router fiber.Router) {
-	entry := router.Group("/entry")
-	entry.Get("/rejoin", middlewares.OptionalCustomerAuthMiddleware(), m.Handler.Rejoin)
+	customer := router.Group("/customer")
+
+	entry := customer.Group("/entry")
 	entry.Get("/", middlewares.CustomerAuthMiddleware(), m.Handler.GetEntry)
 	entry.Get("/events", middlewares.CustomerAuthMiddleware(), m.Handler.StreamEvents)
+	entry.Post("/leave", middlewares.CustomerAuthMiddleware(), m.Handler.Leave)
+
+	entry.Post("/join-by-code", middlewares.JoinRateLimiter, m.Handler.JoinByCode)
+	entry.Get("/resolve-code/:code", middlewares.JoinRateLimiter, m.Handler.ResolveCode)
+	entry.Get("/recover-session", m.Handler.RecoverSession)
+	entry.Post("/join/:id", middlewares.JoinRateLimiter, m.Handler.JoinByID)
+	entry.Post("/confirm", middlewares.CustomerAuthMiddleware(), m.Handler.Heartbeat)
+	entry.Post("/arrived", middlewares.CustomerAuthMiddleware(), m.Handler.ConfirmArrived)
 
 	entryUser := entry.Group("/user", middlewares.CustomerAuthMiddleware())
 	entryUser.Post("/email", m.Handler.AddEmail)
-	entryUser.Post("/pin", m.Handler.SetPIN)
 }

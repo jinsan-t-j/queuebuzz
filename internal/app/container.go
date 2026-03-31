@@ -10,6 +10,7 @@ import (
 	authservice "queuebuzz/internal/modules/auth/service"
 	customermodule "queuebuzz/internal/modules/customer"
 	customerhttp "queuebuzz/internal/modules/customer/http"
+	customerrepo "queuebuzz/internal/modules/customer/repository"
 	customerservice "queuebuzz/internal/modules/customer/service"
 	hostmodule "queuebuzz/internal/modules/host"
 	hosthttp "queuebuzz/internal/modules/host/http"
@@ -20,6 +21,7 @@ import (
 	queuemodule "queuebuzz/internal/modules/queue"
 	queuehttp "queuebuzz/internal/modules/queue/http"
 	"queuebuzz/internal/modules/queue/jobs"
+	queuerepo "queuebuzz/internal/modules/queue/repository"
 	queueservice "queuebuzz/internal/modules/queue/service"
 	"queuebuzz/internal/mongo"
 	"queuebuzz/internal/redis"
@@ -61,8 +63,10 @@ func NewContainer() *Container {
 	authSvc := authservice.NewAuthService(cfg.JWTPrivateKey, cfg.JWTPublicKey, redisSvc)
 	socialAuthSvc := authservice.NewSocialAuthService(cfg, redisSvc)
 
-	queueRedisSvc := queueservice.NewQueueRedisService(rdb)
-	queueSvc := queueservice.New(queueCol, entryCol, redisSvc, queueRedisSvc, joinCodeSvc, geoSvc)
+	customerRedisRepo := customerrepo.NewRedisRepository(rdb)
+	queueRedisRepo := queuerepo.NewRedisRepository(rdb)
+
+	queueSvc := queueservice.New(queueCol, entryCol, queueRedisRepo)
 
 	emailSvc := services.NewEmailService(cfg)
 	otpSvc := services.NewOTPService(rdb)
@@ -73,7 +77,7 @@ func NewContainer() *Container {
 
 	broker := sse.NewBroker()
 	notifier := queueservice.NewQueueNotifier(broker)
-	expirySvc := queueservice.NewExpiryService(rdb, queueCol, entryCol, redisSvc, notifier, notifSender)
+	expirySvc := queueservice.NewExpiryService(rdb, queueCol, entryCol, queueRedisRepo, notifier)
 	broadcaster := jobs.NewBroadcaster(expirySvc)
 	expiryJob := jobs.NewExpiryJob(expirySvc)
 	keyspaceJob := jobs.NewKeyspaceJob(rdb, expirySvc)
@@ -84,9 +88,9 @@ func NewContainer() *Container {
 
 	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc)
-	queueHandler := queuehttp.NewHandler(cfg, queueSvc, authSvc, joinCodeSvc, redisSvc, broker, notifier, broadcaster)
-	customerSvc := customerservice.New(entryCol, redisSvc, queueSvc)
-	customerHandler := customerhttp.NewHandler(customerSvc, redisSvc, broker)
+	queueHandler := queuehttp.NewHandler(cfg, queueSvc, authSvc, queueRedisRepo, broker, notifier, broadcaster)
+	customerSvc := customerservice.New(entryCol, customerRedisRepo, queueSvc)
+	customerHandler := customerhttp.NewHandler(customerSvc, queueSvc, authSvc, joinCodeSvc, broker, broadcaster)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 
 	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, broadcaster)

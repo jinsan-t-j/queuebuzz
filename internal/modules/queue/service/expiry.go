@@ -7,7 +7,7 @@ import (
 
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/log"
-	legacyservices "queuebuzz/internal/services"
+	"queuebuzz/internal/modules/queue/repository"
 
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -18,29 +18,26 @@ import (
 // ExpiryService manages Redis keyspace notifications and queue expiry cleanup.
 // It lives in the queue module because it directly mutates queue/entry state.
 type ExpiryService struct {
-	rdb          *redis.Client
-	queueCol     *mongo.Collection
-	entryCol     *mongo.Collection
-	redisService *legacyservices.RedisService
-	notifier     *QueueNotifier
-	notifSender  legacyservices.NotificationSender
+	rdb       *redis.Client
+	queueCol  *mongo.Collection
+	entryCol  *mongo.Collection
+	redisRepo *repository.RedisRepository
+	notifier  *QueueNotifier
 }
 
 func NewExpiryService(
 	rdb *redis.Client,
 	queueCol *mongo.Collection,
 	entryCol *mongo.Collection,
-	redisSvc *legacyservices.RedisService,
+	redisRepo *repository.RedisRepository,
 	notifier *QueueNotifier,
-	notifSender legacyservices.NotificationSender,
 ) *ExpiryService {
 	return &ExpiryService{
-		rdb:          rdb,
-		queueCol:     queueCol,
-		entryCol:     entryCol,
-		redisService: redisSvc,
-		notifier:     notifier,
-		notifSender:  notifSender,
+		rdb:       rdb,
+		queueCol:  queueCol,
+		entryCol:  entryCol,
+		redisRepo: redisRepo,
+		notifier:  notifier,
 	}
 }
 
@@ -82,10 +79,10 @@ func (s *ExpiryService) handleIdleTimerExpiry(ctx context.Context, key string) {
 	}
 
 	// Move user to back of sorted set
-	_ = s.redisService.MoveToBack(opCtx, queueID, token)
+	_ = s.redisRepo.MoveToBack(opCtx, queueID, token)
 
 	// Set grace timer (5 min)
-	_ = s.redisService.SetGraceTimer(opCtx, queueID, token,
+	_ = s.redisRepo.SetGraceTimer(opCtx, queueID, token,
 		time.Duration(constants.DefaultGraceTimerSec)*time.Second)
 
 	// Publish status change via SSE
@@ -119,7 +116,7 @@ func (s *ExpiryService) handleGraceTimerExpiry(ctx context.Context, key string) 
 	}
 
 	// Remove from sorted set
-	_ = s.redisService.RemoveFromQueue(opCtx, queueID, token)
+	_ = s.redisRepo.RemoveFromQueue(opCtx, queueID, token)
 
 	// Publish via SSE
 	s.notifier.PublishUserStatus(queueID, token, constants.EntryStatusSkipped)
@@ -194,7 +191,7 @@ func (s *ExpiryService) BroadcastPositionsForQueue(ctx context.Context, queueID 
 	opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	ids, err := s.redisService.GetAllQueuePositionsInOrder(opCtx, queueID)
+	ids, err := s.redisRepo.GetQueueEntryIDs(opCtx, queueID)
 	if err != nil {
 		return
 	}
@@ -225,7 +222,7 @@ func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode strin
 	s.notifier.PublishQueueExpired(queueID)
 
 	// 4. Clean up all Redis keys for this queue
-	_ = s.redisService.DeleteQueueKeys(opCtx, queueID)
+	_ = s.redisRepo.DeleteQueueKeys(opCtx, queueID)
 
 	// 5. Clear email fields from entries (privacy cleanup)
 	_, _ = s.entryCol.UpdateMany(opCtx,

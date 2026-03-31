@@ -189,7 +189,7 @@ func (h *Handler) UpdateEntry(c fiber.Ctx) error {
 
 // JoinByQueueID godoc
 // @Summary Join queue by ID
-// @Description Joins the queue for the authenticated host.
+// @Description Joins the queue using a queue ID.
 // @Tags Entry
 // @Produce json
 // @Success 200 {object} queuedto.EntryRecord "Successfully joined the queue"
@@ -222,43 +222,17 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 	return helpers.NewSuccessResponse("Successfully joined the queue", queuedto.ToEntryResponse(result.Entry, result.Position)).OK(c)
 }
 
+// JoinByCode godoc
+// @Summary Join queue by code
+// @Description Joins the queue using a 6-character code.
+// @Tags Entry
+// @Produce json
+// @Success 200 {object} queuedto.EntryRecord "Successfully joined the queue"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /entry/join-by-code/{code} [get]
 func (h *Handler) JoinByCode(c fiber.Ctx) error {
-	var req queuedto.JoinByCodeRequest
-	if err := c.Bind().JSON(&req); err != nil {
-		return err
-	}
-
-	queueID, err := h.joinCodeService.ResolveJoinCode(c.Context(), req.JoinCode)
-	if err != nil || queueID == "" {
-		// Fallback to database
-		queue, dbErr := h.queueService.GetQueueByJoinCode(c.Context(), req.JoinCode)
-		if dbErr == nil && queue != nil {
-			queueID = queue.ID
-		} else {
-			return fiber.NewError(fiber.StatusNotFound, "Invalid or expired queue code")
-		}
-	}
-
-	result, err := h.customerService.JoinQueue(c.Context(), queueservice.JoinQueueParams{
-		QueueID:   queueID,
-		FCMToken:  req.FCMToken,
-		Name:      *req.DisplayName,
-		Email:     req.Email,
-		Phone:     req.Phone,
-		PIN:       req.PIN,
-		PartySize: req.PartySize,
-	})
-
-	if err != nil {
-		return err
-	}
-
-	h.issueGuestToken(c, result.Entry.QueueID, result.Entry.ID)
-
-	return helpers.NewSuccessResponse("Successfully joined the queue", queuedto.ToEntryResponse(result.Entry, result.Position)).OK(c)
-}
-
-func (h *Handler) ResolveCode(c fiber.Ctx) error {
 	code := c.Params("code")
 	queueID, err := h.joinCodeService.ResolveJoinCode(c.Context(), code)
 	if err != nil || queueID == "" {
@@ -276,10 +250,10 @@ func (h *Handler) ResolveCode(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Queue not found")
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+	return helpers.NewSuccessResponse("Queue found", fiber.Map{
 		"queue_id":   queue.ID,
 		"queue_name": queue.Name,
-	})
+	}).OK(c)
 }
 
 func (h *Handler) ConfirmArrived(c fiber.Ctx) error {

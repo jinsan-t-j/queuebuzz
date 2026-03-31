@@ -120,6 +120,18 @@ definitions:
       status:
         type: string
     type: object
+  dto.UpdateEntryRequest:
+    properties:
+      email:
+        type: string
+      name:
+        minLength: 2
+        type: string
+      party_size:
+        maximum: 100
+        minimum: 1
+        type: integer
+    type: object
   dto.UpdateQueueRequest:
     properties:
       allow_party_joining:
@@ -424,6 +436,103 @@ paths:
               type: string
             type: object
       summary: Stream events for an entry
+      tags:
+      - Entry
+  /entry/join-by-code/{code}:
+    get:
+      description: Joins the queue using a 6-character code.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully joined the queue
+          schema:
+            $ref: '#/definitions/dto.EntryRecord'
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Join queue by code
+      tags:
+      - Entry
+  /entry/join/{id}:
+    post:
+      description: Joins the queue using a queue ID.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully joined the queue
+          schema:
+            $ref: '#/definitions/dto.EntryRecord'
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Join queue by ID
+      tags:
+      - Entry
+  /entry/update:
+    post:
+      description: Updates the name, email, or party size for the currently authenticated
+        entry.
+      parameters:
+      - description: Update entry request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateEntryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update entry details
       tags:
       - Entry
   /host/me:

@@ -8,6 +8,7 @@ import (
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
+	internalredis "queuebuzz/internal/redis"
 
 	authservice "queuebuzz/internal/modules/auth/service"
 
@@ -176,6 +177,7 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 		AvgServiceMins:    queue.AvgServiceMins,
 		AllowPartyJoining: queue.AllowPartyJoining,
 		MaxPartySize:      queue.MaxPartySize,
+		StrictQueueMode:   queue.StrictQueueMode,
 		RecoveryEmail:     queue.RecoveryEmail,
 		CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
 		ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
@@ -211,6 +213,7 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 		AvgServiceMins:    queue.AvgServiceMins,
 		AllowPartyJoining: queue.AllowPartyJoining,
 		MaxPartySize:      queue.MaxPartySize,
+		StrictQueueMode:   queue.StrictQueueMode,
 		RecoveryEmail:     queue.RecoveryEmail,
 		CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
 		ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
@@ -374,6 +377,9 @@ func (h *Handler) Update(c fiber.Ctx) error {
 	if req.MaxPartySize != nil {
 		updates["max_party_size"] = *req.MaxPartySize
 	}
+	if req.StrictQueueMode != nil {
+		updates["strict_queue_mode"] = *req.StrictQueueMode
+	}
 
 	if len(updates) == 0 {
 		return fiber.NewError(fiber.StatusBadRequest, "No fields to update")
@@ -485,36 +491,78 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 	return helpers.NewSuccessResponse("Entry added", record).OK(c)
 }
 
-// (JoinByID, JoinByCode, ResolveCode, joinQueue, RecoverSession logic removed)
-
-func (h *Handler) PingUser(c fiber.Ctx) error {
+// CallEntry godoc
+// @Summary Call a new entry to the queue
+// @Description Calls a new entry to the live queue for the authenticated host.
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param entry_id path string false "Entry ID"
+// @Success 200 {object} map[string]interface{} "Entry called"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/{id}/call/:entry_id? [post]
+func (h *Handler) CallEntry(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	entryID := c.Params("entry_id")
-	if err := h.queueService.UpdateEntryStatus(c.Context(), entryID, constants.EntryStatusCalled); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError)
-	}
 
-	// Publish user called event
-	h.notifier.PublishUserCalled(queueID, entryID, constants.EntryStatusCalled)
+	var entry *domain.Entry
+	var err error
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "User pinged"})
-}
+	if entryID == "" {
+		// Acquire Lock to prevent race conditions during "Call Next"
+		lockKey := internalredis.ActionLockKey(queueID, "call_next")
+		ok, err := h.redisRepo.AcquireLock(c.Context(), lockKey, 3*time.Second)
+		if err != nil || !ok {
+			return fiber.NewError(fiber.StatusTooManyRequests, "Action in progress. Please wait.")
+		}
+		defer h.redisRepo.ReleaseLock(c.Context(), lockKey)
 
-func (h *Handler) CallNext(c fiber.Ctx) error {
-	queueID := c.Params("id")
-	entry, err := h.queueService.CallNextUser(c.Context(), queueID)
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, err.Error())
+		// Business Logic: Strict Mode Violation Check
+		queue, err := h.queueService.GetQueue(c.Context(), queueID)
+		if err == nil && queue.StrictQueueMode {
+			hasActive, _ := h.queueService.HasCalledEntries(c.Context(), queueID)
+			if hasActive {
+				return fiber.NewError(fiber.StatusConflict, "Please serve the current guest before calling the next one.")
+			}
+		}
+
+		// Case: Call Next Guest
+		entry, err = h.queueService.CallNextUser(c.Context(), queueID)
+		if err != nil {
+			return fiber.NewError(fiber.StatusNotFound, "No guests waiting in queue")
+		}
+		h.broadcaster.DispatchPositionUpdate(queueID)
+	} else {
+		// Case: Ping/Recall Specific Guest
+		if err := h.queueService.UpdateEntryStatus(c.Context(), entryID, constants.EntryStatusCalled); err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Failed to call guest")
+		}
+		entry, err = h.queueService.GetEntry(c.Context(), entryID)
+		if err != nil {
+			return fiber.NewError(fiber.StatusNotFound, "Guest record not found")
+		}
 	}
 
 	h.notifier.PublishUserCalled(queueID, entry.ID, constants.EntryStatusCalled)
-	h.broadcaster.DispatchPositionUpdate(queueID)
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"id":            entry.ID,
-		"name":          entry.Name,
-		"ticket_number": entry.TicketNo,
-	})
+	return helpers.NewSuccessResponse("Guest called successfully", fiber.Map{
+		"id":           entry.ID,
+		"name":         entry.Name,
+		"ticketNumber": entry.TicketNo,
+		"status":       constants.EntryStatusCalled,
+	}).OK(c)
+}
+
+func (h *Handler) Serve(c fiber.Ctx) error {
+	queueID := c.Params("id")
+	entryID := c.Params("entry_id")
+	if err := h.queueService.ServeUser(c.Context(), entryID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	h.broadcaster.DispatchPositionUpdate(queueID)
+	return c.SendStatus(fiber.StatusOK)
 }
 
 func (h *Handler) GetHistory(ctx fiber.Ctx) error {
@@ -551,14 +599,4 @@ func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 	}
 
 	return helpers.NewSuccessResponse("History fetched", response).OK(ctx)
-}
-
-func (h *Handler) Serve(c fiber.Ctx) error {
-	queueID := c.Params("id")
-	entryID := c.Params("entry_id")
-	if err := h.queueService.ServeUser(c.Context(), entryID); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-	}
-	h.broadcaster.DispatchPositionUpdate(queueID)
-	return c.SendStatus(fiber.StatusOK)
 }

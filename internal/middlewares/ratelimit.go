@@ -42,4 +42,7 @@ var (
 
 	// LenientRateLimiter — 30 req / IP / min for general endpoints
 	LenientRateLimiter = RateLimiter(30, 1*time.Minute)
+
+	// HostActionLimiter — 2 req / IP / sec for host call/serve actions
+	HostActionLimiter = RateLimiter(2, 1*time.Second)
 )

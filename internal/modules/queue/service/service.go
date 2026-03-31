@@ -61,6 +61,23 @@ type JoinQueueResult struct {
 	Position int64 `json:"position"`
 }
 
+func (s *Service) HasCalledEntries(ctx context.Context, queueID string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	filter := bson.M{
+		"queue_id": queueID,
+		"status":   constants.EntryStatusCalled,
+	}
+
+	count, err := s.entryCol.CountDocuments(ctx, filter)
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
+
 func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*domain.Queue, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

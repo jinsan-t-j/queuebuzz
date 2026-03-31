@@ -154,3 +154,24 @@ func (r *RedisRepository) DeleteQueueKeys(ctx context.Context, queueID string) e
 		return r.rdb.Del(tCtx, keys...).Err()
 	})
 }
+
+func (r *RedisRepository) AcquireLock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	err := r.rdb.SetArgs(ctx, key, "locked", redis.SetArgs{
+		Mode: "NX",
+		TTL:  ttl,
+	}).Err()
+
+	if err == redis.Nil {
+		// Key already exists (locked)
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (r *RedisRepository) ReleaseLock(ctx context.Context, key string) error {
+	return r.rdb.Del(ctx, key).Err()
+}

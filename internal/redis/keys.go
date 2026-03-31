@@ -22,3 +22,7 @@ func IdleTimerKey(queueID, entryID string) string {
 func GraceTimerKey(queueID, entryID string) string {
 	return fmt.Sprintf("grace_timer:%s:%s", queueID, entryID)
 }
+
+func ActionLockKey(queueID, action string) string {
+	return fmt.Sprintf("lock:%s:%s", action, queueID)
+}

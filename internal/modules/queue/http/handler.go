@@ -247,7 +247,13 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 		if err != nil {
 			return nil, err
 		}
-		entries, err := h.queueService.GetQueueEntries(ctx, queueID)
+		entries, err := h.queueService.GetQueueEntries(ctx, queueID,
+			constants.EntryStatusWaiting,
+			constants.EntryStatusCalled,
+			constants.EntryStatusIdle,
+			constants.EntryStatusArrived,
+			constants.EntryStatusServed,
+		)
 		if err != nil {
 			return nil, err
 		}

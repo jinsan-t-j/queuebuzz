@@ -204,14 +204,25 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 	}, nil
 }
 
-func (s *Service) GetQueueEntries(ctx context.Context, queueID string) ([]domain.Entry, error) {
+func (s *Service) GetQueueEntries(ctx context.Context, queueID string, statuses ...string) ([]domain.Entry, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	cursor, err := s.entryCol.Find(ctx, bson.M{
+	if len(statuses) == 0 {
+		statuses = []string{
+			constants.EntryStatusWaiting,
+			constants.EntryStatusCalled,
+			constants.EntryStatusIdle,
+			constants.EntryStatusArrived,
+		}
+	}
+
+	filter := bson.M{
 		"queue_id": queueID,
-		"status":   bson.M{"$in": []string{constants.EntryStatusWaiting, constants.EntryStatusCalled, constants.EntryStatusIdle}},
-	}, options.Find().SetSort(bson.M{"created_at": 1}))
+		"status":   bson.M{"$in": statuses},
+	}
+
+	cursor, err := s.entryCol.Find(ctx, filter, options.Find().SetSort(bson.M{"created_at": 1}))
 	if err != nil {
 		return nil, err
 	}

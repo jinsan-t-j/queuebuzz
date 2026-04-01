@@ -42,10 +42,20 @@ func (n *QueueNotifier) PublishQueueExpired(queueID string) {
 
 func (n *QueueNotifier) PublishUserCalled(queueID, entryID, status string) {
 	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserCalled, events.UserStatusData{ID: entryID, Status: status})))
+	n.PublishEntryStatusChanged(entryID, status)
 }
 
 func (n *QueueNotifier) PublishUserStatus(queueID, entryID, status string) {
 	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserStatusChanged, events.UserStatusData{ID: entryID, Status: status})))
+	n.PublishEntryStatusChanged(entryID, status)
+}
+
+func (n *QueueNotifier) PublishUserArrived(queueID, entryID, name, ticketNo string) {
+	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserArrived, events.UserArrivedData{
+		ID:           entryID,
+		Name:         name,
+		TicketNumber: ticketNo,
+	})))
 }
 
 // PublishPositionUpdates broadcasts positions to all waiting entries.

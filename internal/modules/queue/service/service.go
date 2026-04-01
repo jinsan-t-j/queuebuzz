@@ -52,7 +52,6 @@ type JoinQueueParams struct {
 	Phone     *string
 	PartySize *int
 	FCMToken  *string
-	PIN       *string
 	CreatedBy *string
 }
 
@@ -172,14 +171,12 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// 1. Generate Ticket Number
 	ticketNo, err := s.redisRepo.NextTicket(ctx, entry.QueueID)
 	if err != nil {
 		return nil, err
 	}
 	entry.TicketNo = ticketNo
 
-	// 2. Set Core Fields
 	now := time.Now()
 	entry.ID = uuid.New().String()
 	entry.Token = uuid.New().String()
@@ -187,18 +184,15 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 	entry.CreatedAt = now
 	entry.UpdatedAt = now
 
-	// 3. Persistent Storage
 	if _, err := s.entryCol.InsertOne(ctx, entry); err != nil {
 		return nil, fmt.Errorf("failed to insert queue entry: %w", err)
 	}
 
-	// 4. Redis Synchronization
 	score := float64(now.Unix())
 	if err := s.redisRepo.AddToQueue(ctx, entry.QueueID, entry.ID, score); err != nil {
 		return nil, fmt.Errorf("failed to add to queue positions: %w", err)
 	}
 
-	// 5. Get Correct Position
 	position, err := s.redisRepo.GetPosition(ctx, entry.QueueID, entry.ID)
 	if err != nil {
 		position = 0

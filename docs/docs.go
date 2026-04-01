@@ -970,6 +970,69 @@ const docTemplate = `{
                 }
             }
         },
+        "/queue/{id}/call/{entry_id}": {
+            "post": {
+                "description": "Calls a new entry to the live queue for the authenticated host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Call a new entry to the queue",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Entry ID",
+                        "name": "entry_id",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Entry called",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/queue/{id}/close": {
             "post": {
                 "description": "Closes the live queue for the authenticated host.",
@@ -1321,6 +1384,69 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/queue/{id}/serve/{entry_id}": {
+            "post": {
+                "description": "Serves a new entry to the live queue for the authenticated host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Serve a new entry to the queue",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Entry ID",
+                        "name": "entry_id",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Entry served",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -1498,6 +1624,9 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "strict_queue_mode": {
+                    "type": "boolean"
                 }
             }
         },
@@ -1546,6 +1675,9 @@ const docTemplate = `{
                     "type": "string",
                     "maxLength": 20,
                     "minLength": 3
+                },
+                "strict_queue_mode": {
+                    "type": "boolean"
                 }
             }
         },

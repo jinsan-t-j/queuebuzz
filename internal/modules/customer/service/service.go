@@ -14,7 +14,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type Service struct {
@@ -84,17 +83,6 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 		}
 	}
 
-	// 3. PIN Hashing
-	var pinHash *string
-	if params.PIN != nil && *params.PIN != "" {
-		hash, err := bcrypt.GenerateFromPassword([]byte(*params.PIN), bcrypt.DefaultCost)
-		if err != nil {
-			return nil, fmt.Errorf("failed to hash PIN: %w", err)
-		}
-		h := string(hash)
-		pinHash = &h
-	}
-
 	// 4. Delegate Creation
 	entry := queuedomain.Entry{
 		QueueID:   params.QueueID,
@@ -103,7 +91,6 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 		Phone:     params.Phone,
 		PartySize: params.PartySize,
 		FCMToken:  params.FCMToken,
-		PINHash:   pinHash,
 		CreatedBy: params.CreatedBy,
 	}
 
@@ -155,12 +142,6 @@ func (s *Service) RejoinByPIN(ctx context.Context, queueID, ticketNo, pin string
 	if err := s.entryCol.FindOne(ctx, bson.M{"queue_id": queueID, "ticket_no": ticketNo}).Decode(&entry); err != nil {
 		return nil, fmt.Errorf("entry not found")
 	}
-	if entry.PINHash == nil {
-		return nil, fmt.Errorf("no PIN set for this ticket")
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(*entry.PINHash), []byte(pin)); err != nil {
-		return nil, fmt.Errorf("invalid PIN")
-	}
 	position, _ := s.queueService.GetPosition(ctx, queueID, entry.ID)
 	return &queueservice.JoinQueueResult{
 		Entry:    entry,
@@ -181,7 +162,6 @@ func (s *Service) Leave(ctx context.Context, entryID string) error {
 }
 
 func (s *Service) MarkArrived(ctx context.Context, queueID, entryID string) error {
-	// 1. Update status in database
 	_, err := s.entryCol.UpdateOne(ctx,
 		bson.M{"_id": entryID, "queue_id": queueID},
 		bson.M{"$set": bson.M{"status": constants.EntryStatusArrived}},
@@ -190,7 +170,7 @@ func (s *Service) MarkArrived(ctx context.Context, queueID, entryID string) erro
 		return err
 	}
 
-	// 2. Remove heartbeat so expiry service doesn't trigger idle/grace transitions
+	// Remove user session so expiry service doesn't trigger idle/grace transitions
 	_ = s.redisRepo.SetUserSession(ctx, queueID, entryID, 24*time.Hour) // Keep active but long TTL
 	return nil
 }

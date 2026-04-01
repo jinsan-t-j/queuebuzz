@@ -17,7 +17,6 @@ type Entry struct {
 	Phone      *string    `bson:"phone" json:"-"`
 	PartySize  *int       `bson:"party_size" json:"party_size,omitempty"`
 	Name       string     `bson:"name" json:"name,omitempty"`
-	PINHash    *string    `bson:"pin_hash" json:"-"`
 	Metadata   bson.M     `bson:"metadata" json:"-"`
 	ServedAt   *time.Time `bson:"served_at" json:"served_at,omitempty"`
 	FinishedAt *time.Time `bson:"finished_at" json:"finished_at,omitempty"`

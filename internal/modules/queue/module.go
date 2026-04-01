@@ -16,20 +16,23 @@ type Module struct {
 	QueueHandler        *queuehttp.Handler
 	NotificationHandler *notificationhttp.Handler
 	expiryService       *queueservice.ExpiryService
-	broadcaster         *jobs.Broadcaster
+	posJob              *jobs.PositionJob
+	hostNotifierJob     *jobs.HostNotifierJob
 }
 
 func New(
 	queueHandler *queuehttp.Handler,
 	notificationHandler *notificationhttp.Handler,
 	expiryService *queueservice.ExpiryService,
-	broadcaster *jobs.Broadcaster,
+	posJob *jobs.PositionJob,
+	hostNotifierJob *jobs.HostNotifierJob,
 ) *Module {
 	return &Module{
 		QueueHandler:        queueHandler,
 		NotificationHandler: notificationHandler,
 		expiryService:       expiryService,
-		broadcaster:         broadcaster,
+		posJob:              posJob,
+		hostNotifierJob:     hostNotifierJob,
 	}
 }
 

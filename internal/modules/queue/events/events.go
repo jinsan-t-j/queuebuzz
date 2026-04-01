@@ -17,7 +17,15 @@ const (
 	EventEntryStatusChanged  = "entry_status_changed"
 	EventQueueInit           = "queue_init"
 	EventWaitingCountUpdated = "waiting_count_updated"
+	EventUserArrived         = "user_arrived"
 )
+
+// UserArrivedData is the payload for EventUserArrived.
+type UserArrivedData struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	TicketNumber string `json:"ticket_number"`
+}
 
 // UserStatusData is the payload for EventUserStatusChanged.
 type UserStatusData struct {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
 	authservice "queuebuzz/internal/modules/auth/service"
 	customerdto "queuebuzz/internal/modules/customer/dto"
@@ -26,7 +27,8 @@ type Handler struct {
 	authService     *authservice.AuthService
 	joinCodeService *legacyservices.JoinCodeService
 	broker          *sse.Broker
-	broadcaster     *queueresource.Broadcaster
+	posJob          *queueresource.PositionJob
+	hostNotifierJob *queueresource.HostNotifierJob
 }
 
 func NewHandler(
@@ -35,7 +37,8 @@ func NewHandler(
 	authSvc *authservice.AuthService,
 	joinCodeSvc *legacyservices.JoinCodeService,
 	broker *sse.Broker,
-	broadcaster *queueresource.Broadcaster,
+	posJob *queueresource.PositionJob,
+	hostNotifierJob *queueresource.HostNotifierJob,
 ) *Handler {
 	return &Handler{
 		customerService: customerSvc,
@@ -43,7 +46,8 @@ func NewHandler(
 		authService:     authSvc,
 		joinCodeService: joinCodeSvc,
 		broker:          broker,
-		broadcaster:     broadcaster,
+		posJob:          posJob,
+		hostNotifierJob: hostNotifierJob,
 	}
 }
 
@@ -65,7 +69,8 @@ func (h *Handler) Leave(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to leave queue")
 	}
 
-	h.broadcaster.DispatchPositionUpdate(queueID)
+	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusLeft)
+	h.posJob.Dispatch(queueID)
 
 	c.Cookie(&fiber.Cookie{
 		Name:     "guest_entry_token",
@@ -181,8 +186,7 @@ func (h *Handler) UpdateEntry(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update entry")
 	}
 
-	// Broadcaster should notify the host of name/party-size change if relevant
-	// Actually, for simplicity, we just return OK. The host will reflect changes on next refresh or event.
+	h.hostNotifierJob.DispatchUserUpdated(queueID, entryID)
 
 	return helpers.NewSuccessResponse("Entry updated successfully", nil).OK(c)
 }
@@ -209,7 +213,6 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 		Name:      *req.DisplayName,
 		Email:     req.Email,
 		Phone:     req.Phone,
-		PIN:       req.PIN,
 		PartySize: req.PartySize,
 	})
 
@@ -219,7 +222,11 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 
 	h.issueGuestToken(c, result.Entry.QueueID, result.Entry.ID)
 
-	return helpers.NewSuccessResponse("Successfully joined the queue", queuedto.ToEntryResponse(result.Entry, result.Position)).OK(c)
+	entryRecord := queuedto.ToEntryResponse(result.Entry, result.Position)
+	h.hostNotifierJob.DispatchUserJoined(result.Entry.QueueID, entryRecord)
+	h.posJob.Dispatch(result.Entry.QueueID)
+
+	return helpers.NewSuccessResponse("Successfully joined the queue", entryRecord).OK(c)
 }
 
 // JoinByCode godoc
@@ -256,6 +263,16 @@ func (h *Handler) JoinByCode(c fiber.Ctx) error {
 	}).OK(c)
 }
 
+// ConfirmArrived godoc
+// @Summary Confirm arrived
+// @Description Confirms arrival for the currently authenticated entry.
+// @Tags Entry
+// @Produce json
+// @Success 200 {object} map[string]string "Successfully confirmed arrival"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /entry/confirm-arrived [post]
 func (h *Handler) ConfirmArrived(c fiber.Ctx) error {
 	queueID := c.Locals("queue_id").(string)
 	entryID := c.Locals("entry_id").(string)
@@ -263,9 +280,23 @@ func (h *Handler) ConfirmArrived(c fiber.Ctx) error {
 	if err := h.customerService.MarkArrived(c.Context(), queueID, entryID); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to confirm arrival")
 	}
+
+	// Notify the host list and firing the pulse arrival toast via background enrichment
+	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusArrived)
+	h.hostNotifierJob.DispatchUserArrived(queueID, entryID)
+
 	return helpers.NewSuccessResponse("Arrival confirmed", nil).OK(c)
 }
 
+// RecoverSession godoc
+// @Summary Recover session
+// @Description Recovers the session for the currently authenticated entry.
+// @Tags Entry
+// @Produce json
+// @Success 200 {object} queuedto.EntryRecord "Session recovered"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /entry/recover-session [get]
 func (h *Handler) RecoverSession(c fiber.Ctx) error {
 	cookie := c.Cookies("guest_entry_token")
 	if cookie == "" {

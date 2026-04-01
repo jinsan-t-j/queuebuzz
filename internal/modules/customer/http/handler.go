@@ -288,6 +288,31 @@ func (h *Handler) ConfirmArrived(c fiber.Ctx) error {
 	return helpers.NewSuccessResponse("Arrival confirmed", nil).OK(c)
 }
 
+// FinishService godoc
+// @Summary Finish service (Guest self-serve)
+// @Description Marks the currently authenticated entry as served and clears the session.
+// @Tags Entry
+// @Produce json
+// @Success 200 {object} map[string]string "Successfully finished service"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /entry/finish [post]
+func (h *Handler) FinishService(c fiber.Ctx) error {
+	queueID := c.Locals("queue_id").(string)
+	entryID := c.Locals("entry_id").(string)
+
+	if err := h.queueService.ServeUser(c.Context(), entryID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to finish service")
+	}
+
+	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusServed)
+	h.posJob.Dispatch(queueID)
+
+	h.clearGuestToken(c)
+
+	return helpers.NewSuccessResponse("Service finished", nil).OK(c)
+}
+
 // RecoverSession godoc
 // @Summary Recover session
 // @Description Recovers the session for the currently authenticated entry.

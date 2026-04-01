@@ -27,6 +27,7 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	entry.Get("/recover-session", m.Handler.RecoverSession)
 	entry.Post("/join/:id", middlewares.JoinRateLimiter, m.Handler.JoinByQueueID)
 	entry.Post("/arrived", middlewares.CustomerAuthMiddleware(), m.Handler.ConfirmArrived)
+	entry.Post("/finish", middlewares.CustomerAuthMiddleware(), m.Handler.FinishService)
 
 	entry.Post("/update", middlewares.CustomerAuthMiddleware(), m.Handler.UpdateEntry)
 }

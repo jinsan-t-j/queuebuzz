@@ -55,3 +55,17 @@ func (r *RedisRepository) SetGraceTimer(ctx context.Context, queueID, entryID st
 		return r.rdb.Set(tCtx, key, "1", ttl).Err()
 	})
 }
+
+func (r *RedisRepository) ClearIdleTimer(ctx context.Context, queueID, entryID string) error {
+	key := internalredis.IdleTimerKey(queueID, entryID)
+	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
+		return r.rdb.Del(tCtx, key).Err()
+	})
+}
+
+func (r *RedisRepository) ClearGraceTimer(ctx context.Context, queueID, entryID string) error {
+	key := internalredis.GraceTimerKey(queueID, entryID)
+	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
+		return r.rdb.Del(tCtx, key).Err()
+	})
+}

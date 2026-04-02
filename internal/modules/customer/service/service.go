@@ -164,13 +164,33 @@ func (s *Service) Leave(ctx context.Context, entryID string) error {
 func (s *Service) MarkArrived(ctx context.Context, queueID, entryID string) error {
 	_, err := s.entryCol.UpdateOne(ctx,
 		bson.M{"_id": entryID, "queue_id": queueID},
-		bson.M{"$set": bson.M{"status": constants.EntryStatusArrived}},
+		bson.M{"$set": bson.M{"status": constants.EntryStatusArrived, "updated_at": time.Now()}},
 	)
 	if err != nil {
 		return err
 	}
 
-	// Remove user session so expiry service doesn't trigger idle/grace transitions
-	_ = s.redisRepo.SetUserSession(ctx, queueID, entryID, 24*time.Hour) // Keep active but long TTL
+	// Keep session active with long TTL
+	_ = s.redisRepo.SetUserSession(ctx, queueID, entryID, 24*time.Hour)
+
+	// Clear any pending expiry timers
+	_ = s.redisRepo.ClearIdleTimer(ctx, queueID, entryID)
+	_ = s.redisRepo.ClearGraceTimer(ctx, queueID, entryID)
+
+	return nil
+}
+
+func (s *Service) ConfirmStillHere(ctx context.Context, queueID, entryID string) error {
+	_, err := s.entryCol.UpdateOne(ctx,
+		bson.M{"_id": entryID, "queue_id": queueID},
+		bson.M{"$set": bson.M{"status": constants.EntryStatusWaiting, "updated_at": time.Now()}},
+	)
+	if err != nil {
+		return err
+	}
+
+	// Clear the grace timer so they doesn't get skipped automatically
+	_ = s.redisRepo.ClearGraceTimer(ctx, queueID, entryID)
+
 	return nil
 }

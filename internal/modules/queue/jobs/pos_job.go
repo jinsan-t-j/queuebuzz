@@ -24,7 +24,7 @@ func (j *PositionJob) Start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case queueID := <-j.updateChan:
-			j.expiryService.BroadcastPositionsForQueue(ctx, queueID)
+			j.expiryService.BroadcastPositionsForQueue(ctx, queueID, 0)
 		}
 	}
 }

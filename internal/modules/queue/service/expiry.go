@@ -78,8 +78,8 @@ func (s *ExpiryService) handleIdleTimerExpiry(ctx context.Context, key string) {
 		return
 	}
 
-	// Move user to back of sorted set
-	_ = s.redisRepo.MoveToBack(opCtx, queueID, token)
+	// Move user back by the fair repositioning offset (e.g. 3 spots)
+	_ = s.redisRepo.RepositionEntry(opCtx, queueID, token, int64(constants.DefaultRepositionOffset))
 
 	// Set grace timer (5 min)
 	_ = s.redisRepo.SetGraceTimer(opCtx, queueID, token,
@@ -88,8 +88,8 @@ func (s *ExpiryService) handleIdleTimerExpiry(ctx context.Context, key string) {
 	// Publish status change via SSE
 	s.notifier.PublishUserStatus(queueID, token, constants.EntryStatusIdle)
 
-	// Refresh positions as users might have shifted
-	s.BroadcastPositionsForQueue(ctx, queueID)
+	// Refresh positions (only for the affected first few rank shifted guests)
+	s.BroadcastPositionsForQueue(ctx, queueID, int64(constants.DefaultRepositionOffset+1))
 
 	log.Info().Str("queue_id", queueID).Str("token_prefix", tokenPrefix(token)).Msg("User moved to IDLE")
 }
@@ -105,26 +105,27 @@ func (s *ExpiryService) handleGraceTimerExpiry(ctx context.Context, key string) 
 	opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Update status to SKIPPED
+	// Update status to WAITING (Repositioned to back)
 	_, err := s.entryCol.UpdateOne(opCtx,
 		bson.M{"queue_id": queueID, "token": token},
-		bson.M{"$set": bson.M{"status": constants.EntryStatusSkipped}},
+		bson.M{"$set": bson.M{"status": constants.EntryStatusWaiting}},
 	)
 	if err != nil {
-		log.Error().Err(err).Str("queue_id", queueID).Msg("Failed to set entry to SKIPPED")
+		log.Error().Err(err).Str("queue_id", queueID).Msg("Failed to set entry to WAITING during repositioning")
 		return
 	}
 
-	// Remove from sorted set
-	_ = s.redisRepo.RemoveFromQueue(opCtx, queueID, token)
+	// NOTE: We do NOT remove from sorted set here because they were moved 
+	// to the back during idle_timer_expiry and should stay there as WAITING.
 
 	// Publish via SSE
-	s.notifier.PublishUserStatus(queueID, token, constants.EntryStatusSkipped)
+	s.notifier.PublishUserStatus(queueID, token, constants.EntryStatusWaiting)
 
-	// Refresh positions as users definitely shifted
-	s.BroadcastPositionsForQueue(ctx, queueID)
+	// Refresh position ONLY for this specific user who reclaim waiting
+	// Actually we can do a full refresh for small counts or target rank 4.
+	s.BroadcastPositionsForQueue(ctx, queueID, int64(constants.DefaultRepositionOffset+1))
 
-	log.Info().Str("queue_id", queueID).Str("token_prefix", tokenPrefix(token)).Msg("User SKIPPED after grace period")
+	log.Info().Str("queue_id", queueID).Str("token_prefix", tokenPrefix(token)).Msg("User repositioned to WAITING after grace period")
 }
 
 // SweepExpiredQueues checks for expired queues and cleans them up.
@@ -182,16 +183,25 @@ func (s *ExpiryService) BroadcastAllActiveQueues(ctx context.Context) {
 	}
 
 	for _, q := range queues {
-		s.BroadcastPositionsForQueue(ctx, q.ID)
+		s.BroadcastPositionsForQueue(ctx, q.ID, 0)
 	}
 }
 
 // BroadcastPositionsForQueue updates positions for a specific queue.
-func (s *ExpiryService) BroadcastPositionsForQueue(ctx context.Context, queueID string) {
+// limit = 0 means broadcast to all waiting entries.
+func (s *ExpiryService) BroadcastPositionsForQueue(ctx context.Context, queueID string, limit int64) {
 	opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	ids, err := s.redisRepo.GetQueueEntryIDs(opCtx, queueID)
+	var ids []string
+	var err error
+
+	if limit > 0 {
+		ids, err = s.redisRepo.GetQueueEntryIDsRange(opCtx, queueID, 0, limit-1)
+	} else {
+		ids, err = s.redisRepo.GetQueueEntryIDs(opCtx, queueID)
+	}
+
 	if err != nil {
 		return
 	}

@@ -108,9 +108,13 @@ func (r *RedisRepository) GetSize(ctx context.Context, queueID string) (int64, e
 }
 
 func (r *RedisRepository) GetQueueEntryIDs(ctx context.Context, queueID string) ([]string, error) {
+	return r.GetQueueEntryIDsRange(ctx, queueID, 0, -1)
+}
+
+func (r *RedisRepository) GetQueueEntryIDsRange(ctx context.Context, queueID string, start, stop int64) ([]string, error) {
 	key := internalredis.QueuePositionsKey(queueID)
 	return internalredis.WithRetry(ctx, r.rdb, func(tCtx context.Context) ([]string, error) {
-		return r.rdb.ZRange(tCtx, key, 0, -1).Result()
+		return r.rdb.ZRange(tCtx, key, start, stop).Result()
 	})
 }
 
@@ -128,6 +132,33 @@ func (r *RedisRepository) MoveToBack(ctx context.Context, queueID, entryID strin
 	score := float64(time.Now().Unix())
 	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
 		return r.rdb.ZAdd(tCtx, key, redis.Z{Score: score, Member: entryID}).Err()
+	})
+}
+
+func (r *RedisRepository) RepositionEntry(ctx context.Context, queueID, entryID string, offset int64) error {
+	key := internalredis.QueuePositionsKey(queueID)
+	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
+		// Find the score of the member at the target offset position
+		members, err := r.rdb.ZRangeWithScores(tCtx, key, offset, offset).Result()
+		if err != nil && err != redis.Nil {
+			return err
+		}
+
+		var newScore float64
+		if len(members) == 0 {
+			// If queue is shorter than offset, just put at end
+			maxScore, _ := r.rdb.ZRangeWithScores(tCtx, key, -1, -1).Result()
+			if len(maxScore) > 0 {
+				newScore = maxScore[0].Score + 1
+			} else {
+				newScore = float64(time.Now().Unix())
+			}
+		} else {
+			// Move to just after the target offset member
+			newScore = members[0].Score + 1
+		}
+
+		return r.rdb.ZAdd(tCtx, key, redis.Z{Score: newScore, Member: entryID}).Err()
 	})
 }
 

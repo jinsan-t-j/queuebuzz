@@ -288,6 +288,29 @@ func (h *Handler) ConfirmArrived(c fiber.Ctx) error {
 	return helpers.NewSuccessResponse("Arrival confirmed", nil).OK(c)
 }
 
+// ConfirmStillHere godoc
+// @Summary Confirm still here (Recovery)
+// @Description Transition from IDLE back to WAITING status when customer confirms presence.
+// @Tags Entry
+// @Produce json
+// @Success 200 {object} map[string]string "Success"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /entry/confirm [post]
+func (h *Handler) ConfirmStillHere(c fiber.Ctx) error {
+	queueID := c.Locals("queue_id").(string)
+	entryID := c.Locals("entry_id").(string)
+
+	if err := h.customerService.ConfirmStillHere(c.Context(), queueID, entryID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to confirm presence")
+	}
+
+	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusWaiting)
+	h.posJob.Dispatch(queueID)
+
+	return helpers.NewSuccessResponse("Presence confirmed", nil).OK(c)
+}
+
 // FinishService godoc
 // @Summary Finish service (Guest self-serve)
 // @Description Marks the currently authenticated entry as served and clears the session.

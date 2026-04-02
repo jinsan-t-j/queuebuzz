@@ -42,4 +42,5 @@ const (
 	JoinCodeTTLExtraH     = 1 // 1h buffer beyond queue 24h expiry
 	MaxJoinCodeAttempts   = 5
 	HeartbeatTTLSec       = 90
+	DefaultRepositionOffset = 3
 )

@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"queuebuzz/internal/modules/queue/dto"
@@ -11,13 +12,13 @@ import (
 type HostNotifyAction string
 
 const (
-	ActionUserJoined      HostNotifyAction = "joined"
-	ActionUserArrived     HostNotifyAction = "arrived"
-	ActionUserCalled      HostNotifyAction = "called"
-	ActionUserStatus      HostNotifyAction = "status_changed"
-	ActionQueueStatus     HostNotifyAction = "queue_status_changed"
-	ActionQueueExpired    HostNotifyAction = "queue_expired"
-	ActionUserUpdated     HostNotifyAction = "user_updated"
+	ActionUserJoined   HostNotifyAction = "joined"
+	ActionUserArrived  HostNotifyAction = "arrived"
+	ActionUserCalled   HostNotifyAction = "called"
+	ActionUserStatus   HostNotifyAction = "status_changed"
+	ActionQueueStatus  HostNotifyAction = "queue_status_changed"
+	ActionQueueExpired HostNotifyAction = "queue_expired"
+	ActionUserUpdated  HostNotifyAction = "user_updated"
 )
 
 type HostNotifyEvent struct {
@@ -53,27 +54,36 @@ func (j *HostNotifierJob) Start(ctx context.Context) {
 		case ev := <-j.eventChan:
 			switch ev.Action {
 			case ActionUserJoined:
-				if rec, ok := ev.Payload.(dto.EntryRecord); ok {
-					j.notifier.PublishEntryUpdate(ev.QueueID, rec)
+				switch v := ev.Payload.(type) {
+				case dto.EntryRecord:
+					j.notifier.PublishEntryUpdate(ev.QueueID, v)
+				case *dto.EntryRecord:
+					j.notifier.PublishEntryUpdate(ev.QueueID, *v)
+				default:
+					panic(fmt.Errorf("ActionUserJoined payload error: %T", ev.Payload))
 				}
 			case ActionUserArrived:
 				if entryID, ok := ev.Payload.(string); ok {
-					// Background enrichment for Arrival toast
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					entry, err := j.queueService.GetEntry(ctx, entryID)
 					cancel()
-
 					if err == nil && entry != nil {
 						j.notifier.PublishUserArrived(ev.QueueID, entryID, entry.Name, entry.TicketNo)
 					}
 				}
 			case ActionUserCalled:
-				if p, ok := ev.Payload.(StatusPayload); ok {
-					j.notifier.PublishUserCalled(ev.QueueID, p.ID, p.Status)
+				switch v := ev.Payload.(type) {
+				case StatusPayload:
+					j.notifier.PublishUserCalled(ev.QueueID, v.ID, v.Status)
+				case *StatusPayload:
+					j.notifier.PublishUserCalled(ev.QueueID, v.ID, v.Status)
 				}
 			case ActionUserStatus:
-				if p, ok := ev.Payload.(StatusPayload); ok {
-					j.notifier.PublishUserStatus(ev.QueueID, p.ID, p.Status)
+				switch v := ev.Payload.(type) {
+				case StatusPayload:
+					j.notifier.PublishUserStatus(ev.QueueID, v.ID, v.Status)
+				case *StatusPayload:
+					j.notifier.PublishUserStatus(ev.QueueID, v.ID, v.Status)
 				}
 			case ActionQueueStatus:
 				if status, ok := ev.Payload.(string); ok {
@@ -83,12 +93,10 @@ func (j *HostNotifierJob) Start(ctx context.Context) {
 				j.notifier.PublishQueueExpired(ev.QueueID)
 			case ActionUserUpdated:
 				if entryID, ok := ev.Payload.(string); ok {
-					// Perform background enrichment
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					entry, err := j.queueService.GetEntry(ctx, entryID)
 					pos, _ := j.queueService.GetPosition(ctx, ev.QueueID, entryID)
 					cancel()
-
 					if err == nil && entry != nil {
 						j.notifier.PublishEntryUpdate(ev.QueueID, dto.ToEntryResponse(*entry, pos+1))
 					}

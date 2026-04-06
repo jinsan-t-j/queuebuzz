@@ -6,10 +6,10 @@ import (
 
 // List of all SSE event types used in the queue module.
 const (
-	EventUserJoined          = "user_joined"
+	EventUserJoined          = "joined"
 	EventUserLeft            = "user_left"
 	EventUserStatusChanged   = "user_status_changed"
-	EventUserCalled          = "user_called"
+	EventUserCalled          = "called"
 	EventQueueStatusChanged  = "queue_status_changed"
 	EventQueueUpdate         = "queue_update"
 	EventQueueExpired        = "queue_expired"

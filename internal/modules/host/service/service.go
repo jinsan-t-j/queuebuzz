@@ -73,7 +73,7 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 		_ = s.repo.UpdateLastSeen(ctx, host.ID, time.Now())
 		return host, nil
 	}
-	if err != nil && err != mongodriver.ErrNoDocuments {
+	if err != mongodriver.ErrNoDocuments {
 		return nil, err
 	}
 
@@ -101,7 +101,7 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 			host.LastSeen = time.Now()
 			return host, nil
 		}
-		if err != nil && err != mongodriver.ErrNoDocuments {
+		if err != mongodriver.ErrNoDocuments {
 			return nil, err
 		}
 	}
@@ -178,8 +178,8 @@ func generateSlug() string {
 	return adj + "-" + noun + "-" + itoa(num)
 }
 
-func randInt(max int) int {
-	n, _ := rand.Int(rand.Reader, big.NewInt(int64(max)))
+func randInt(limit int) int {
+	n, _ := rand.Int(rand.Reader, big.NewInt(int64(limit)))
 	return int(n.Int64())
 }
 

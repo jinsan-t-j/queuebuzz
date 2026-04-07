@@ -9,7 +9,7 @@ import (
 
 // ExecRetry executes an operation with up to 3 retries.
 // It uses a 5-second timeout per attempt and 50ms sleep between retries.
-func ExecRetry(ctx context.Context, rdb *redisdriver.Client, op func(context.Context) error) error {
+func ExecRetry(ctx context.Context, _ *redisdriver.Client, op func(context.Context) error) error {
 	var err error
 	for i := 0; i < 3; i++ {
 		tCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -29,7 +29,7 @@ func ExecRetry(ctx context.Context, rdb *redisdriver.Client, op func(context.Con
 
 // WithRetry executes an operation that returns a value with up to 3 retries.
 // It uses a 5-second timeout per attempt and 50ms sleep between retries.
-func WithRetry[T any](ctx context.Context, rdb *redisdriver.Client, op func(context.Context) (T, error)) (T, error) {
+func WithRetry[T any](ctx context.Context, _ *redisdriver.Client, op func(context.Context) (T, error)) (T, error) {
 	var result T
 	var err error
 	for i := 0; i < 3; i++ {

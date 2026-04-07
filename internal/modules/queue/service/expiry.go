@@ -115,7 +115,7 @@ func (s *ExpiryService) handleGraceTimerExpiry(ctx context.Context, key string) 
 		return
 	}
 
-	// NOTE: We do NOT remove from sorted set here because they were moved 
+	// NOTE: We do NOT remove from sorted set here because they were moved
 	// to the back during idle_timer_expiry and should stay there as WAITING.
 
 	// Publish via SSE

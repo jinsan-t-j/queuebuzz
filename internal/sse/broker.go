@@ -147,7 +147,6 @@ func (b *Broker) ServeHTTP(c fiber.Ctx, topic string, snapshot func() ([][]byte,
 			_ = w.Flush()
 		}
 
-
 		ticker := time.NewTicker(keepaliveInterval)
 		defer ticker.Stop()
 

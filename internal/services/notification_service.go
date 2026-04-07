@@ -157,9 +157,7 @@ func (f *FirebaseSender) sendFCM(ctx context.Context, msg fcmMessage) error {
 }
 
 func (f *FirebaseSender) getAccessToken(ctx context.Context) (string, error) {
-	creds, err := google.CredentialsFromJSON(ctx, f.credsJSON,
-		"https://www.googleapis.com/auth/firebase.messaging",
-	)
+	creds, err := google.CredentialsFromJSONWithType(ctx, f.credsJSON, google.ServiceAccount, "https://www.googleapis.com/auth/firebase.messaging")
 	if err != nil {
 		return "", fmt.Errorf("failed to create credentials: %w", err)
 	}

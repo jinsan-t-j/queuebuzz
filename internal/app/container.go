@@ -101,7 +101,7 @@ func NewContainer() *Container {
 	queueModule.Start(ctx)
 
 	middlewares.InitAuthMiddleware(authSvc)
-	middlewares.InitHostOwnerMiddleware(authSvc, redisSvc, queueCol)
+	middlewares.InitHostOwnerMiddleware(authSvc, queueCol)
 	middlewares.InitGeoMiddleware(geoSvc)
 
 	return &Container{

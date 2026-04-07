@@ -35,7 +35,6 @@ func (n *QueueNotifier) PublishQueueStatus(queueID, status string) {
 	n.publish(pubTopic(queueID), msg)
 }
 
-
 func (n *QueueNotifier) PublishUserCalled(queueID, entryID, status string) {
 	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserCalled, events.UserStatusData{ID: entryID, Status: status})))
 	n.PublishEntryStatusChanged(entryID, status)

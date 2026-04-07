@@ -12,12 +12,12 @@ import (
 type HostNotifyAction string
 
 const (
-	ActionUserJoined   HostNotifyAction = "joined"
-	ActionUserArrived  HostNotifyAction = "arrived"
-	ActionUserCalled   HostNotifyAction = "called"
-	ActionUserStatus   HostNotifyAction = "status_changed"
-	ActionQueueStatus  HostNotifyAction = "queue_status_changed"
-	ActionUserUpdated  HostNotifyAction = "user_updated"
+	ActionUserJoined  HostNotifyAction = "joined"
+	ActionUserArrived HostNotifyAction = "arrived"
+	ActionUserCalled  HostNotifyAction = "called"
+	ActionUserStatus  HostNotifyAction = "status_changed"
+	ActionQueueStatus HostNotifyAction = "queue_status_changed"
+	ActionUserUpdated HostNotifyAction = "user_updated"
 )
 
 type HostNotifyEvent struct {

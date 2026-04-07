@@ -8,9 +8,9 @@ import (
 )
 
 // RateLimiter creates a configurable rate limiting middleware.
-func RateLimiter(max int, expiration time.Duration) fiber.Handler {
+func RateLimiter(limit int, expiration time.Duration) fiber.Handler {
 	return limiter.New(limiter.Config{
-		Max:        max,
+		Max:        limit,
 		Expiration: expiration,
 		KeyGenerator: func(c fiber.Ctx) string {
 			return c.IP()

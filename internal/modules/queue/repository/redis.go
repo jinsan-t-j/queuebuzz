@@ -24,7 +24,7 @@ func NewRedisRepository(rdb *redis.Client) *RedisRepository {
 // GenerateJoinCode creates a cryptographically random 6-character join code
 // from the safe charset, checks Redis for collisions, and stores the mapping.
 // Returns the code or an error if all attempts fail.
-func (s *RedisRepository) GenerateJoinCode(ctx context.Context, queueID string) (string, error) {
+func (r *RedisRepository) GenerateJoinCode(ctx context.Context, queueID string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -42,7 +42,7 @@ func (s *RedisRepository) GenerateJoinCode(ctx context.Context, queueID string) 
 		key := fmt.Sprintf("joincode:%s", code)
 
 		// Use SET NX to atomically check-and-set (only if key doesn't exist)
-		err = s.rdb.SetArgs(ctx, key, queueID, redis.SetArgs{
+		err = r.rdb.SetArgs(ctx, key, queueID, redis.SetArgs{
 			Mode: "NX",
 			TTL:  ttl,
 		}).Err()

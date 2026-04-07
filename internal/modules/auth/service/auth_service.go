@@ -96,13 +96,20 @@ func (s *AuthService) VerifyAnonymousOwnership(ctx context.Context, tokenString,
 	if err != nil {
 		return fmt.Errorf("failed to get anon host token hash: %w", err)
 	}
+
 	if storedHash == "" {
-		return fmt.Errorf("no anon host token found for queue")
+		return fmt.Errorf("no active session found for queue")
 	}
+
 	if sha256Hash(tokenString) != storedHash {
-		return fmt.Errorf("token hash mismatch")
+		return fmt.Errorf("token hash mismatch: session replaced or invalid")
 	}
 	return nil
+}
+
+func (s *AuthService) ReSyncAnonymousSession(ctx context.Context, tokenString, queueID string) error {
+	tokenHash := sha256Hash(tokenString)
+	return s.redisService.SetAnonHostToken(ctx, queueID, tokenHash, 24*time.Hour)
 }
 
 func (s *AuthService) IssueAccessToken(hostID, publicID string) (string, time.Time, error) {

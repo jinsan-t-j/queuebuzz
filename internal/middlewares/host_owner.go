@@ -44,10 +44,22 @@ func HostOwnerMiddleware() fiber.Handler {
 				return fiber.NewError(fiber.StatusForbidden, claimQueueID+" "+queueID)
 			}
 
-			// Verify SHA256(jwt) exists in Redis owner:{queue_id}
 			rawToken, _ := c.Locals("raw_access_token").(string)
 			if err := hostOwnerAuthSvc.VerifyAnonymousOwnership(c.Context(), rawToken, queueID); err != nil {
-				return fiber.NewError(fiber.StatusForbidden, err.Error())
+				ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+				defer cancel()
+
+				var q struct {
+					HostID *string `bson:"host_id"`
+				}
+				dbErr := queueCollection.FindOne(ctx, bson.M{"_id": queueID}).Decode(&q)
+
+				// If queue is found and is still anonymous, re-sync session and proceed.
+				if dbErr == nil && q.HostID == nil {
+					_ = hostOwnerAuthSvc.ReSyncAnonymousSession(c.Context(), rawToken, queueID)
+				} else {
+					return fiber.NewError(fiber.StatusForbidden, err.Error())
+				}
 			}
 
 		case constants.RoleRegisteredHost:

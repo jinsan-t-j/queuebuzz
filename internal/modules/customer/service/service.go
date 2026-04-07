@@ -117,17 +117,39 @@ func (s *Service) UpdateEntry(ctx context.Context, entryID string, updates bson.
 func (s *Service) RejoinByID(ctx context.Context, entryID string) (*queueservice.JoinQueueResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
 	entry, err := s.queueService.GetEntry(ctx, entryID)
 	if err != nil {
 		return nil, fmt.Errorf("entry not found")
 	}
+
 	exists, err := s.redisRepo.UserSessionExists(ctx, entry.QueueID, entryID)
-	if err != nil || !exists {
-		return nil, fmt.Errorf("session expired or invalid")
+	if err != nil {
+		return nil, fmt.Errorf("failed to check session status")
 	}
-	if entry.Status == constants.EntryStatusServed || entry.Status == constants.EntryStatusLeft || entry.Status == constants.EntryStatusSkipped {
-		return nil, fmt.Errorf("your queue session has ended")
+
+	if !exists {
+		// Resilience: Fallback to MongoDB if Redis session is missing.
+		// Since the JWT was already verified by the handler/middleware,
+		// we just need to ensure the entry is still active in the database.
+		isTerminal := (entry.Status == constants.EntryStatusServed ||
+			entry.Status == constants.EntryStatusLeft ||
+			entry.Status == constants.EntryStatusSkipped)
+
+		if isTerminal {
+			return nil, fmt.Errorf("your queue session has ended")
+		}
+
+		// Re-Sync: User holds a valid JWT and entry is active in DB.
+		_ = s.redisRepo.SetUserSession(ctx, entry.QueueID, entryID, 24*time.Hour)
+	} else {
+		// Even if in Redis, double-check terminal statuses from DB snapshot
+		if entry.Status == constants.EntryStatusServed || entry.Status == constants.EntryStatusLeft || entry.Status == constants.EntryStatusSkipped {
+			_ = s.redisRepo.DeleteUserSession(ctx, entry.QueueID, entryID)
+			return nil, fmt.Errorf("your queue session has ended")
+		}
 	}
+
 	position, _ := s.queueService.GetPosition(ctx, entry.QueueID, entryID)
 	return &queueservice.JoinQueueResult{
 		Entry:    *entry,

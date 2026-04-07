@@ -11,6 +11,12 @@ on:
         type: string
         default: go.mod
 
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   quality-gates:
     name: Lint · Test · Build
@@ -27,16 +33,24 @@ jobs:
       - name: Verify dependencies
         run: go mod verify
 
-      - name: Vet
-        run: go vet ./...
+      - name: Check for untidy modules
+        # Ensures go.mod and go.sum are fully tidied and match what's committed
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
 
       - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+        run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Build check
         run: go build -o /dev/null ./main.go
 
-      - name: Upload coverage
+      - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
           name: coverage

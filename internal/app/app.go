@@ -27,6 +27,9 @@ func New() *App {
 	container := NewContainer()
 	cfg := container.Config
 
+	log.Init(cfg.IsProduction())
+	log.Info().Msg("Starting QueueBuzz server")
+
 	errHandler := middlewares.NewErrorHandler(cfg)
 
 	app := fiber.New(fiber.Config{
@@ -44,11 +47,13 @@ func New() *App {
 
 	RegisterRoutes(app, container)
 
-	app.Use(swagger.New(swagger.Config{
-		BasePath: "/",
-		Path:     "docs",
-		FilePath: "./docs/swagger.json",
-	}))
+	if !cfg.IsProduction() {
+		app.Use(swagger.New(swagger.Config{
+			BasePath: "/",
+			Path:     "docs",
+			FilePath: "./docs/swagger.json",
+		}))
+	}
 
 	app.Use(func(c fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusNotFound)
@@ -63,6 +68,8 @@ func (a *App) Start() {
 	if err := a.fiber.Listen(":" + a.container.Config.AppPort); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start server")
 	}
+
+	log.Info().Msg("QueueBuzz server ready")
 }
 
 func (a *App) startShutdownListener() {

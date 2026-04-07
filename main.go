@@ -1,8 +1,10 @@
 package main
 
 import (
+	"flag"
+	"net/http"
+	"os"
 	"queuebuzz/internal/app"
-	"queuebuzz/internal/log"
 
 	_ "queuebuzz/docs"
 )
@@ -31,11 +33,18 @@ import (
 // @description                 UUID user session token
 
 func main() {
-	log.Init()
-	log.Info().Msg("Starting QueueBuzz server")
+	healthCheck := flag.Bool("health", false, "Run healthcheck and exit")
+	flag.Parse()
+
+	if *healthCheck {
+		resp, err := http.Get("http://localhost:8080/healthz")
+		if err != nil || resp.StatusCode != http.StatusOK {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	application := app.New()
 
-	log.Info().Msg("QueueBuzz server ready")
 	application.Start()
 }

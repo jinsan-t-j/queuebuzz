@@ -11,19 +11,22 @@ import (
 
 var Log zerolog.Logger
 
-func Init() {
-	_ = os.MkdirAll("logs", 0755)
+func Init(isProduction bool) {
+	var writers []io.Writer
 
-	fileWriter := &lumberjack.Logger{
-		Filename:   dailyLogFile(),
-		MaxSize:    10,
-		MaxBackups: 3,
-		MaxAge:     28,
-		Compress:   true,
+	// Only log to file in development
+	if !isProduction {
+		_ = os.MkdirAll("logs", 0755)
+		fileWriter := &lumberjack.Logger{
+			Filename:   dailyLogFile(),
+			MaxSize:    10,
+			MaxBackups: 3,
+			MaxAge:     28,
+			Compress:   true,
+		}
+		writers = append(writers, fileWriter)
 	}
 
-	var writers []io.Writer
-	writers = append(writers, fileWriter)
 	writers = append(writers, zerolog.ConsoleWriter{Out: os.Stderr})
 
 	multi := zerolog.MultiLevelWriter(writers...)

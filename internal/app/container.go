@@ -49,7 +49,7 @@ type Container struct {
 func NewContainer() *Container {
 	cfg := config.Get()
 
-	mongoDB := mongo.Connect(cfg.MongoURI, cfg.MongoDBName)
+	mongoDB := mongo.Connect(cfg.DBUri, cfg.DBName)
 	rdb := redis.Connect(cfg.RedisURL, cfg.RedisPassword)
 
 	queueCol := mongoDB.Collection("queues")

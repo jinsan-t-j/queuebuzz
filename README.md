@@ -47,8 +47,8 @@ PORT=8080
 APP_ENV=development
 
 # MongoDB
-MONGO_URI=mongodb://localhost:27017
-MONGO_DB_NAME=queuebuzz
+DB_URI=mongodb://localhost:27017
+DB_NAME=queuebuzz
 
 # Redis
 REDIS_URL=redis://localhost:6379

@@ -4,9 +4,13 @@
 hooks:
 	go run github.com/evilmartians/lefthook@latest install
 
-# Detailed code analysis
+# Install the linter
+install-lint:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# Detailed code analysis (checks local bin or system path)
 lint-fix:
-	golangci-lint run --fix
+	@if [ -f "./bin/golangci-lint" ]; then ./bin/golangci-lint run --fix; else golangci-lint run --fix; fi
 
 # Local development with hot-reload
 dev:

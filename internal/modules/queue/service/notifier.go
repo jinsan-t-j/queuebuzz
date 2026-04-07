@@ -35,10 +35,6 @@ func (n *QueueNotifier) PublishQueueStatus(queueID, status string) {
 	n.publish(pubTopic(queueID), msg)
 }
 
-func (n *QueueNotifier) PublishQueueExpired(queueID string) {
-	msg := events.Wrap(sse.NewMessage(events.EventQueueExpired, events.QueueExpiredData{QueueID: queueID}))
-	n.publish(pubTopic(queueID), msg)
-}
 
 func (n *QueueNotifier) PublishUserCalled(queueID, entryID, status string) {
 	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserCalled, events.UserStatusData{ID: entryID, Status: status})))

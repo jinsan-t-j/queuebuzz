@@ -229,7 +229,7 @@ func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode strin
 	_ = s.rdb.Del(delCtx, "joincode:"+joinCode).Err()
 
 	// 3. Publish queue expired event via SSE
-	s.notifier.PublishQueueExpired(queueID)
+	s.notifier.PublishQueueStatus(queueID, constants.QueueStatusExpired)
 
 	// 4. Clean up all Redis keys for this queue
 	_ = s.redisRepo.DeleteQueueKeys(opCtx, queueID)

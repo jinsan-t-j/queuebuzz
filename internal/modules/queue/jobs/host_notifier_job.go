@@ -17,7 +17,6 @@ const (
 	ActionUserCalled   HostNotifyAction = "called"
 	ActionUserStatus   HostNotifyAction = "status_changed"
 	ActionQueueStatus  HostNotifyAction = "queue_status_changed"
-	ActionQueueExpired HostNotifyAction = "queue_expired"
 	ActionUserUpdated  HostNotifyAction = "user_updated"
 )
 
@@ -89,8 +88,6 @@ func (j *HostNotifierJob) Start(ctx context.Context) {
 				if status, ok := ev.Payload.(string); ok {
 					j.notifier.PublishQueueStatus(ev.QueueID, status)
 				}
-			case ActionQueueExpired:
-				j.notifier.PublishQueueExpired(ev.QueueID)
 			case ActionUserUpdated:
 				if entryID, ok := ev.Payload.(string); ok {
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -124,10 +121,6 @@ func (j *HostNotifierJob) DispatchUserStatus(queueID, entryID, status string) {
 
 func (j *HostNotifierJob) DispatchQueueStatus(queueID, status string) {
 	j.dispatch(queueID, ActionQueueStatus, status)
-}
-
-func (j *HostNotifierJob) DispatchQueueExpired(queueID string) {
-	j.dispatch(queueID, ActionQueueExpired, nil)
 }
 
 func (j *HostNotifierJob) DispatchUserUpdated(queueID, entryID string) {

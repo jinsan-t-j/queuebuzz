@@ -12,7 +12,6 @@ const (
 	EventUserCalled          = "called"
 	EventQueueStatusChanged  = "queue_status_changed"
 	EventQueueUpdate         = "queue_update"
-	EventQueueExpired        = "queue_expired"
 	EventPositionUpdate      = "position_update"
 	EventEntryStatusChanged  = "entry_status_changed"
 	EventQueueInit           = "queue_init"
@@ -33,10 +32,6 @@ type UserStatusData struct {
 	Status string `json:"status"`
 }
 
-// QueueExpiredData is the payload for EventQueueExpired.
-type QueueExpiredData struct {
-	QueueID string `json:"queue_id"`
-}
 
 // QueueStatusData is the payload for EventQueueStatusChanged.
 type QueueStatusData struct {

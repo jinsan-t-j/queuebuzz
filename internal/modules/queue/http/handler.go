@@ -438,7 +438,7 @@ func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	h.hostNotifierJob.DispatchQueueExpired(queueID)
+	h.hostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusClosed)
 
 	c.Cookie(&fiber.Cookie{
 		Name:     "queuebuzz_host_token",

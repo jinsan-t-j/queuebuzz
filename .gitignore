@@ -1,7 +1,7 @@
 /vendor
 /tmp
 .agent
-workflows
 /logs/*
 .env
 main
+workflows/build-queuebuzz-backend.md

@@ -1,8 +1,15 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: queuebuzz-app
     ports:
-      - "${PORT:-8080}:8080"
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      - DB_URI=mongodb://mongo:27017
+      - DB_NAME=queuebuzz
+      - REDIS_URL=redis://redis:6379
     env_file:
       - .env
     depends_on:
@@ -11,34 +18,71 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - queuebuzz-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   mongo:
     image: mongo:7
+    container_name: queuebuzz-mongo
     ports:
-      - "27017:27017"
+      - "${MONGO_PORT:-27018}:27017"
     volumes:
       - mongo_data:/data/db
     environment:
       MONGO_INITDB_DATABASE: queuebuzz
     healthcheck:
-      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - queuebuzz-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7-alpine
+    container_name: queuebuzz-redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6380}:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --notify-keyspace-events Ex
+    command: ["redis-server", "--notify-keyspace-events", "Ex", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - queuebuzz-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  queuebuzz-network:
+    driver: bridge
 
 volumes:
   mongo_data:
   redis_data:
+

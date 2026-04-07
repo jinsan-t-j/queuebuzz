@@ -1,0 +1,25 @@
+# lefthook.yml
+# Best practices: parallel runs, globbed file checks, and auto-tidying.
+
+pre-commit:
+  parallel: true
+  commands:
+    # 1. Clean dependencies (vital for Go repos)
+    tidy:
+      run: go mod tidy && git add go.mod go.sum
+    
+    # 2. Comprehensive linting (applies --fix automatically)
+    lint:
+      glob: "*.go"
+      run: golangci-lint run --fix {staged_files} && git add {staged_files}
+    
+    # 3. Quick test (excludes long-running or race-detectable tests)
+    test:
+      glob: "*.go"
+      run: go test -v ./...
+
+pre-push:
+  commands:
+    # 4. Rigorous pre-push check (runs full suite with race detector)
+    check-race:
+      run: go test -v -race ./...

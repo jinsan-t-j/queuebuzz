@@ -27,7 +27,6 @@ func New() *App {
 	container := NewContainer()
 	cfg := container.Config
 
-	log.Init(cfg.IsProduction())
 	log.Info().Msg("Starting QueueBuzz server")
 
 	errHandler := middlewares.NewErrorHandler(cfg)

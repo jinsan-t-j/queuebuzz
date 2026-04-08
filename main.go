@@ -4,8 +4,11 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"time"
+
 	"queuebuzz/internal/app"
 	"queuebuzz/internal/config"
+	"queuebuzz/internal/log"
 
 	_ "queuebuzz/docs"
 )
@@ -34,19 +37,43 @@ import (
 // @description                 UUID user session token
 
 func main() {
+	log.Log.Info().Msg("Starting QueueBuzz process...")
+
 	healthCheck := flag.Bool("health", false, "Run healthcheck and exit")
 	flag.Parse()
+	cfg := config.Get()
+	log.Init(cfg.IsProduction())
+
+	log.Info().
+		Str("env", cfg.AppEnv).
+		Str("port", cfg.AppPort).
+		Msg("Configuration and logging initialized")
 
 	if *healthCheck {
-		cfg := config.Get()
-		resp, err := http.Get("http://localhost:" + cfg.AppPort + "/healthz")
-		if err != nil || resp.StatusCode != http.StatusOK {
+		log.Info().Msg("Executing health-check...")
+
+		client := http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get("http://localhost:" + cfg.AppPort + "/healthz")
+		if err != nil {
+			log.Error().Err(err).Msg("Healthcheck failed: server unreachable")
 			os.Exit(1)
 		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			log.Error().
+				Int("status", resp.StatusCode).
+				Msg("Healthcheck failed: unhealthy status code")
+			os.Exit(1)
+		}
+
+		log.Info().Msg("Healthcheck: OK")
 		os.Exit(0)
 	}
 
+	log.Info().Msg("Building application container...")
 	application := app.New()
 
+	log.Info().Msg("Starting Fiber server listener...")
 	application.Start()
 }

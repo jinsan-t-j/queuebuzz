@@ -12,29 +12,50 @@ import (
 var Log = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 
 func Init(isProduction bool) {
-	_ = os.MkdirAll("logs", 0755)
+	// 1. Attempt to create/verify logs directory
+	err := os.MkdirAll("logs", 0755)
+	useFile := err == nil
 
-	// Rotated file writer used in both production and development
-	fileWriter := &lumberjack.Logger{
-		Filename:   dailyLogFile(),
-		MaxSize:    10,
-		MaxBackups: 3,
-		MaxAge:     28,
-		Compress:   true,
+	// 2. Defensive check: Try creating a dummy file to ensure it's actually writable
+	// (Some environments allow Mkdir but deny Write)
+	if useFile {
+		testFile := "logs/.write_test"
+		if f, err := os.Create(testFile); err != nil {
+			useFile = false
+		} else {
+			f.Close()
+			os.Remove(testFile)
+		}
 	}
 
-	var output io.Writer
-
+	var outputs []io.Writer
+	
+	// Always include Stdout/Stderr based on environment
 	if isProduction {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 		zerolog.TimeFieldFormat = time.RFC3339
-		output = zerolog.MultiLevelWriter(fileWriter, os.Stdout)
+		outputs = append(outputs, os.Stdout)
 	} else {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		output = zerolog.MultiLevelWriter(fileWriter, zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: "15:04:05"})
+		outputs = append(outputs, zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: "15:04:05"})
 	}
 
-	Log = Log.Output(output)
+	// Only include file writer if we actually have write access
+	if useFile {
+		fileWriter := &lumberjack.Logger{
+			Filename:   dailyLogFile(),
+			MaxSize:    10,
+			MaxBackups: 3,
+			MaxAge:     28,
+			Compress:   true,
+		}
+		outputs = append(outputs, fileWriter)
+	} else {
+		// If on Render or restricted env, warn that file logs are disabled
+		Log.Warn().Msg("Logging to file disabled: 'logs/' directory is not writable")
+	}
+
+	Log = Log.Output(zerolog.MultiLevelWriter(outputs...))
 }
 
 func dailyLogFile() string {

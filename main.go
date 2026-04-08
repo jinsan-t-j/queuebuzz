@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -37,6 +38,9 @@ import (
 // @description                 UUID user session token
 
 func main() {
+	// Immediate output to ensure we see SOMETHING in Render logs
+	fmt.Fprintf(os.Stderr, "QueueBuzz binary started at %s\n", time.Now().Format(time.RFC3339))
+
 	log.Log.Info().Msg("Starting QueueBuzz process...")
 
 	healthCheck := flag.Bool("health", false, "Run healthcheck and exit")

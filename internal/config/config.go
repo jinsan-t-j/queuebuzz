@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"sync"
 
@@ -62,6 +63,7 @@ func Get() *Config {
 		_ = cleanenv.ReadConfig(".env", cfg)
 
 		if err := cleanenv.ReadEnv(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "CONFIG ERROR (env): %v\n", err)
 			log.Fatal().Err(err).Msg("Config error loading environment variables")
 		}
 

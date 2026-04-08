@@ -29,7 +29,7 @@ func Init(isProduction bool) {
 	}
 
 	var outputs []io.Writer
-	
+
 	// Always include Stdout/Stderr based on environment
 	if isProduction {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)

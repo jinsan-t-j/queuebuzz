@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"queuebuzz/internal/log"
 
@@ -12,11 +13,6 @@ import (
 
 func EnsureIndexes(ctx context.Context, db *mongodriver.Database) error {
 	hostCol := db.Collection("hosts")
-	for _, indexName := range []string{"email_1", "phone_1", "public_id_1", "social_auth_provider_user_id_1", "social_auth_google_provider_user_id_1", "social_auth_apple_provider_user_id_1"} {
-		if err := hostCol.Indexes().DropOne(ctx, indexName); err != nil {
-			log.Warn().Err(err).Str("index", indexName).Msg("Failed to drop legacy host index")
-		}
-	}
 
 	hostIndexes := []mongodriver.IndexModel{
 		{
@@ -54,6 +50,30 @@ func EnsureIndexes(ctx context.Context, db *mongodriver.Database) error {
 				SetPartialFilterExpression(bson.D{{Key: "social_auth.apple.provider_user_id", Value: bson.D{{Key: "$type", Value: "string"}}}}),
 		},
 	}
+
 	_, err := hostCol.Indexes().CreateMany(ctx, hostIndexes)
-	return err
+	if err != nil {
+		if isIndexConflict(err) {
+			log.Info().Msg("Index conflict detected in 'hosts' collection. Re-creating indexes...")
+			// Drop all indexes (except _id) and retry creation
+			if dropErr := hostCol.Indexes().DropAll(ctx); dropErr != nil {
+				log.Error().Err(dropErr).Msg("Failed to drop indexes after conflict")
+				return dropErr
+			}
+			_, err = hostCol.Indexes().CreateMany(ctx, hostIndexes)
+			return err
+		}
+		return err
+	}
+
+	return nil
+}
+
+func isIndexConflict(err error) bool {
+	var ce mongodriver.CommandError
+	if errors.As(err, &ce) {
+		// 85: IndexOptionsConflict, 86: IndexKeySpecsConflict
+		return ce.Code == 85 || ce.Code == 86
+	}
+	return false
 }

@@ -11,7 +11,7 @@ pre-commit:
     # 2. Comprehensive linting (applies --fix automatically)
     lint:
       glob: "*.go"
-      run: golangci-lint run --fix {staged_files} && git add {staged_files}
+      run: golangci-lint run --fix && git add {staged_files}
     
     # 3. Quick test (excludes long-running or race-detectable tests)
     test:

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"queuebuzz/internal/app"
+	"queuebuzz/internal/config"
 
 	_ "queuebuzz/docs"
 )
@@ -37,7 +38,8 @@ func main() {
 	flag.Parse()
 
 	if *healthCheck {
-		resp, err := http.Get("http://localhost:8080/healthz")
+		cfg := config.Get()
+		resp, err := http.Get("http://localhost:" + cfg.AppPort + "/healthz")
 		if err != nil || resp.StatusCode != http.StatusOK {
 			os.Exit(1)
 		}

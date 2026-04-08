@@ -9,29 +9,32 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var Log zerolog.Logger
+var Log = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 
 func Init(isProduction bool) {
-	var writers []io.Writer
+	_ = os.MkdirAll("logs", 0755)
 
-	// Only log to file in development
-	if !isProduction {
-		_ = os.MkdirAll("logs", 0755)
-		fileWriter := &lumberjack.Logger{
-			Filename:   dailyLogFile(),
-			MaxSize:    10,
-			MaxBackups: 3,
-			MaxAge:     28,
-			Compress:   true,
-		}
-		writers = append(writers, fileWriter)
+	// Rotated file writer used in both production and development
+	fileWriter := &lumberjack.Logger{
+		Filename:   dailyLogFile(),
+		MaxSize:    10,
+		MaxBackups: 3,
+		MaxAge:     28,
+		Compress:   true,
 	}
 
-	writers = append(writers, zerolog.ConsoleWriter{Out: os.Stderr})
+	var output io.Writer
 
-	multi := zerolog.MultiLevelWriter(writers...)
+	if isProduction {
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+		zerolog.TimeFieldFormat = time.RFC3339
+		output = zerolog.MultiLevelWriter(fileWriter, os.Stdout)
+	} else {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		output = zerolog.MultiLevelWriter(fileWriter, zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: "15:04:05"})
+	}
 
-	Log = zerolog.New(multi).With().Timestamp().Logger()
+	Log = Log.Output(output)
 }
 
 func dailyLogFile() string {

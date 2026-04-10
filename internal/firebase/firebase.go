@@ -3,6 +3,7 @@ package firebase
 import (
 	"context"
 	"encoding/base64"
+	"strings"
 
 	"queuebuzz/internal/log"
 
@@ -31,6 +32,7 @@ func NewSender(credentialsBase64 string) *Sender {
 	}
 
 	opt := option.WithCredentialsJSON(credsJSON) //nolint:staticcheck
+
 	// We use Background context for initialization as this app lives as long as the process
 	app, err := fbase.NewApp(context.Background(), nil, opt)
 	if err != nil {
@@ -67,6 +69,11 @@ func (f *Sender) SendToUser(ctx context.Context, fcmToken, title, body string, d
 		Android: &messaging.AndroidConfig{
 			Priority: "high",
 		},
+		Webpush: &messaging.WebpushConfig{
+			Headers: map[string]string{
+				"TTL": "0",
+			},
+		},
 		APNS: &messaging.APNSConfig{
 			Payload: &messaging.APNSPayload{
 				Aps: &messaging.Aps{
@@ -76,13 +83,28 @@ func (f *Sender) SendToUser(ctx context.Context, fcmToken, title, body string, d
 		},
 	}
 
-	_, err := f.client.Send(ctx, msg)
+	name, err := f.client.Send(ctx, msg)
 	if err != nil {
-		log.Error().Err(err).Str("token", fcmToken).Msg("FCM: failed to send notification")
+		log.Error().Err(err).Str("token", fcmToken).Msgf("FCM: failed to send notification. Raw error: %+v", err)
 		return err
 	}
 
+	log.Info().Str("token", fcmToken).Str("name", name).Msg("FCM: notification sent successfully")
+
 	return nil
+}
+
+func IsTokenInvalid(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+
+	return strings.Contains(message, "requested entity was not found") ||
+		strings.Contains(message, "registration-token-not-registered") ||
+		strings.Contains(message, "registration token is not registered") ||
+		strings.Contains(message, "device unregistered")
 }
 
 // SendToMultiple sends a push notification to multiple device tokens using multicast.

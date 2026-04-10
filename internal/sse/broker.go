@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -78,6 +79,8 @@ func (b *Broker) Publish(topic string, event []byte) {
 	if !ok {
 		return
 	}
+
+	fmt.Println("Publishing to topic:", topic, "with event:", event)
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()

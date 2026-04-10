@@ -588,7 +588,6 @@ func (h *Handler) Serve(c fiber.Ctx) error {
 	}
 
 	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusServed)
-	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusServed)
 	h.posJob.Dispatch(queueID)
 
 	return c.SendStatus(fiber.StatusOK)

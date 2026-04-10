@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"queuebuzz/internal/constants"
 	"queuebuzz/internal/firebase"
 	"queuebuzz/internal/log"
 	"queuebuzz/internal/modules/queue/domain"
@@ -88,8 +89,16 @@ func (n *QueueNotifier) PublishUserStatus(queueID, entryID, status string) {
 	n.PublishEntryStatusChanged(entryID, status)
 
 	// If user left, notify host
-	if status == "left" {
-		n.notifyHost(queueID, "Guest Left Queue", "A guest has removed themselves from the queue.", map[string]string{
+	if status == constants.EntryStatusLeft {
+		name := "A guest"
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var entry domain.Entry
+		if err := n.entryCol.FindOne(ctx, bson.M{"$or": []bson.M{{"_id": entryID}, {"token": entryID}}}).Decode(&entry); err == nil {
+			name = entry.Name
+		}
+		cancel()
+
+		n.notifyHost(queueID, "Guest Left Queue", fmt.Sprintf("%s has removed themselves from the queue.", name), map[string]string{
 			"event":    "user_left",
 			"queue_id": queueID,
 			"entry_id": entryID,
@@ -152,7 +161,18 @@ func (n *QueueNotifier) notifyHost(queueID, title, body string, data map[string]
 			return
 		}
 
-		_ = n.fb.SendToUser(ctx, *q.HostFCMToken, title, body, data)
+		if err := n.fb.SendToUser(ctx, *q.HostFCMToken, title, body, data); err != nil {
+			if firebase.IsTokenInvalid(err) {
+				_, _ = n.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{
+					"$set": bson.M{
+						"host_fcm_token": "",
+					},
+					"$unset": bson.M{
+						"host_fcm_updated_at": "",
+					},
+				})
+			}
+		}
 	}()
 }
 
@@ -170,6 +190,14 @@ func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string
 			return
 		}
 
-		_ = n.fb.SendToUser(ctx, *e.FCMToken, title, body, data)
+		if err := n.fb.SendToUser(ctx, *e.FCMToken, title, body, data); err != nil {
+			if firebase.IsTokenInvalid(err) {
+				_, _ = n.entryCol.UpdateOne(ctx, bson.M{"_id": entryID}, bson.M{
+					"$unset": bson.M{
+						"fcm_token": "",
+					},
+				})
+			}
+		}
 	}()
 }

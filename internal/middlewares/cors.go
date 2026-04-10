@@ -18,5 +18,6 @@ func CORSMiddleware(allowedOrigin string) fiber.Handler {
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-Token"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowCredentials: true,
+		MaxAge:           3600,
 	})
 }

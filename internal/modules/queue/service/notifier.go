@@ -1,21 +1,42 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"time"
 
+	"queuebuzz/internal/firebase"
 	"queuebuzz/internal/log"
+	"queuebuzz/internal/modules/queue/domain"
 	"queuebuzz/internal/modules/queue/dto"
 	"queuebuzz/internal/modules/queue/events"
 	"queuebuzz/internal/sse"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // QueueNotifier publishes SSE events to queue and entry topics.
 type QueueNotifier struct {
-	broker *sse.Broker
+	broker   *sse.Broker
+	fb       firebase.NotificationSender
+	queueCol *mongodriver.Collection
+	entryCol *mongodriver.Collection
 }
 
-func NewQueueNotifier(broker *sse.Broker) *QueueNotifier {
-	return &QueueNotifier{broker: broker}
+func NewQueueNotifier(
+	broker *sse.Broker,
+	fb firebase.NotificationSender,
+	queueCol *mongodriver.Collection,
+	entryCol *mongodriver.Collection,
+) *QueueNotifier {
+	return &QueueNotifier{
+		broker:   broker,
+		fb:       fb,
+		queueCol: queueCol,
+		entryCol: entryCol,
+	}
 }
 
 // entryTopic returns the per-entry SSE topic key ("entry:{id}").
@@ -27,22 +48,53 @@ func pubTopic(queueID string) string { return "queue_public:" + queueID }
 // PublishEntryUpdate notifies the host that a user joined the queue.
 func (n *QueueNotifier) PublishEntryUpdate(queueID string, entry dto.EntryRecord) {
 	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserJoined, entry)))
+
+	// Notify Host
+	n.notifyHost(queueID, "New Guest Joined", fmt.Sprintf("%s is now waiting with ticket %s", entry.Name, entry.TicketNo), map[string]string{
+		"event":    events.EventUserJoined,
+		"queue_id": queueID,
+		"entry_id": entry.ID,
+	})
 }
 
 func (n *QueueNotifier) PublishQueueStatus(queueID, status string) {
 	msg := events.Wrap(sse.NewMessage(events.EventQueueStatusChanged, events.QueueStatusData{Status: status}))
 	n.publish(queueID, msg)
 	n.publish(pubTopic(queueID), msg)
+
+	// Notify Host on important status changes (if any external system or job changes it)
+	// Usually host changes it themselves, but for consistency:
+	n.notifyHost(queueID, "Queue Status Updated", fmt.Sprintf("Queue is now %s", status), map[string]string{
+		"event":    events.EventQueueStatusChanged,
+		"status":   status,
+		"queue_id": queueID,
+	})
 }
 
 func (n *QueueNotifier) PublishUserCalled(queueID, entryID, status string) {
 	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserCalled, events.UserStatusData{ID: entryID, Status: status})))
 	n.PublishEntryStatusChanged(entryID, status)
+
+	// Notify Guest
+	n.notifyEntry(entryID, "It's your turn!", "Please head to the counter now.", map[string]string{
+		"event":    events.EventUserCalled,
+		"queue_id": queueID,
+		"entry_id": entryID,
+	})
 }
 
 func (n *QueueNotifier) PublishUserStatus(queueID, entryID, status string) {
 	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserStatusChanged, events.UserStatusData{ID: entryID, Status: status})))
 	n.PublishEntryStatusChanged(entryID, status)
+
+	// If user left, notify host
+	if status == "left" {
+		n.notifyHost(queueID, "Guest Left Queue", "A guest has removed themselves from the queue.", map[string]string{
+			"event":    "user_left",
+			"queue_id": queueID,
+			"entry_id": entryID,
+		})
+	}
 }
 
 func (n *QueueNotifier) PublishUserArrived(queueID, entryID, name, ticketNo string) {
@@ -51,6 +103,13 @@ func (n *QueueNotifier) PublishUserArrived(queueID, entryID, name, ticketNo stri
 		Name:         name,
 		TicketNumber: ticketNo,
 	})))
+
+	// Notify Host
+	n.notifyHost(queueID, "Guest Arrived!", fmt.Sprintf("%s (%s) has arrived.", name, ticketNo), map[string]string{
+		"event":    events.EventUserArrived,
+		"queue_id": queueID,
+		"entry_id": entryID,
+	})
 }
 
 // PublishPositionUpdates broadcasts positions to all waiting entries.
@@ -77,4 +136,40 @@ func (n *QueueNotifier) publish(topic string, msg sse.Message) {
 		return
 	}
 	n.broker.Publish(topic, payload)
+}
+
+func (n *QueueNotifier) notifyHost(queueID, title, body string, data map[string]string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		var q domain.Queue
+		if err := n.queueCol.FindOne(ctx, bson.M{"_id": queueID}).Decode(&q); err != nil {
+			return
+		}
+
+		if q.HostFCMToken == nil || *q.HostFCMToken == "" {
+			return
+		}
+
+		_ = n.fb.SendToUser(ctx, *q.HostFCMToken, title, body, data)
+	}()
+}
+
+func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string]string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		var e domain.Entry
+		if err := n.entryCol.FindOne(ctx, bson.M{"_id": entryID}).Decode(&e); err != nil {
+			return
+		}
+
+		if e.FCMToken == nil || *e.FCMToken == "" {
+			return
+		}
+
+		_ = n.fb.SendToUser(ctx, *e.FCMToken, title, body, data)
+	}()
 }

@@ -15,6 +15,8 @@ type Queue struct {
 	MaxPartySize      int       `bson:"max_party_size" json:"max_party_size"`
 	StrictQueueMode   bool      `bson:"strict_queue_mode" json:"strict_queue_mode"`
 	RecoveryEmail     *string   `bson:"recovery_email" json:"recovery_email,omitempty"`
+	HostFCMToken      *string   `bson:"host_fcm_token" json:"-"`
+	HostFCMUpdatedAt  time.Time `bson:"host_fcm_updated_at" json:"-"`
 	CreatedAt         time.Time `bson:"created_at" json:"created_at"`
 	ExpiresAt         time.Time `bson:"expires_at" json:"expires_at"`
 }

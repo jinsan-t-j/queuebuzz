@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"queuebuzz/internal/config"
+	"queuebuzz/internal/firebase"
 	"queuebuzz/internal/middlewares"
 	authmodule "queuebuzz/internal/modules/auth"
 	authhttp "queuebuzz/internal/modules/auth/http"
@@ -71,12 +72,12 @@ func NewContainer() *Container {
 	emailSvc := services.NewEmailService(cfg)
 	otpSvc := services.NewOTPService(rdb)
 	magicLinkSvc := services.NewMagicLinkService(rdb)
-	notifSender := services.NewFirebaseSender(cfg.FirebaseCredentials)
+	notifSender := firebase.NewSender(cfg.FirebaseCredentials)
 	hostRepo := hostrepo.NewMongoRepository(hostCol, queueCol)
 	hostSvc := hostservice.New(hostRepo)
 
 	broker := sse.NewBroker()
-	notifier := queueservice.NewQueueNotifier(broker)
+	notifier := queueservice.NewQueueNotifier(broker, notifSender, queueCol, entryCol)
 	expirySvc := queueservice.NewExpiryService(rdb, queueCol, entryCol, queueRedisRepo, notifier)
 	posJob := jobs.NewPositionJob(expirySvc)
 	hostNotifierJob := jobs.NewHostNotifierJob(queueSvc, expirySvc)

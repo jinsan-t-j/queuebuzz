@@ -629,3 +629,57 @@ func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 
 	return helpers.NewSuccessResponse("History fetched", response).OK(ctx)
 }
+
+// RegisterHostFCM godoc
+// @Summary Register host FCM token
+// @Description Registers the host's FCM token for push notifications.
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param token body string true "FCM Token"
+// @Success 200 {object} map[string]interface{} "FCM token registered"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/{id}/register-fcm [post]
+func (h *Handler) RegisterHostFCM(c fiber.Ctx) error {
+	queueID := c.Params("id")
+	var req struct {
+		FcmToken string `json:"fcm_token"`
+	}
+	if err := c.Bind().JSON(&req); err != nil {
+		return err
+	}
+
+	token := req.FcmToken
+	if token == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "fcm token is required")
+	}
+
+	if err := h.queueService.RegisterHostFCM(c.Context(), queueID, token); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helpers.NewSuccessResponse("Host FCM token registered", nil).OK(c)
+}
+
+// UnregisterHostFCM godoc
+// @Summary Unregister host FCM token
+// @Description Unregisters the host's FCM token for push notifications.
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Success 200 {object} map[string]interface{} "FCM token unregistered"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/{id}/unregister-fcm [post]
+func (h *Handler) UnregisterHostFCM(c fiber.Ctx) error {
+	queueID := c.Params("id")
+
+	if err := h.queueService.UnregisterHostFCM(c.Context(), queueID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helpers.NewSuccessResponse("Host FCM token unregistered", nil).OK(c)
+}

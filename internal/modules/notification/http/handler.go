@@ -1,19 +1,19 @@
 package http
 
 import (
+	"queuebuzz/internal/firebase"
 	notificationdto "queuebuzz/internal/modules/notification/dto"
 	queueservice "queuebuzz/internal/modules/queue/service"
-	legacyservices "queuebuzz/internal/services"
 
 	"github.com/gofiber/fiber/v3"
 )
 
 type Handler struct {
 	queueService *queueservice.Service
-	notifSender  legacyservices.NotificationSender
+	notifSender  firebase.NotificationSender
 }
 
-func NewHandler(queueSvc *queueservice.Service, notifSender legacyservices.NotificationSender) *Handler {
+func NewHandler(queueSvc *queueservice.Service, notifSender firebase.NotificationSender) *Handler {
 	return &Handler{
 		queueService: queueSvc,
 		notifSender:  notifSender,
@@ -41,7 +41,7 @@ func (h *Handler) BroadcastToQueue(c fiber.Ctx) error {
 	}
 
 	if len(tokens) > 0 {
-		_ = h.notifSender.SendToMultiple(c.Context(), tokens, req.Title, req.Body)
+		_ = h.notifSender.SendToMultiple(c.Context(), tokens, req.Title, req.Body, nil)
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{

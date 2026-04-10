@@ -217,6 +217,7 @@ func parseRSAPrivateKey(pemStr string) *rsa.PrivateKey {
 	block, _ := pem.Decode([]byte(pemStr))
 	if block == nil {
 		log.Fatal().Msg("Failed to decode PEM block for private key")
+		return nil
 	}
 
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
@@ -240,6 +241,7 @@ func parseRSAPublicKey(pemStr string) *rsa.PublicKey {
 	block, _ := pem.Decode([]byte(pemStr))
 	if block == nil {
 		log.Fatal().Msg("Failed to decode PEM block for public key")
+		return nil
 	}
 
 	pub, err := x509.ParsePKIXPublicKey(block.Bytes)

@@ -36,7 +36,7 @@ func New(
 	}
 }
 
-func (m *Module) Start(ctx context.Context) {
+func (m *Module) Start(_ context.Context) {
 }
 
 func (m *Module) RegisterRoutes(router fiber.Router) {
@@ -63,4 +63,6 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 
 	queueHost.Get("/history", m.QueueHandler.GetHistory)
 	queueHost.Post("/broadcast", m.NotificationHandler.BroadcastToQueue)
+	queueHost.Post("/register-host-fcm", m.QueueHandler.RegisterHostFCM)
+	queueHost.Delete("/register-host-fcm", m.QueueHandler.UnregisterHostFCM)
 }

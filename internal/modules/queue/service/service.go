@@ -449,3 +449,37 @@ func (s *Service) GetQueueHistory(ctx context.Context, queueID string) ([]domain
 	}
 	return entries, nil
 }
+
+func (s *Service) RegisterHostFCM(ctx context.Context, queueID, fcmToken string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	_, err := s.queueCol.UpdateOne(
+		ctx,
+		bson.M{"_id": queueID},
+		bson.M{
+			"$set": bson.M{
+				"host_fcm_token":      fcmToken,
+				"host_fcm_updated_at": time.Now(),
+			},
+		},
+	)
+	return err
+}
+
+func (s *Service) UnregisterHostFCM(ctx context.Context, queueID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	_, err := s.queueCol.UpdateOne(
+		ctx,
+		bson.M{"_id": queueID},
+		bson.M{
+			"$unset": bson.M{
+				"host_fcm_token":      "",
+				"host_fcm_updated_at": "",
+			},
+		},
+	)
+	return err
+}

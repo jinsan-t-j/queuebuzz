@@ -157,20 +157,6 @@ func (s *Service) RejoinByID(ctx context.Context, entryID string) (*queueservice
 	}, nil
 }
 
-func (s *Service) RejoinByPIN(ctx context.Context, queueID, ticketNo, pin string) (*queueservice.JoinQueueResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	var entry queuedomain.Entry
-	if err := s.entryCol.FindOne(ctx, bson.M{"queue_id": queueID, "ticket_no": ticketNo}).Decode(&entry); err != nil {
-		return nil, fmt.Errorf("entry not found")
-	}
-	position, _ := s.queueService.GetPosition(ctx, queueID, entry.ID)
-	return &queueservice.JoinQueueResult{
-		Entry:    entry,
-		Position: position + 1,
-	}, nil
-}
-
 func (s *Service) GetEntry(ctx context.Context, entryID string) (*queuedomain.Entry, error) {
 	return s.queueService.GetEntry(ctx, entryID)
 }

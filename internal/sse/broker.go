@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -79,6 +80,8 @@ func (b *Broker) Publish(topic string, event []byte) {
 		return
 	}
 
+	fmt.Println("Publishing to topic:", topic, "with event:", event)
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -146,7 +149,6 @@ func (b *Broker) ServeHTTP(c fiber.Ctx, topic string, snapshot func() ([][]byte,
 			}
 			_ = w.Flush()
 		}
-
 
 		ticker := time.NewTicker(keepaliveInterval)
 		defer ticker.Stop()

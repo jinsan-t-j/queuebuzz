@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"queuebuzz/internal/exceptions"
 	"queuebuzz/internal/config"
+	"queuebuzz/internal/exceptions"
 	"queuebuzz/internal/log"
 
 	"github.com/go-playground/validator/v10"

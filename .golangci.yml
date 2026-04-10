@@ -1,18 +1,17 @@
-fast: true
+run:
+  timeout: 5m
+  go: "1.25"
+
 linters:
-  enable-all: false
-  disable-all: false
+  disable-all: true
   enable:
     - govet
-    - golint
     - goimports
-    - deadcode
     - typecheck
     - ineffassign
     - misspell
     - nakedret
     - unconvert
-    - megacheck
-    - varcheck
-  disable:
-    - errcheck
+    - staticcheck
+    - unused
+    - revive

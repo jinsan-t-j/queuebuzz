@@ -6,7 +6,6 @@ import (
 
 	"queuebuzz/internal/constants"
 	authservice "queuebuzz/internal/modules/auth/service"
-	legacyservices "queuebuzz/internal/services"
 
 	"github.com/gofiber/fiber/v3"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -14,15 +13,13 @@ import (
 )
 
 var (
-	hostOwnerAuthSvc  *authservice.AuthService
-	hostOwnerRedisSvc *legacyservices.RedisService
-	queueCollection   *mongo.Collection
+	hostOwnerAuthSvc *authservice.AuthService
+	queueCollection  *mongo.Collection
 )
 
 // InitHostOwnerMiddleware sets up depenencies for the host owner middleware.
-func InitHostOwnerMiddleware(authSvc *authservice.AuthService, redisSvc *legacyservices.RedisService, queueCol *mongo.Collection) {
+func InitHostOwnerMiddleware(authSvc *authservice.AuthService, queueCol *mongo.Collection) {
 	hostOwnerAuthSvc = authSvc
-	hostOwnerRedisSvc = redisSvc
 	queueCollection = queueCol
 }
 

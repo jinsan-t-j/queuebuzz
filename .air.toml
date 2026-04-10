@@ -7,7 +7,7 @@ tmp_dir = "tmp"
 
 [build]
   bin = "./tmp/main"
-  cmd = "CGO_ENABLED=0 go build -gcflags=all='-N -l' -o ./tmp/main . && chmod +x ./tmp/main"
+  cmd = "go build -gcflags=all='-N -l' -ldflags='-compressdwarf=false' -o ./tmp/main ."
   delay = 1000
   exclude_dir = ["assets", "tmp", "vendor", "testdata", "logs", ".git", "bin", "logs"]
   exclude_file = []

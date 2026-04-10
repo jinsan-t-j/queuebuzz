@@ -32,7 +32,6 @@ type UserStatusData struct {
 	Status string `json:"status"`
 }
 
-
 // QueueStatusData is the payload for EventQueueStatusChanged.
 type QueueStatusData struct {
 	Status string `json:"status"`

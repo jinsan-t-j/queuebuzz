@@ -9,6 +9,7 @@ import (
 
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
 )
 
 var (
@@ -22,12 +23,21 @@ func Connect(uri, dbName string) *mongodriver.Database {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
+		cs, err := connstring.ParseAndValidate(uri)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to parse MongoDB URI")
+		}
+
+		mongoDbName := cs.Database
+		if mongoDbName == "" {
+			mongoDbName = dbName
+		}
+
 		opts := options.Client().
 			ApplyURI(uri).
 			SetMaxPoolSize(10).
 			SetMinPoolSize(2)
 
-		var err error
 		client, err = mongodriver.Connect(opts)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to connect to MongoDB")
@@ -37,12 +47,12 @@ func Connect(uri, dbName string) *mongodriver.Database {
 			log.Fatal().Err(err).Msg("Failed to ping MongoDB")
 		}
 
-		database = client.Database(dbName)
+		database = client.Database(mongoDbName)
 		if err := EnsureIndexes(ctx, database); err != nil {
 			log.Fatal().Err(err).Msg("Failed to ensure MongoDB indexes")
 		}
 
-		log.Info().Str("db", dbName).Msg("Connected to MongoDB")
+		log.Info().Str("db", mongoDbName).Msg("Connected to MongoDB")
 	})
 
 	return database

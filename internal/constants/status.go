@@ -33,14 +33,14 @@ const (
 
 // Default values
 const (
-	DefaultAvgServiceMins = 5
-	DefaultQueueExpiryH   = 24
-	DefaultIdleTimeoutMin = 3
-	DefaultGraceTimerSec  = 300
-	JoinCodeLength        = 6
-	JoinCodeCharset       = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-	JoinCodeTTLExtraH     = 1 // 1h buffer beyond queue 24h expiry
-	MaxJoinCodeAttempts   = 5
-	HeartbeatTTLSec       = 90
+	DefaultAvgServiceMins   = 5
+	DefaultQueueExpiryH     = 24
+	DefaultIdleTimeoutMin   = 3
+	DefaultGraceTimerSec    = 300
+	JoinCodeLength          = 6
+	JoinCodeCharset         = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	JoinCodeTTLExtraH       = 1 // 1h buffer beyond queue 24h expiry
+	MaxJoinCodeAttempts     = 5
+	HeartbeatTTLSec         = 90
 	DefaultRepositionOffset = 3
 )

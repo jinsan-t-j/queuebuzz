@@ -1,4 +1,16 @@
-.PHONY: dev build test vet lint swagger clean docker
+.PHONY: dev build test vet lint swagger clean docker hooks lint-fix
+
+# Install/update git hooks (Husky equivalent for Go)
+hooks:
+	go run github.com/evilmartians/lefthook@latest install
+
+# Install the linter
+install-lint:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# Detailed code analysis (checks local bin or system path)
+lint-fix:
+	@if [ -f "./bin/golangci-lint" ]; then ./bin/golangci-lint run --fix; else golangci-lint run --fix; fi
 
 # Local development with hot-reload
 dev:

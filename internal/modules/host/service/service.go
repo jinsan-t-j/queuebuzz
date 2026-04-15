@@ -137,6 +137,30 @@ func (s *Service) ClaimQueue(ctx context.Context, queueID, hostID, publicID stri
 	return s.repo.ClaimQueue(ctx, queueID, hostID, publicID)
 }
 
+func (s *Service) CheckAuthMethod(ctx context.Context, email string) (method string, provider string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	host, err := s.repo.FindOneByFilter(ctx, bson.M{"email": email})
+	if err != nil {
+		if err == mongodriver.ErrNoDocuments {
+			return "magic-link", "", nil
+		}
+		return "", "", err
+	}
+
+	if host.SocialAuth != nil {
+		if host.SocialAuth.Google != nil {
+			return "social", "google", nil
+		}
+		if host.SocialAuth.Apple != nil {
+			return "social", "apple", nil
+		}
+	}
+
+	return "magic-link", "", nil
+}
+
 func providerAuthForHost(host *hostdomain.Host, provider string) *hostdomain.SocialProviderAuth {
 	if host.SocialAuth == nil {
 		return nil

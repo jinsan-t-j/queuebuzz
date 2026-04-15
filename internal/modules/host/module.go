@@ -27,6 +27,7 @@ func New(registerHandler *authhttp.Handler, hostHandler *hosthttp.Handler) *Modu
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	host := router.Group("/host")
 	host.Post("/register", middlewares.RegisterRateLimiter, m.RegisterHandler.Register)
+	host.Post("/check-method", middlewares.RegisterRateLimiter, m.RegisterHandler.CheckMethod)
 	host.Get("/me", middlewares.AuthMiddleware(), m.ClaimHandler.GetMe)
 	host.Post("/claim", middlewares.AuthMiddleware(), m.ClaimHandler.Claim)
 	host.Get("/:public_id", m.ClaimHandler.GetProfile)

@@ -240,6 +240,33 @@ func (h *Handler) Logout(c fiber.Ctx) error {
 	return helpers.NewSuccessResponse("Signed out successfully", nil).MessageResponse(c)
 }
 
+// CheckMethod godoc
+// @Summary Check auth method for email
+// @Description Determines if an email is associated with a social provider or needs a magic link.
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param request body authdto.CheckMethodRequest true "Check auth method request"
+// @Success 200 {object} map[string]string "Success response"
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Router /host/check-method [post]
+func (h *Handler) CheckMethod(c fiber.Ctx) error {
+	var req authdto.CheckMethodRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return err
+	}
+
+	method, provider, err := h.hostService.CheckAuthMethod(c.Context(), req.Email)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(fiber.Map{
+		"method":   method,
+		"provider": provider,
+	})
+}
+
 func (h *Handler) setAuthCookies(c fiber.Ctx, accessToken, refreshToken string, accessExp, refreshExp time.Time) {
 	c.Cookie(&fiber.Cookie{Name: "access_token", Value: accessToken, Expires: accessExp, HTTPOnly: true, Secure: h.cfg.IsProduction(), SameSite: "Lax", Path: "/"})
 	c.Cookie(&fiber.Cookie{Name: "refresh_token", Value: refreshToken, Expires: refreshExp, HTTPOnly: true, Secure: h.cfg.IsProduction(), SameSite: "Lax", Path: "/"})

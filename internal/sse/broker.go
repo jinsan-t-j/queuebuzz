@@ -80,7 +80,7 @@ func (b *Broker) Publish(topic string, event []byte) {
 		return
 	}
 
-	fmt.Println("Publishing to topic:", topic, "with event:", event)
+	fmt.Println("Publishing to topic:", topic)
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()

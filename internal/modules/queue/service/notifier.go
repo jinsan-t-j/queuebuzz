@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/firebase"
 	"queuebuzz/internal/log"
+	customerevents "queuebuzz/internal/modules/customer/events"
 	"queuebuzz/internal/modules/queue/domain"
 	"queuebuzz/internal/modules/queue/dto"
 	"queuebuzz/internal/modules/queue/events"
@@ -24,9 +27,11 @@ type QueueNotifier struct {
 	fb       firebase.NotificationSender
 	queueCol *mongodriver.Collection
 	entryCol *mongodriver.Collection
+	appURL   string
 }
 
 func NewQueueNotifier(
+	cfg *config.Config,
 	broker *sse.Broker,
 	fb firebase.NotificationSender,
 	queueCol *mongodriver.Collection,
@@ -37,6 +42,7 @@ func NewQueueNotifier(
 		fb:       fb,
 		queueCol: queueCol,
 		entryCol: entryCol,
+		appURL:   strings.TrimRight(cfg.AppURL, "/"),
 	}
 }
 
@@ -147,6 +153,22 @@ func (n *QueueNotifier) publish(topic string, msg sse.Message) {
 	n.broker.Publish(topic, payload)
 }
 
+func (n *QueueNotifier) absoluteURL(path string) string {
+	if path == "" {
+		return n.appURL
+	}
+
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	return n.appURL + path
+}
+
 func (n *QueueNotifier) notifyHost(queueID, title, body string, data map[string]string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -154,14 +176,30 @@ func (n *QueueNotifier) notifyHost(queueID, title, body string, data map[string]
 
 		var q domain.Queue
 		if err := n.queueCol.FindOne(ctx, bson.M{"_id": queueID}).Decode(&q); err != nil {
+			log.Warn().Err(err).Str("queue_id", queueID).Msg("FCM: skipping host notification, queue not found")
 			return
 		}
 
 		if q.HostFCMToken == nil || *q.HostFCMToken == "" {
+			log.Debug().Str("queue_id", queueID).Msg("FCM: skipping host notification, no host token registered")
 			return
 		}
 
-		if err := n.fb.SendToUser(ctx, *q.HostFCMToken, title, body, data); err != nil {
+		hostLink := fmt.Sprintf("/guest-host/queue/%s/live", queueID)
+		if q.HostID != nil && *q.HostID != "" {
+			hostLink = "/dashboard"
+		}
+
+		payload := map[string]string{
+			"title": title,
+			"body":  body,
+			"link":  n.absoluteURL(hostLink),
+		}
+		for key, value := range data {
+			payload[key] = value
+		}
+
+		if err := n.fb.SendToUser(ctx, *q.HostFCMToken, title, body, payload); err != nil {
 			if firebase.IsTokenInvalid(err) {
 				_, _ = n.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{
 					"$set": bson.M{
@@ -183,20 +221,37 @@ func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string
 
 		var e domain.Entry
 		if err := n.entryCol.FindOne(ctx, bson.M{"_id": entryID}).Decode(&e); err != nil {
+			log.Warn().Err(err).Str("entry_id", entryID).Msg("FCM: skipping guest notification, entry not found")
 			return
 		}
 
 		if e.FCMToken == nil || *e.FCMToken == "" {
+			log.Debug().Str("entry_id", entryID).Msg("FCM: skipping guest notification, no entry token registered")
 			return
 		}
 
-		if err := n.fb.SendToUser(ctx, *e.FCMToken, title, body, data); err != nil {
+		payload := map[string]string{
+			"title": title,
+			"body":  body,
+		}
+		for key, value := range data {
+			payload[key] = value
+		}
+
+		if queueID, ok := payload["queue_id"]; ok && queueID != "" {
+			payload["link"] = n.absoluteURL(fmt.Sprintf("/q/%s/waiting", queueID))
+		}
+
+		if err := n.fb.SendToUser(ctx, *e.FCMToken, title, body, payload); err != nil {
 			if firebase.IsTokenInvalid(err) {
 				_, _ = n.entryCol.UpdateOne(ctx, bson.M{"_id": entryID}, bson.M{
 					"$unset": bson.M{
 						"fcm_token": "",
 					},
 				})
+				n.publish(entryTopic(entryID), customerevents.Wrap(customerevents.EventPushTokenRefresh, customerevents.PushTokenRefreshData{
+					Reason: "invalid_token",
+				}))
 			}
 		}
 	}()

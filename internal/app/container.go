@@ -77,7 +77,7 @@ func NewContainer() *Container {
 	hostSvc := hostservice.New(hostRepo)
 
 	broker := sse.NewBroker()
-	notifier := queueservice.NewQueueNotifier(broker, notifSender, queueCol, entryCol)
+	notifier := queueservice.NewQueueNotifier(cfg, broker, notifSender, queueCol, entryCol)
 	expirySvc := queueservice.NewExpiryService(rdb, queueCol, entryCol, queueRedisRepo, notifier)
 	posJob := jobs.NewPositionJob(expirySvc)
 	hostNotifierJob := jobs.NewHostNotifierJob(queueSvc, expirySvc)

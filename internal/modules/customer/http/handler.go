@@ -177,6 +177,9 @@ func (h *Handler) UpdateEntry(c fiber.Ctx) error {
 	if req.PartySize != nil {
 		updates["party_size"] = *req.PartySize
 	}
+	if req.FCMToken != nil {
+		updates["fcm_token"] = *req.FCMToken
+	}
 
 	if len(updates) == 0 {
 		return helpers.NewSuccessResponse("No changes applied", nil).OK(c)

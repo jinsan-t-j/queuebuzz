@@ -52,11 +52,56 @@ func NewSender(credentialsBase64 string) *Sender {
 	}
 }
 
+func buildNotificationData(data map[string]string, title, body string) map[string]string {
+	payload := make(map[string]string, len(data)+2)
+	for key, value := range data {
+		payload[key] = value
+	}
+
+	if payload["title"] == "" {
+		payload["title"] = title
+	}
+
+	if payload["body"] == "" {
+		payload["body"] = body
+	}
+
+	return payload
+}
+
+func buildWebpushConfig(data map[string]string, title, body string) *messaging.WebpushConfig {
+	headers := map[string]string{
+		"TTL":     "60",
+		"Urgency": "high",
+	}
+
+	config := &messaging.WebpushConfig{
+		Headers: headers,
+		Notification: &messaging.WebpushNotification{
+			Title: title,
+			Body:  body,
+			Icon:  "/icons/notification-icon.png",
+			Badge: "/icons/badge-icon.png",
+			Tag:   "queue-buzz",
+		},
+	}
+
+	if link := data["link"]; link != "" {
+		config.FCMOptions = &messaging.WebpushFCMOptions{
+			Link: link,
+		}
+	}
+
+	return config
+}
+
 // SendToUser sends a push notification to a single device token.
 func (f *Sender) SendToUser(ctx context.Context, fcmToken, title, body string, data map[string]string) error {
 	if fcmToken == "" {
 		return nil
 	}
+
+	payloadData := buildNotificationData(data, title, body)
 
 	msg := &messaging.Message{
 		Token: fcmToken,
@@ -64,20 +109,17 @@ func (f *Sender) SendToUser(ctx context.Context, fcmToken, title, body string, d
 			Title: title,
 			Body:  body,
 		},
-		Data: data,
+		Data: payloadData,
 		// Ensure high priority for time-sensitive queue updates
 		Android: &messaging.AndroidConfig{
 			Priority: "high",
 		},
-		Webpush: &messaging.WebpushConfig{
-			Headers: map[string]string{
-				"TTL": "0",
-			},
-		},
+		Webpush: buildWebpushConfig(payloadData, title, body),
 		APNS: &messaging.APNSConfig{
 			Payload: &messaging.APNSPayload{
 				Aps: &messaging.Aps{
 					ContentAvailable: true,
+					Sound:            "default",
 				},
 			},
 		},
@@ -113,16 +155,19 @@ func (f *Sender) SendToMultiple(ctx context.Context, fcmTokens []string, title, 
 		return nil
 	}
 
+	payloadData := buildNotificationData(data, title, body)
+
 	msg := &messaging.MulticastMessage{
 		Tokens: fcmTokens,
 		Notification: &messaging.Notification{
 			Title: title,
 			Body:  body,
 		},
-		Data: data,
+		Data: payloadData,
 		Android: &messaging.AndroidConfig{
 			Priority: "high",
 		},
+		Webpush: buildWebpushConfig(payloadData, title, body),
 	}
 
 	res, err := f.client.SendEachForMulticast(ctx, msg)

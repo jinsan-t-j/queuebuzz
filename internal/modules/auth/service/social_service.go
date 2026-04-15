@@ -85,7 +85,7 @@ func NewSocialAuthService(cfg *config.Config, redisService *legacyservices.Redis
 	}
 }
 
-func (s *SocialAuthService) StartAuth(ctx context.Context, provider string) (string, error) {
+func (s *SocialAuthService) StartAuth(ctx context.Context, provider string, email string) (string, error) {
 	state, err := randomToken(32)
 	if err != nil {
 		return "", err
@@ -108,12 +108,16 @@ func (s *SocialAuthService) StartAuth(ctx context.Context, provider string) (str
 		if s.cfg.GoogleOAuthClientID == "" || s.cfg.GoogleOAuthClientSecret == "" {
 			return "", fmt.Errorf("google social auth is not configured")
 		}
-		return s.googleConfig.AuthCodeURL(
-			state,
+		opts := []oauth2.AuthCodeOption{
 			oauth2.AccessTypeOnline,
 			oauth2.SetAuthURLParam("nonce", nonce),
-			oauth2.SetAuthURLParam("prompt", "select_account"),
-		), nil
+		}
+		if email != "" {
+			opts = append(opts, oauth2.SetAuthURLParam("login_hint", email))
+		} else {
+			opts = append(opts, oauth2.SetAuthURLParam("prompt", "select_account"))
+		}
+		return s.googleConfig.AuthCodeURL(state, opts...), nil
 	case "apple":
 		if s.cfg.AppleOAuthClientID == "" || s.cfg.AppleOAuthTeamID == "" || s.cfg.AppleOAuthKeyID == "" || s.cfg.AppleOAuthPrivateKey == "" {
 			return "", fmt.Errorf("apple social auth is not configured")
@@ -126,6 +130,9 @@ func (s *SocialAuthService) StartAuth(ctx context.Context, provider string) (str
 		params.Set("scope", "name email")
 		params.Set("state", state)
 		params.Set("nonce", nonce)
+		if email != "" {
+			params.Set("login_hint", email)
+		}
 		return appleAuthURL + "?" + params.Encode(), nil
 	default:
 		return "", fmt.Errorf("unsupported provider")

@@ -14,3 +14,7 @@ type VerifyRequest struct {
 type SocialAuthRequest struct {
 	Provider string `json:"provider" validate:"required,oneof=google apple"`
 }
+
+type CheckMethodRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}

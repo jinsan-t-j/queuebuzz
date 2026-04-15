@@ -69,7 +69,7 @@ func buildNotificationData(data map[string]string, title, body string) map[strin
 	return payload
 }
 
-func buildWebpushConfig(data map[string]string, title, body string) *messaging.WebpushConfig {
+func buildWebpushConfig(data map[string]string) *messaging.WebpushConfig {
 	headers := map[string]string{
 		"TTL":     "60",
 		"Urgency": "high",
@@ -78,8 +78,6 @@ func buildWebpushConfig(data map[string]string, title, body string) *messaging.W
 	config := &messaging.WebpushConfig{
 		Headers: headers,
 		Notification: &messaging.WebpushNotification{
-			Title: title,
-			Body:  body,
 			Icon:  "/icons/notification-icon.png",
 			Badge: "/icons/badge-icon.png",
 			Tag:   "queue-buzz",
@@ -93,6 +91,27 @@ func buildWebpushConfig(data map[string]string, title, body string) *messaging.W
 	}
 
 	return config
+}
+
+func buildAndroidConfig() *messaging.AndroidConfig {
+	return &messaging.AndroidConfig{
+		Priority: "high",
+		Notification: &messaging.AndroidNotification{
+			Sound:               "default",
+			VibrateTimingMillis: []int64{0, 200, 100, 300},
+		},
+	}
+}
+
+func buildAPNSConfig() *messaging.APNSConfig {
+	return &messaging.APNSConfig{
+		Payload: &messaging.APNSPayload{
+			Aps: &messaging.Aps{
+				ContentAvailable: true,
+				Sound:            "default",
+			},
+		},
+	}
 }
 
 // SendToUser sends a push notification to a single device token.
@@ -109,20 +128,10 @@ func (f *Sender) SendToUser(ctx context.Context, fcmToken, title, body string, d
 			Title: title,
 			Body:  body,
 		},
-		Data: payloadData,
-		// Ensure high priority for time-sensitive queue updates
-		Android: &messaging.AndroidConfig{
-			Priority: "high",
-		},
-		Webpush: buildWebpushConfig(payloadData, title, body),
-		APNS: &messaging.APNSConfig{
-			Payload: &messaging.APNSPayload{
-				Aps: &messaging.Aps{
-					ContentAvailable: true,
-					Sound:            "default",
-				},
-			},
-		},
+		Data:    payloadData,
+		Android: buildAndroidConfig(),
+		Webpush: buildWebpushConfig(payloadData),
+		APNS:    buildAPNSConfig(),
 	}
 
 	name, err := f.client.Send(ctx, msg)
@@ -163,11 +172,10 @@ func (f *Sender) SendToMultiple(ctx context.Context, fcmTokens []string, title, 
 			Title: title,
 			Body:  body,
 		},
-		Data: payloadData,
-		Android: &messaging.AndroidConfig{
-			Priority: "high",
-		},
-		Webpush: buildWebpushConfig(payloadData, title, body),
+		Data:    payloadData,
+		Android: buildAndroidConfig(),
+		Webpush: buildWebpushConfig(payloadData),
+		APNS:    buildAPNSConfig(),
 	}
 
 	res, err := f.client.SendEachForMulticast(ctx, msg)

@@ -28,6 +28,4 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	host := router.Group("/host")
 	host.Get("/me", middlewares.AuthMiddleware(), m.ClaimHandler.GetMe)
 	host.Post("/claim", middlewares.AuthMiddleware(), m.ClaimHandler.Claim)
-	host.Get("/:public_id", m.ClaimHandler.GetProfile)
-	host.Get("/:public_id/queues", m.ClaimHandler.GetQueues)
 }

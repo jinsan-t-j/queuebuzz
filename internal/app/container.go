@@ -95,7 +95,7 @@ func NewContainer() *Container {
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc)
 	queueHandler := queuehttp.NewHandler(cfg, queueSvc, authSvc, queueRedisRepo, broker, notifier, posJob, hostNotifierJob, caller)
 	customerSvc := customerservice.New(entryCol, customerRedisRepo, queueSvc)
-	customerHandler := customerhttp.NewHandler(customerSvc, queueSvc, authSvc, joinCodeSvc, broker, posJob, hostNotifierJob)
+	customerHandler := customerhttp.NewHandler(cfg, customerSvc, queueSvc, authSvc, joinCodeSvc, broker, posJob, hostNotifierJob)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 
 	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob)

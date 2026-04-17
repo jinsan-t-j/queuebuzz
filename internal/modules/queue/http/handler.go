@@ -118,12 +118,20 @@ func (h *Handler) Create(c fiber.Ctx) error {
 	response := dto.ToQueueResponse(*queue)
 
 	if hostID == "" {
-		anonHostToken, err := h.authService.IssueAnonymousToken(c.Context(), queue.ID)
+		token, err := h.authService.IssueAnonymousToken(c.Context(), queue.ID)
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
 
-		c.Cookie(&fiber.Cookie{Name: "queuebuzz_host_token", Value: anonHostToken, Expires: time.Now().Add(30 * 24 * time.Hour), HTTPOnly: true, Secure: true, SameSite: "Strict", Path: "/"})
+		c.Cookie(&fiber.Cookie{
+			Name:     "queuebuzz_host_token",
+			Value:    token,
+			Expires:  time.Now().Add(30 * 24 * time.Hour),
+			HTTPOnly: true,
+			Secure:   h.cfg.IsProduction(),
+			SameSite: "Lax",
+			Path:     "/",
+		})
 	}
 
 	return helpers.NewSuccessResponse("Queue created", response).Created(c)

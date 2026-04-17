@@ -42,17 +42,16 @@ func (m *Module) Start(_ context.Context) {
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	queue := router.Group("/queue")
 	queue.Post("/create", middlewares.OptionalAuthMiddleware(), m.QueueHandler.Create)
-	queue.Get("/live", middlewares.AuthMiddleware(), m.QueueHandler.GetLiveQueue)
-
 	queue.Get("/slug-check", m.QueueHandler.CheckSlug)
 
-	queue.Post("/:id/join", m.QueueHandler.AddEntry)
+	queue.Get("/live", middlewares.AuthMiddleware(), m.QueueHandler.GetLiveQueue)
 
-	queue.Get("/:id/live", m.QueueHandler.GetLiveQueueByID)
+	queue.Post("/:id/join", m.QueueHandler.AddEntry)
 	queue.Get("/:id/events/public", m.QueueHandler.PublicEvents)
 
 	queueHost := queue.Group("/:id", middlewares.HostAuthMiddleware(), middlewares.HostOwnerMiddleware())
 	queueHost.Patch("/", m.QueueHandler.Update)
+	queueHost.Get("/live", m.QueueHandler.GetLiveQueueByID)
 	queueHost.Get("/events", middlewares.SSERateLimiter, m.QueueHandler.StreamEvents)
 	queueHost.Post("/call/:entry_id?", middlewares.HostActionLimiter, m.QueueHandler.CallEntry)
 	queueHost.Post("/serve/:entry_id", middlewares.HostActionLimiter, m.QueueHandler.Serve)

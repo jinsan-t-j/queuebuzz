@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"queuebuzz/internal/constants"
+	"queuebuzz/internal/log"
 	"queuebuzz/internal/modules/queue/domain"
 
 	"queuebuzz/internal/modules/queue/repository"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -110,6 +112,9 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		return nil, fmt.Errorf("failed to create queue: %w", err)
 	}
 
+	// Warm up Redis re-hydration sentinel (avoid redundant first-load query to DB)
+	_ = s.redisRepo.SetRehydratedSentinel(ctx, queue.ID, 1*time.Minute)
+
 	return &queue, nil
 }
 
@@ -171,6 +176,11 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	// Ensure ticket counter is initialized (fallback to DB if Redis wiped)
+	if err := s.ensureTicketCounter(ctx, entry.QueueID); err != nil {
+		return nil, err
+	}
+
 	ticketNo, err := s.redisRepo.NextTicket(ctx, entry.QueueID)
 	if err != nil {
 		return nil, err
@@ -193,7 +203,7 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 		return nil, fmt.Errorf("failed to add to queue positions: %w", err)
 	}
 
-	position, err := s.redisRepo.GetPosition(ctx, entry.QueueID, entry.ID)
+	position, err := s.GetPosition(ctx, entry.QueueID, entry.ID)
 	if err != nil {
 		position = 0
 	}
@@ -288,7 +298,20 @@ func (s *Service) CallNextUser(ctx context.Context, queueID string) (*domain.Ent
 	defer cancel()
 
 	entryIDs, err := s.redisRepo.GetQueueEntryIDs(ctx, queueID)
-	if err != nil || len(entryIDs) == 0 {
+	if err != nil {
+		return nil, err
+	}
+
+	// Lazy Re-hydration: If Redis is empty, check MongoDB
+	if len(entryIDs) == 0 {
+		rehydratedIDs, reerr := s.rehydrateQueue(ctx, queueID)
+		if reerr != nil {
+			return nil, reerr
+		}
+		entryIDs = rehydratedIDs
+	}
+
+	if len(entryIDs) == 0 {
 		return nil, fmt.Errorf("no users in queue")
 	}
 	for _, entryID := range entryIDs {
@@ -351,8 +374,12 @@ func (s *Service) GetEntryStatusByID(ctx context.Context, entryID string) (*Join
 		return nil, err
 	}
 
-	position, err := s.redisRepo.GetPosition(ctx, entry.QueueID, entry.ID)
+	position, err := s.GetPosition(ctx, entry.QueueID, entry.ID)
 	if err != nil {
+		position = 0
+	}
+
+	if position == -1 {
 		position = 0
 	}
 
@@ -363,7 +390,35 @@ func (s *Service) GetEntryStatusByID(ctx context.Context, entryID string) (*Join
 }
 
 func (s *Service) GetPosition(ctx context.Context, queueID, entryID string) (int64, error) {
-	return s.redisRepo.GetPosition(ctx, queueID, entryID)
+	pos, err := s.redisRepo.GetPosition(ctx, queueID, entryID)
+	if err != nil || pos == -1 {
+		// Only attempt re-hydration if the entire queue is missing from Redis
+		size, _ := s.redisRepo.GetSize(ctx, queueID)
+		if size == 0 {
+			// Check if we already re-hydrated recently (avoid DB thundering herd)
+			rehydrated, _ := s.redisRepo.HasRehydratedSentinel(ctx, queueID)
+			if !rehydrated {
+				_, reerr := s.rehydrateQueue(ctx, queueID)
+				if reerr == nil {
+					pos, err = s.redisRepo.GetPosition(ctx, queueID, entryID)
+				}
+			}
+		}
+	}
+	return pos, err
+}
+
+func (s *Service) GetWaitingCount(ctx context.Context, queueID string) (int64, error) {
+	count, err := s.redisRepo.GetSize(ctx, queueID)
+	if err == nil && count == 0 {
+		// Potential wipe — try to rehydrate if not recently synced
+		rehydrated, _ := s.redisRepo.HasRehydratedSentinel(ctx, queueID)
+		if !rehydrated {
+			ids, _ := s.rehydrateQueue(ctx, queueID)
+			count = int64(len(ids))
+		}
+	}
+	return count, err
 }
 
 func (s *Service) GetActiveQueuesForHost(ctx context.Context, hostPublicID string) ([]domain.Queue, error) {
@@ -482,4 +537,70 @@ func (s *Service) UnregisterHostFCM(ctx context.Context, queueID string) error {
 		},
 	)
 	return err
+}
+
+/**
+ * RE-HYDRATION LOGIC
+ * These methods recover Redis state from MongoDB in case of a Redis restart/wipe.
+ */
+func (s *Service) ensureTicketCounter(ctx context.Context, queueID string) error {
+	// If counter exists, do nothing
+	exists, err := s.redisRepo.HasTicketCounter(ctx, queueID)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	// Counter missing — find highest ticket in DB
+	filter := bson.M{"queue_id": queueID}
+	opts := options.FindOne().SetSort(bson.M{"ticket_no": -1}).SetProjection(bson.M{"ticket_no": 1})
+
+	var lastEntry struct {
+		TicketNo string `bson:"ticket_no"`
+	}
+	err = s.entryCol.FindOne(ctx, filter, opts).Decode(&lastEntry)
+
+	var lastNum int64
+	if err == nil {
+		// Parse Q-0042 -> 42
+		fmt.Sscanf(lastEntry.TicketNo, "Q-%04d", &lastNum)
+	}
+
+	// Sync Redis with DB last known ticket
+	log.Info().Str("queue_id", queueID).Int64("last_num", lastNum).Msg("Redis: re-hydrated ticket counter from MongoDB")
+	return s.redisRepo.SetTicketCounter(ctx, queueID, lastNum)
+}
+
+func (s *Service) rehydrateQueue(ctx context.Context, queueID string) ([]string, error) {
+	// 1. Mark as re-hydrated immediately/early to throttle concurrent attempts
+	_ = s.redisRepo.SetRehydratedSentinel(ctx, queueID, 1*time.Minute)
+
+	// 2. Fetch live entries from MongoDB
+	entries, err := s.GetQueueEntries(ctx, queueID,
+		constants.EntryStatusWaiting,
+		constants.EntryStatusCalled,
+		constants.EntryStatusArrived,
+	)
+	if err != nil || len(entries) == 0 {
+		return nil, err
+	}
+
+	log.Info().Str("queue_id", queueID).Int("count", len(entries)).Msg("Redis: re-hydrating live queue from MongoDB")
+
+	// 3. Re-populate Redis in a single bulk operation
+	members := make([]redis.Z, len(entries))
+	ids := make([]string, len(entries))
+	for i, entry := range entries {
+		ids[i] = entry.ID
+		members[i] = redis.Z{
+			Score:  float64(entry.CreatedAt.Unix()),
+			Member: entry.ID,
+		}
+	}
+
+	_ = s.redisRepo.AddToQueueBulk(ctx, queueID, members)
+
+	return ids, nil
 }

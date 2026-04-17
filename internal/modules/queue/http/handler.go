@@ -301,7 +301,7 @@ func (h *Handler) PublicEvents(c fiber.Ctx) error {
 		defer cancel()
 
 		// Initial wait count
-		count, _ := h.redisRepo.GetSize(ctx, queueID)
+		count, _ := h.queueService.GetWaitingCount(ctx, queueID)
 		countMsg := events.Wrap(sse.NewMessage(events.EventWaitingCountUpdated, map[string]interface{}{"count": count}))
 		countPayload, _ := json.Marshal(countMsg)
 

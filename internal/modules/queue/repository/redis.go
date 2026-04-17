@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"queuebuzz/internal/constants"
+	"queuebuzz/internal/log"
 	internalredis "queuebuzz/internal/redis"
 
 	redis "github.com/redis/go-redis/v9"
@@ -82,6 +83,16 @@ func (r *RedisRepository) AddToQueue(ctx context.Context, queueID, entryID strin
 	})
 }
 
+func (r *RedisRepository) AddToQueueBulk(ctx context.Context, queueID string, members []redis.Z) error {
+	if len(members) == 0 {
+		return nil
+	}
+	key := internalredis.QueuePositionsKey(queueID)
+	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
+		return r.rdb.ZAdd(tCtx, key, members...).Err()
+	})
+}
+
 func (r *RedisRepository) GetPosition(ctx context.Context, queueID, entryID string) (int64, error) {
 	key := internalredis.QueuePositionsKey(queueID)
 	rank, err := internalredis.WithRetry(ctx, r.rdb, func(tCtx context.Context) (int64, error) {
@@ -125,6 +136,17 @@ func (r *RedisRepository) NextTicket(ctx context.Context, queueID string) (strin
 		return "", fmt.Errorf("failed to increment ticket counter: %w", err)
 	}
 	return fmt.Sprintf("Q-%04d", num), nil
+}
+
+func (r *RedisRepository) HasTicketCounter(ctx context.Context, queueID string) (bool, error) {
+	key := internalredis.TicketCounterKey(queueID)
+	val, err := r.rdb.Exists(ctx, key).Result()
+	return val > 0, err
+}
+
+func (r *RedisRepository) SetTicketCounter(ctx context.Context, queueID string, value int64) error {
+	key := internalredis.TicketCounterKey(queueID)
+	return r.rdb.Set(ctx, key, value, 0).Err()
 }
 
 func (r *RedisRepository) MoveToBack(ctx context.Context, queueID, entryID string) error {
@@ -205,4 +227,25 @@ func (r *RedisRepository) AcquireLock(ctx context.Context, key string, ttl time.
 
 func (r *RedisRepository) ReleaseLock(ctx context.Context, key string) error {
 	return r.rdb.Del(ctx, key).Err()
+}
+
+// SetRehydratedSentinel marks a queue as recently synced with MongoDB.
+// This acts as a "Negative Cache" or throttle to prevent multiple concurrent requests
+// from triggering redundant re-hydration queries against the database (Thundering Herd).
+func (r *RedisRepository) SetRehydratedSentinel(ctx context.Context, queueID string, ttl time.Duration) error {
+	key := fmt.Sprintf("rehydrated:%s", queueID)
+	log.Debug().Str("queue_id", queueID).Dur("ttl", ttl).Msg("Redis: setting re-hydration sentinel")
+	return r.rdb.Set(ctx, key, "1", ttl).Err()
+}
+
+// HasRehydratedSentinel checks if the queue was recently re-hydrated from MongoDB.
+// If returns true, the caller should assume the database was already checked
+// and found to be empty, avoiding unnecessary database load.
+func (r *RedisRepository) HasRehydratedSentinel(ctx context.Context, queueID string) (bool, error) {
+	key := fmt.Sprintf("rehydrated:%s", queueID)
+	val, err := r.rdb.Exists(ctx, key).Result()
+	if err == nil && val > 0 {
+		log.Debug().Str("queue_id", queueID).Msg("Redis: re-hydration sentinel hit (throttled)")
+	}
+	return val > 0, err
 }

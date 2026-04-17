@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"queuebuzz/internal/constants"
@@ -49,13 +50,17 @@ func HostOwnerMiddleware() fiber.Handler {
 				var q struct {
 					HostID *string `bson:"host_id"`
 				}
-				dbErr := queueCollection.FindOne(ctx, bson.M{"_id": queueID}).Decode(&q)
+				dbErr := queueCollection.FindOne(ctx, bson.M{"_id": queueID, "host_id": nil, "expires_at": bson.M{"$gt": time.Now()}}).Decode(&q)
+
+				if errors.Is(dbErr, mongo.ErrNoDocuments) {
+					return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+				}
 
 				// If queue is found and is still anonymous, re-sync session and proceed.
 				if dbErr == nil && q.HostID == nil {
 					_ = hostOwnerAuthSvc.ReSyncAnonymousSession(c.Context(), rawToken, queueID)
 				} else {
-					return fiber.NewError(fiber.StatusForbidden, err.Error())
+					return fiber.NewError(fiber.StatusForbidden, "Unauthorized access to this queue")
 				}
 			}
 
@@ -68,8 +73,11 @@ func HostOwnerMiddleware() fiber.Handler {
 			var result struct {
 				HostID *string `bson:"host_id"`
 			}
-			err := queueCollection.FindOne(ctx, bson.M{"_id": queueID}).Decode(&result)
+			err := queueCollection.FindOne(ctx, bson.M{"_id": queueID, "expires_at": bson.M{"$gt": time.Now()}}).Decode(&result)
 			if err != nil {
+				if errors.Is(err, mongo.ErrNoDocuments) {
+					return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+				}
 				return fiber.NewError(fiber.StatusForbidden)
 			}
 

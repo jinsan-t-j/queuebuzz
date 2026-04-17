@@ -2,7 +2,7 @@ package dto
 
 type CreateQueueRequest struct {
 	Name              string  `json:"name" validate:"required,min=3,max=50"`
-	Slug              string  `json:"slug" validate:"omitempty,min=3,max=20,alphanum"`
+	Slug              *string `json:"slug" validate:"omitempty,min=3,max=20,slug"`
 	AvgServiceMins    *int    `json:"avg_service_mins" validate:"omitempty,min=1,max=60"`
 	AllowPartyJoining *bool   `json:"allow_party_joining" validate:"omitempty"`
 	MaxPartySize      *int    `json:"max_party_size" validate:"omitempty,min=1,max=100"`
@@ -13,7 +13,7 @@ type UpdateQueueRequest struct {
 	Name              *string `json:"name" validate:"omitempty,min=3,max=50"`
 	AvgServiceMins    *int    `json:"avg_service_mins" validate:"omitempty,min=1,max=60"`
 	RecoveryEmail     *string `json:"recovery_email" validate:"omitempty,email"`
-	Slug              *string `json:"slug" validate:"omitempty,min=3,max=20,alphanum"`
+	Slug              *string `json:"slug" validate:"omitempty,min=3,max=20,slug"`
 	AllowPartyJoining *bool   `json:"allow_party_joining" validate:"omitempty"`
 	MaxPartySize      *int    `json:"max_party_size" validate:"omitempty,min=1,max=100"`
 	StrictQueueMode   *bool   `json:"strict_queue_mode" validate:"omitempty"`

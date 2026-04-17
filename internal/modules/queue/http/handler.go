@@ -22,7 +22,6 @@ import (
 	"queuebuzz/internal/sse"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -97,15 +96,11 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		req.AvgServiceMins = &defaultMins
 	}
 
-	if req.Slug == "" {
-		req.Slug = uuid.New().String()
-	}
-
 	queue, err := h.queueService.CreateQueue(c.Context(), queueservice.CreateQueueParams{
 		HostID:            hostIDPtr,
 		HostPublicID:      hostPublicIDPtr,
 		Name:              req.Name,
-		Slug:              req.Slug,
+		Slug:              *req.Slug,
 		AvgServiceMins:    *req.AvgServiceMins,
 		AllowPartyJoining: req.AllowPartyJoining,
 		MaxPartySize:      req.MaxPartySize,
@@ -305,26 +300,12 @@ func (h *Handler) PublicEvents(c fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		queue, err := h.queueService.GetQueue(ctx, queueID)
-		if err != nil {
-			return nil, err
-		}
-
-		queueResponse := dto.ToQueueResponse(*queue)
-		queueResponse.RecoveryEmail = nil
-		initMsg := events.Wrap(sse.NewMessage(events.EventQueueInit, queueResponse))
-		initPayload, _ := json.Marshal(initMsg)
-
-		// Initial status
-		statusMsg := events.Wrap(sse.NewMessage(events.EventQueueStatusChanged, events.QueueStatusData{Status: queue.Status}))
-		statusPayload, _ := json.Marshal(statusMsg)
-
 		// Initial wait count
 		count, _ := h.redisRepo.GetSize(ctx, queueID)
 		countMsg := events.Wrap(sse.NewMessage(events.EventWaitingCountUpdated, map[string]interface{}{"count": count}))
 		countPayload, _ := json.Marshal(countMsg)
 
-		return [][]byte{initPayload, statusPayload, countPayload}, nil
+		return [][]byte{countPayload}, nil
 	}
 
 	return h.broker.ServeHTTP(c, "queue_public:"+queueID, snapshotFn)

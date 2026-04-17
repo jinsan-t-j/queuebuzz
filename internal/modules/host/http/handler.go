@@ -1,8 +1,6 @@
 package http
 
 import (
-	"time"
-
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
@@ -107,26 +105,4 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 		Tier:     host.Tier,
 		Avatar:   "",
 	}).OK(c)
-}
-
-func (h *Handler) GetProfile(c fiber.Ctx) error {
-	host, err := h.hostService.FindByPublicID(c.Context(), c.Params("public_id"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound)
-	}
-
-	return helpers.NewSuccessResponse("", fiber.Map{
-		"id":         host.ID,
-		"public_id":  host.PublicID,
-		"tier":       host.Tier,
-		"created_at": host.CreatedAt.Format(time.RFC3339),
-	}).OK(c)
-}
-
-func (h *Handler) GetQueues(c fiber.Ctx) error {
-	queues, err := h.queueService.GetActiveQueuesForHost(c.Context(), c.Params("public_id"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError)
-	}
-	return c.Status(fiber.StatusOK).JSON(queues)
 }

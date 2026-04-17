@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
 	authservice "queuebuzz/internal/modules/auth/service"
@@ -22,6 +23,7 @@ import (
 )
 
 type Handler struct {
+	cfg             *config.Config
 	customerService *customerservice.Service
 	queueService    *queueservice.Service
 	authService     *authservice.AuthService
@@ -32,6 +34,7 @@ type Handler struct {
 }
 
 func NewHandler(
+	cfg *config.Config,
 	customerSvc *customerservice.Service,
 	queueSvc *queueservice.Service,
 	authSvc *authservice.AuthService,
@@ -41,6 +44,7 @@ func NewHandler(
 	hostNotifierJob *queueresource.HostNotifierJob,
 ) *Handler {
 	return &Handler{
+		cfg:             cfg,
 		customerService: customerSvc,
 		queueService:    queueSvc,
 		authService:     authSvc,
@@ -77,7 +81,7 @@ func (h *Handler) Leave(c fiber.Ctx) error {
 		Value:    "",
 		Expires:  time.Now().Add(-24 * time.Hour),
 		HTTPOnly: true,
-		Secure:   true,
+		Secure:   h.cfg.IsProduction(),
 		SameSite: "Lax",
 		Path:     "/",
 	})
@@ -377,7 +381,7 @@ func (h *Handler) issueGuestToken(c fiber.Ctx, queueID, entryID string) {
 			Value:    guestToken,
 			Expires:  time.Now().Add(24 * time.Hour),
 			HTTPOnly: true,
-			Secure:   true,
+			Secure:   h.cfg.IsProduction(),
 			SameSite: "Lax",
 			Path:     "/",
 		})
@@ -390,7 +394,7 @@ func (h *Handler) clearGuestToken(c fiber.Ctx) {
 		Value:    "",
 		Expires:  time.Now().Add(-24 * time.Hour),
 		HTTPOnly: true,
-		Secure:   true,
+		Secure:   h.cfg.IsProduction(),
 		SameSite: "Lax",
 		Path:     "/",
 	})

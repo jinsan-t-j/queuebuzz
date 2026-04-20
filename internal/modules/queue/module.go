@@ -41,10 +41,13 @@ func (m *Module) Start(_ context.Context) {
 
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	queue := router.Group("/queue")
-	queue.Post("/create", middlewares.OptionalAuthMiddleware(), m.QueueHandler.Create)
-	queue.Get("/slug-check", m.QueueHandler.CheckSlug)
 
+	queue.Get("/history", middlewares.AuthMiddleware(), m.QueueHandler.GetHistoryList)
+	queue.Get("/slug-check", m.QueueHandler.CheckSlug)
 	queue.Get("/live", middlewares.AuthMiddleware(), m.QueueHandler.GetLiveQueue)
+
+	queue.Post("/create", middlewares.OptionalAuthMiddleware(), m.QueueHandler.Create)
+
 	queue.Get("/:id/live", m.QueueHandler.GetLiveQueueByID)
 	queue.Post("/:id/join", m.QueueHandler.AddEntry)
 	queue.Get("/:id/events/public", m.QueueHandler.PublicEvents)

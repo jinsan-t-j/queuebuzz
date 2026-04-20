@@ -67,6 +67,29 @@ type HistoryEntry struct {
 	ServedAt    string `json:"served_at,omitempty"`
 }
 
+type HistoryListResponse struct {
+	Data       []QueueHistoryListItem `json:"data"`
+	TotalCount int                    `json:"total_count"`
+	TotalPages int                    `json:"total_pages"`
+	Summary    HistorySummary         `json:"summary"`
+}
+
+type HistorySummary struct {
+	TotalSessions    int    `json:"total_sessions"`
+	TotalServed      int    `json:"total_served"`
+	AvgSessionLength string `json:"avg_session_length"`
+}
+
+type QueueHistoryListItem struct {
+	ID            string `json:"id"`
+	Date          string `json:"date"`
+	DateFormatted string `json:"date_formatted"`
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	TotalServed   int    `json:"total_served"`
+	AvgWait       string `json:"avg_wait"`
+}
+
 func formatOptionalTime(value *time.Time) *string {
 	if value == nil {
 		return nil

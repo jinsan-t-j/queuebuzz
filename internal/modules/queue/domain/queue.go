@@ -21,3 +21,9 @@ type Queue struct {
 	UpdatedAt         time.Time `bson:"updated_at" json:"updated_at"`
 	ExpiresAt         time.Time `bson:"expires_at" json:"expires_at"`
 }
+
+type HostHistorySummary struct {
+	TotalSessions int   `bson:"total_sessions" json:"total_sessions"`
+	TotalServed   int   `bson:"total_served" json:"total_served"`
+	TotalWaitMS   int64 `bson:"total_wait_ms" json:"total_wait_ms"`
+}

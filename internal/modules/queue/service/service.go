@@ -116,6 +116,11 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 	// Warm up Redis re-hydration sentinel (avoid redundant first-load query to DB)
 	_ = s.redisRepo.SetRehydratedSentinel(ctx, queue.ID, 1*time.Minute)
 
+	// Invalidate history summary cache
+	if params.HostPublicID != nil {
+		_ = s.redisRepo.InvalidateHistorySummary(ctx, *params.HostPublicID)
+	}
+
 	return &queue, nil
 }
 
@@ -142,7 +147,18 @@ func (s *Service) GetQueue(ctx context.Context, queueID string) (*domain.Queue, 
 }
 
 func (s *Service) TerminateQueue(ctx context.Context, queueID string) error {
-	return s.updateQueueStatus(ctx, queueID, constants.QueueStatusClosed)
+	err := s.updateQueueStatus(ctx, queueID, constants.QueueStatusClosed)
+	if err == nil {
+		s.invalidateHostSummaryByQueueID(ctx, queueID)
+	}
+	return err
+}
+
+func (s *Service) invalidateHostSummaryByQueueID(ctx context.Context, queueID string) {
+	queue, err := s.GetQueue(ctx, queueID)
+	if err == nil && queue != nil && queue.HostPublicID != nil {
+		_ = s.redisRepo.InvalidateHistorySummary(ctx, *queue.HostPublicID)
+	}
 }
 
 func (s *Service) PauseQueue(ctx context.Context, queueID string) error {
@@ -437,6 +453,168 @@ func (s *Service) GetActiveQueuesForHost(ctx context.Context, hostPublicID strin
 	return queues, nil
 }
 
+type QueueWithStats struct {
+	domain.Queue `bson:",inline"`
+	TotalServed  int   `bson:"total_served"`
+	AvgWaitMS    int64 `bson:"avg_wait_ms"`
+}
+
+func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostPublicID string, search, status string, page, limit int) ([]QueueWithStats, int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if limit <= 0 {
+		limit = 10
+	}
+	if page <= 0 {
+		page = 1
+	}
+
+	match := bson.M{
+		"host_public_id": hostPublicID,
+		"status":         bson.M{"$nin": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+	}
+
+	if search != "" {
+		match["name"] = bson.M{"$regex": search, "$options": "i"}
+	}
+	if status != "" && status != "all" {
+		match["status"] = status
+	}
+
+	pipeline := mongodriver.Pipeline{
+		{{Key: "$match", Value: match}},
+		{{Key: "$facet", Value: bson.M{
+			"metadata": bson.A{
+				bson.M{"$count": "total"},
+			},
+			"data": bson.A{
+				bson.M{"$sort": bson.M{"created_at": -1}},
+				bson.M{"$skip": (page - 1) * limit},
+				bson.M{"$limit": limit},
+				bson.M{"$lookup": bson.M{
+					"from": "entries",
+					"let":  bson.M{"queue_id": "$_id"},
+					"pipeline": bson.A{
+						bson.M{"$match": bson.M{
+							"$expr":  bson.M{"$eq": []string{"$queue_id", "$$queue_id"}},
+							"status": constants.EntryStatusServed,
+						}},
+					},
+					"as": "served_entries",
+				}},
+				bson.M{"$addFields": bson.M{
+					"total_served": bson.M{"$size": "$served_entries"},
+					"avg_wait_ms": bson.M{
+						"$cond": bson.A{
+							bson.M{"$gt": []interface{}{bson.M{"$size": "$served_entries"}, 0}},
+							bson.M{"$avg": bson.M{"$subtract": []string{"$served_entries.served_at", "$served_entries.created_at"}}},
+							0,
+						},
+					},
+				}},
+				bson.M{"$project": bson.M{"served_entries": 0}},
+			},
+		}}},
+	}
+
+	cursor, err := s.queueCol.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var results []struct {
+		Metadata []struct {
+			Total int64 `bson:"total"`
+		} `bson:"metadata"`
+		Data []QueueWithStats `bson:"data"`
+	}
+
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, 0, err
+	}
+
+	if len(results) == 0 {
+		return []QueueWithStats{}, 0, nil
+	}
+
+	total := int64(0)
+	if len(results[0].Metadata) > 0 {
+		total = results[0].Metadata[0].Total
+	}
+
+	return results[0].Data, total, nil
+}
+
+func (s *Service) GetHostHistorySummary(ctx context.Context, hostPublicID string) (*domain.HostHistorySummary, error) {
+	// 1. Try cache
+	if summary, err := s.redisRepo.GetHistorySummary(ctx, hostPublicID); err == nil && summary != nil {
+		return summary, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	pipeline := mongodriver.Pipeline{
+		// 1. Match queues for this host that are not active/paused
+		{{Key: "$match", Value: bson.M{
+			"host_public_id": hostPublicID,
+			"status":         bson.M{"$nin": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+		}}},
+		// 2. Lookup served entries
+		{{Key: "$lookup", Value: bson.M{
+			"from": "entries",
+			"let":  bson.M{"queue_id": "$_id"},
+			"pipeline": bson.A{
+				bson.M{"$match": bson.M{
+					"$expr":  bson.M{"$eq": []string{"$queue_id", "$$queue_id"}},
+					"status": constants.EntryStatusServed,
+				}},
+			},
+			"as": "served_entries",
+		}}},
+		// 3. Group everything
+		{{Key: "$group", Value: bson.M{
+			"_id":            nil,
+			"total_sessions": bson.M{"$sum": 1},
+			"total_served":   bson.M{"$sum": bson.M{"$size": "$served_entries"}},
+			"total_wait_ms": bson.M{"$sum": bson.M{
+				"$sum": bson.M{
+					"$map": bson.M{
+						"input": "$served_entries",
+						"as":    "e",
+						"in":    bson.M{"$subtract": []string{"$$e.served_at", "$$e.created_at"}},
+					},
+				},
+			}},
+		}}},
+	}
+
+	cursor, err := s.queueCol.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var results []domain.HostHistorySummary
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, err
+	}
+
+	var summary *domain.HostHistorySummary
+	if len(results) == 0 {
+		summary = &domain.HostHistorySummary{}
+	} else {
+		summary = &results[0]
+	}
+
+	// 4. Cache it
+	_ = s.redisRepo.SetHistorySummary(ctx, hostPublicID, summary)
+
+	return summary, nil
+}
+
 func (s *Service) GetLiveQueueForHost(ctx context.Context, hostPublicID string) (*domain.Queue, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -505,6 +683,43 @@ func (s *Service) GetQueueHistory(ctx context.Context, queueID string) ([]domain
 		return nil, err
 	}
 	return entries, nil
+}
+
+type QueueStats struct {
+	TotalServed int
+	AvgWait     time.Duration
+}
+
+func (s *Service) GetQueueStats(ctx context.Context, queueID string) (*QueueStats, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	filter := bson.M{"queue_id": queueID, "status": constants.EntryStatusServed}
+	cursor, err := s.entryCol.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []domain.Entry
+	if err := cursor.All(ctx, &entries); err != nil {
+		return nil, err
+	}
+
+	stats := &QueueStats{
+		TotalServed: len(entries),
+	}
+
+	if len(entries) > 0 {
+		var totalWait time.Duration
+		for _, e := range entries {
+			if e.ServedAt != nil {
+				totalWait += e.ServedAt.Sub(e.CreatedAt)
+			}
+		}
+		stats.AvgWait = totalWait / time.Duration(len(entries))
+	}
+
+	return stats, nil
 }
 
 func (s *Service) RegisterHostFCM(ctx context.Context, queueID, fcmToken string) error {

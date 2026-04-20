@@ -3,16 +3,45 @@ package repository
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"time"
 
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/log"
+	"queuebuzz/internal/modules/queue/domain"
 	internalredis "queuebuzz/internal/redis"
 
 	redis "github.com/redis/go-redis/v9"
 )
+
+func (r *RedisRepository) SetHistorySummary(ctx context.Context, hostPublicID string, summary *domain.HostHistorySummary) error {
+	key := fmt.Sprintf("history_summary:%s", hostPublicID)
+	data, err := json.Marshal(summary)
+	if err != nil {
+		return err
+	}
+	return r.rdb.Set(ctx, key, data, 24*time.Hour).Err()
+}
+
+func (r *RedisRepository) GetHistorySummary(ctx context.Context, hostPublicID string) (*domain.HostHistorySummary, error) {
+	key := fmt.Sprintf("history_summary:%s", hostPublicID)
+	data, err := r.rdb.Get(ctx, key).Bytes()
+	if err != nil {
+		return nil, err
+	}
+	var summary domain.HostHistorySummary
+	if err := json.Unmarshal(data, &summary); err != nil {
+		return nil, err
+	}
+	return &summary, nil
+}
+
+func (r *RedisRepository) InvalidateHistorySummary(ctx context.Context, hostPublicID string) error {
+	key := fmt.Sprintf("history_summary:%s", hostPublicID)
+	return r.rdb.Del(ctx, key).Err()
+}
 
 type RedisRepository struct {
 	rdb *redis.Client

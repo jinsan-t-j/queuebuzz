@@ -18,5 +18,6 @@ type Queue struct {
 	HostFCMToken      *string   `bson:"host_fcm_token" json:"-"`
 	HostFCMUpdatedAt  time.Time `bson:"host_fcm_updated_at" json:"-"`
 	CreatedAt         time.Time `bson:"created_at" json:"created_at"`
+	UpdatedAt         time.Time `bson:"updated_at" json:"updated_at"`
 	ExpiresAt         time.Time `bson:"expires_at" json:"expires_at"`
 }

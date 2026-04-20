@@ -99,6 +99,7 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		MaxPartySize:      *params.MaxPartySize,
 		Status:            constants.QueueStatusActive,
 		CreatedAt:         now,
+		UpdatedAt:         now,
 		ExpiresAt:         now.Add(time.Duration(constants.DefaultQueueExpiryH) * time.Hour),
 	}
 
@@ -157,6 +158,7 @@ func (s *Service) UpdateQueue(ctx context.Context, queueID string, updates bson.
 	defer cancel()
 
 	var queue domain.Queue
+	updates["updated_at"] = time.Now()
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 	err := s.queueCol.FindOneAndUpdate(ctx, bson.M{"_id": queueID}, bson.M{"$set": updates}, opts).Decode(&queue)
 	if err != nil {
@@ -168,7 +170,7 @@ func (s *Service) UpdateQueue(ctx context.Context, queueID string, updates bson.
 func (s *Service) updateQueueStatus(ctx context.Context, queueID, status string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{"$set": bson.M{"status": status}})
+	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{"$set": bson.M{"status": status, "updated_at": time.Now()}})
 	return err
 }
 

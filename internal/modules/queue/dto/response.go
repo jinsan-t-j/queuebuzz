@@ -17,6 +17,7 @@ type QueueRecord struct {
 	StrictQueueMode   bool    `json:"strict_queue_mode"`
 	RecoveryEmail     *string `json:"recovery_email,omitempty"`
 	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
 	ExpiresAt         string  `json:"expires_at"`
 }
 
@@ -123,6 +124,7 @@ func ToQueueResponse(queue domain.Queue) QueueRecord {
 		StrictQueueMode:   queue.StrictQueueMode,
 		RecoveryEmail:     queue.RecoveryEmail,
 		CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:         queue.UpdatedAt.Format(time.RFC3339),
 		ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
 	}
 }

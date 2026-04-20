@@ -94,11 +94,14 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 			description = providerErr
 		}
 
-		pascalError := helpers.ToPascalCase(description)
-
 		u, _ := url.Parse(h.cfg.AuthCallbackURL)
-		u.Path = "/login-or-signup"
-		u.RawQuery = url.Values{"error": {pascalError}}.Encode()
+		u.Path = "/error"
+		u.RawQuery = url.Values{
+			"title":       {"Authentication Error"},
+			"error":       {providerErr},
+			"description": {description},
+			"action_text": {"Try Login Again"},
+		}.Encode()
 		return c.Redirect().To(u.String())
 	}
 
@@ -153,12 +156,28 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 	if token != "" {
 		e, err := h.magicLinkService.VerifyMagicLink(c.Context(), token)
 		if err != nil {
-			return c.SendStatus(fiber.StatusUnauthorized)
+			u, _ := url.Parse(h.cfg.AuthCallbackURL)
+			u.Path = "/error"
+			u.RawQuery = url.Values{
+				"title":       {"Session Error"},
+				"error":       {"invalid_token"},
+				"description": {"The magic link is invalid or has expired."},
+				"action_text": {"Back to Login"},
+			}.Encode()
+			return c.Redirect().To(u.String())
 		}
 		email = e
 	} else if reqPhone != "" && otp != "" {
 		if err := h.otpService.VerifyOTP(c.Context(), reqPhone, otp); err != nil {
-			return c.SendStatus(fiber.StatusUnauthorized)
+			u, _ := url.Parse(h.cfg.AuthCallbackURL)
+			u.Path = "/error"
+			u.RawQuery = url.Values{
+				"title":       {"Verification Error"},
+				"error":       {"invalid_otp"},
+				"description": {"The OTP code you entered is incorrect or has expired."},
+				"action_text": {"Back to Login"},
+			}.Encode()
+			return c.Redirect().To(u.String())
 		}
 		phone = reqPhone
 	} else {

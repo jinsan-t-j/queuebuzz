@@ -1,6 +1,7 @@
 package http
 
 import (
+	"net/url"
 	"time"
 
 	"queuebuzz/internal/config"
@@ -79,6 +80,28 @@ func (h *Handler) SocialLogin(c fiber.Ctx) error {
 // @Router /auth/social/{provider}/callback [get]
 func (h *Handler) SocialCallback(c fiber.Ctx) error {
 	provider := c.Params("provider")
+
+	providerErr := c.Query("error")
+	if providerErr == "" {
+		providerErr = c.FormValue("error")
+	}
+	if providerErr != "" {
+		description := c.Query("error_description")
+		if description == "" {
+			description = c.FormValue("error_description")
+		}
+		if description == "" {
+			description = providerErr
+		}
+
+		pascalError := helpers.ToPascalCase(description)
+
+		u, _ := url.Parse(h.cfg.AuthCallbackURL)
+		u.Path = "/login-or-signup"
+		u.RawQuery = url.Values{"error": {pascalError}}.Encode()
+		return c.Redirect().To(u.String())
+	}
+
 	code := c.Query("code")
 	state := c.Query("state")
 	if code == "" {

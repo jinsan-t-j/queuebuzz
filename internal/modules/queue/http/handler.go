@@ -3,11 +3,13 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
+	"queuebuzz/internal/log"
 	internalredis "queuebuzz/internal/redis"
 
 	authservice "queuebuzz/internal/modules/auth/service"
@@ -96,18 +98,55 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		req.AvgServiceMins = &defaultMins
 	}
 
-	queue, err := h.queueService.CreateQueue(c.Context(), queueservice.CreateQueueParams{
-		HostID:            hostIDPtr,
-		HostPublicID:      hostPublicIDPtr,
-		Name:              req.Name,
-		Slug:              *req.Slug,
-		AvgServiceMins:    *req.AvgServiceMins,
-		AllowPartyJoining: req.AllowPartyJoining,
-		MaxPartySize:      req.MaxPartySize,
-		RecoveryEmail:     req.RecoveryEmail,
-	})
-	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	isUserSlug := helpers.DerefString(req.Slug) != ""
+	slug := strings.ToLower(helpers.DerefString(req.Slug))
+	if slug == "" {
+		slug = helpers.GenerateSlug()
+	}
+
+	if req.AllowPartyJoining == nil {
+		defaultVal := false
+		req.AllowPartyJoining = &defaultVal
+	}
+
+	if req.MaxPartySize == nil && *req.AllowPartyJoining {
+		defaultVal := 10
+		req.MaxPartySize = &defaultVal
+	}
+
+	var queue *domain.Queue
+	var err error
+	maxRetries := 3
+
+	for i := 0; i < maxRetries; i++ {
+		queue, err = h.queueService.CreateQueue(c.Context(), queueservice.CreateQueueParams{
+			HostID:            hostIDPtr,
+			HostPublicID:      hostPublicIDPtr,
+			Name:              req.Name,
+			Slug:              slug,
+			AvgServiceMins:    *req.AvgServiceMins,
+			AllowPartyJoining: req.AllowPartyJoining,
+			MaxPartySize:      req.MaxPartySize,
+			RecoveryEmail:     req.RecoveryEmail,
+		})
+
+		if err == nil {
+			break
+		}
+
+		// Handle duplicate key/collision (E11000)
+		if strings.Contains(err.Error(), "E11000") || strings.Contains(err.Error(), "duplicate") {
+			if isUserSlug {
+				return fiber.NewError(fiber.StatusConflict, "This custom slug is already taken. Please choose another one.")
+			}
+
+			// Our auto-generated slug collided, log and retry
+			log.Warn().Str("slug", slug).Int("attempt", i+1).Msg("Slug collision detected, retrying with new slug")
+			slug = helpers.GenerateSlug()
+			continue
+		}
+
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create queue: "+err.Error())
 	}
 
 	response := dto.ToQueueResponse(*queue)

@@ -20,6 +20,10 @@ func EnsureQueueIndexes(ctx context.Context, db *mongodriver.Database) error {
 			Options: options.Index().SetUnique(true),
 		},
 		{
+			Keys:    bson.D{{Key: "slug", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
 			Keys: bson.D{{Key: "status", Value: 1}},
 		},
 	}

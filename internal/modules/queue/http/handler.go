@@ -3,11 +3,16 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
+	"queuebuzz/internal/log"
 	internalredis "queuebuzz/internal/redis"
 
 	authservice "queuebuzz/internal/modules/auth/service"
@@ -22,7 +27,6 @@ import (
 	"queuebuzz/internal/sse"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -97,22 +101,55 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		req.AvgServiceMins = &defaultMins
 	}
 
-	if req.Slug == "" {
-		req.Slug = uuid.New().String()
+	isUserSlug := helpers.DerefString(req.Slug) != ""
+	slug := strings.ToLower(helpers.DerefString(req.Slug))
+	if slug == "" {
+		slug = helpers.GenerateSlug()
 	}
 
-	queue, err := h.queueService.CreateQueue(c.Context(), queueservice.CreateQueueParams{
-		HostID:            hostIDPtr,
-		HostPublicID:      hostPublicIDPtr,
-		Name:              req.Name,
-		Slug:              req.Slug,
-		AvgServiceMins:    *req.AvgServiceMins,
-		AllowPartyJoining: req.AllowPartyJoining,
-		MaxPartySize:      req.MaxPartySize,
-		RecoveryEmail:     req.RecoveryEmail,
-	})
-	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	if req.AllowPartyJoining == nil {
+		defaultVal := false
+		req.AllowPartyJoining = &defaultVal
+	}
+
+	if req.MaxPartySize == nil && *req.AllowPartyJoining {
+		defaultVal := 10
+		req.MaxPartySize = &defaultVal
+	}
+
+	var queue *domain.Queue
+	var err error
+	maxRetries := 3
+
+	for i := 0; i < maxRetries; i++ {
+		queue, err = h.queueService.CreateQueue(c.Context(), queueservice.CreateQueueParams{
+			HostID:            hostIDPtr,
+			HostPublicID:      hostPublicIDPtr,
+			Name:              req.Name,
+			Slug:              slug,
+			AvgServiceMins:    *req.AvgServiceMins,
+			AllowPartyJoining: req.AllowPartyJoining,
+			MaxPartySize:      req.MaxPartySize,
+			RecoveryEmail:     req.RecoveryEmail,
+		})
+
+		if err == nil {
+			break
+		}
+
+		// Handle duplicate key/collision (E11000)
+		if strings.Contains(err.Error(), "E11000") || strings.Contains(err.Error(), "duplicate") {
+			if isUserSlug {
+				return fiber.NewError(fiber.StatusConflict, "This custom slug is already taken. Please choose another one.")
+			}
+
+			// Our auto-generated slug collided, log and retry
+			log.Warn().Str("slug", slug).Int("attempt", i+1).Msg("Slug collision detected, retrying with new slug")
+			slug = helpers.GenerateSlug()
+			continue
+		}
+
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create queue: "+err.Error())
 	}
 
 	response := dto.ToQueueResponse(*queue)
@@ -305,26 +342,12 @@ func (h *Handler) PublicEvents(c fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		queue, err := h.queueService.GetQueue(ctx, queueID)
-		if err != nil {
-			return nil, err
-		}
-
-		queueResponse := dto.ToQueueResponse(*queue)
-		queueResponse.RecoveryEmail = nil
-		initMsg := events.Wrap(sse.NewMessage(events.EventQueueInit, queueResponse))
-		initPayload, _ := json.Marshal(initMsg)
-
-		// Initial status
-		statusMsg := events.Wrap(sse.NewMessage(events.EventQueueStatusChanged, events.QueueStatusData{Status: queue.Status}))
-		statusPayload, _ := json.Marshal(statusMsg)
-
 		// Initial wait count
-		count, _ := h.redisRepo.GetSize(ctx, queueID)
+		count, _ := h.queueService.GetWaitingCount(ctx, queueID)
 		countMsg := events.Wrap(sse.NewMessage(events.EventWaitingCountUpdated, map[string]interface{}{"count": count}))
 		countPayload, _ := json.Marshal(countMsg)
 
-		return [][]byte{initPayload, statusPayload, countPayload}, nil
+		return [][]byte{countPayload}, nil
 	}
 
 	return h.broker.ServeHTTP(c, "queue_public:"+queueID, snapshotFn)
@@ -602,8 +625,8 @@ func (h *Handler) Serve(c fiber.Ctx) error {
 }
 
 func (h *Handler) GetHistory(ctx fiber.Ctx) error {
-	queueSlug := ctx.Params("slug")
-	entries, err := h.queueService.GetQueueHistory(ctx.Context(), queueSlug)
+	queueID := ctx.Params("id")
+	entries, err := h.queueService.GetQueueHistory(ctx.Context(), queueID)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -614,10 +637,10 @@ func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 
 	for i, e := range entries {
 		var waitTime int
-		if e.FinishedAt != nil {
+		if e.ServedAt != nil {
+			waitTime = int(e.ServedAt.Sub(e.CreatedAt).Minutes())
+		} else if e.FinishedAt != nil {
 			waitTime = int(e.FinishedAt.Sub(e.CreatedAt).Minutes())
-		} else {
-			waitTime = int(time.Since(e.CreatedAt).Minutes())
 		}
 
 		var servedAt string
@@ -627,7 +650,7 @@ func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 
 		response.Entries[i] = dto.HistoryEntry{
 			TicketNo:    e.TicketNo,
-			DisplayName: helpers.DerefString(&e.Name),
+			DisplayName: e.Name,
 			Status:      e.Status,
 			WaitTimeMin: waitTime,
 			ServedAt:    servedAt,
@@ -635,6 +658,80 @@ func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 	}
 
 	return helpers.NewSuccessResponse("History fetched", response).OK(ctx)
+}
+
+func (h *Handler) GetHistoryList(c fiber.Ctx) error {
+	hostPublicID, _ := c.Locals("host_public_id").(string)
+	if hostPublicID == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "host session not found")
+	}
+
+	search := c.Query("search")
+	status := c.Query("filter")
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+
+	queues, total, err := h.queueService.GetQueueHistoryListForHost(c.Context(), hostPublicID, search, status, page, limit)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	summary, _ := h.queueService.GetHostHistorySummary(c.Context(), hostPublicID)
+
+	totalPages := 1
+	if total > 0 {
+		totalPages = int(math.Ceil(float64(total) / float64(limit)))
+	}
+
+	response := dto.HistoryListResponse{
+		Data:       make([]dto.QueueHistoryListItem, len(queues)),
+		TotalCount: int(total),
+		TotalPages: totalPages,
+		Summary: dto.HistorySummary{
+			TotalSessions:    0,
+			TotalServed:      0,
+			AvgSessionLength: "0m",
+		},
+	}
+
+	if summary != nil {
+		response.Summary.TotalSessions = summary.TotalSessions
+		response.Summary.TotalServed = summary.TotalServed
+		if summary.TotalServed > 0 {
+			avgWait := time.Duration(summary.TotalWaitMS/int64(summary.TotalServed)) * time.Millisecond
+			mins := int(avgWait.Minutes())
+			if mins > 0 {
+				response.Summary.AvgSessionLength = fmt.Sprintf("%dm", mins)
+			} else {
+				response.Summary.AvgSessionLength = fmt.Sprintf("%ds", int(avgWait.Seconds()))
+			}
+		}
+	}
+
+	for i, q := range queues {
+		avgWaitStr := "0m"
+		if q.AvgWaitMS > 0 {
+			duration := time.Duration(q.AvgWaitMS) * time.Millisecond
+			mins := int(duration.Minutes())
+			if mins > 0 {
+				avgWaitStr = fmt.Sprintf("%dm", mins)
+			} else {
+				avgWaitStr = fmt.Sprintf("%ds", int(duration.Seconds()))
+			}
+		}
+
+		response.Data[i] = dto.QueueHistoryListItem{
+			ID:            q.ID,
+			Date:          q.CreatedAt.Format("2006-01-02"),
+			DateFormatted: q.CreatedAt.Format("02 Jan, 2006"),
+			Name:          q.Name,
+			Status:        q.Status,
+			TotalServed:   q.TotalServed,
+			AvgWait:       avgWaitStr,
+		}
+	}
+
+	return helpers.NewSuccessResponse("History list fetched", response).OK(c)
 }
 
 // RegisterHostFCM godoc

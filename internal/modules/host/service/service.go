@@ -2,12 +2,11 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
-	"math/big"
 	"time"
 
 	"queuebuzz/internal/constants"
+	"queuebuzz/internal/helpers"
 	authdomain "queuebuzz/internal/modules/auth/domain"
 	hostdomain "queuebuzz/internal/modules/host/domain"
 	"queuebuzz/internal/modules/host/repository"
@@ -45,7 +44,7 @@ func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*h
 	now := time.Now()
 	host = &hostdomain.Host{
 		ID:        generateHostID(),
-		PublicID:  generateSlug(),
+		PublicID:  helpers.GenerateSlug(),
 		Tier:      constants.TierFree,
 		CreatedAt: now,
 		LastSeen:  now,
@@ -108,7 +107,7 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 
 	host = &hostdomain.Host{
 		ID:         generateHostID(),
-		PublicID:   generateSlug(),
+		PublicID:   helpers.GenerateSlug(),
 		Tier:       constants.TierFree,
 		CreatedAt:  now,
 		LastSeen:   now,
@@ -189,29 +188,4 @@ func applyProviderAuth(host *hostdomain.Host, provider string, auth *hostdomain.
 
 func generateHostID() string {
 	return "host_" + uuid.New().String()[:8]
-}
-
-func generateSlug() string {
-	adjectives := []string{"swift", "bright", "calm", "bold", "cool", "fast", "keen", "neat", "warm", "wise"}
-	nouns := []string{"queue", "spot", "line", "desk", "gate", "lane", "zone", "hub", "dock", "pass"}
-
-	adj := adjectives[randInt(len(adjectives))]
-	noun := nouns[randInt(len(nouns))]
-	num := 1000 + randInt(9000)
-
-	return adj + "-" + noun + "-" + itoa(num)
-}
-
-func randInt(limit int) int {
-	n, _ := rand.Int(rand.Reader, big.NewInt(int64(limit)))
-	return int(n.Int64())
-}
-
-func itoa(n int) string {
-	s := make([]byte, 4)
-	for i := 3; i >= 0; i-- {
-		s[i] = '0' + byte(n%10)
-		n /= 10
-	}
-	return string(s)
 }

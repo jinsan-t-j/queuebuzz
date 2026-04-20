@@ -1,6 +1,7 @@
 package http
 
 import (
+	"net/url"
 	"time"
 
 	"queuebuzz/internal/config"
@@ -79,6 +80,31 @@ func (h *Handler) SocialLogin(c fiber.Ctx) error {
 // @Router /auth/social/{provider}/callback [get]
 func (h *Handler) SocialCallback(c fiber.Ctx) error {
 	provider := c.Params("provider")
+
+	providerErr := c.Query("error")
+	if providerErr == "" {
+		providerErr = c.FormValue("error")
+	}
+	if providerErr != "" {
+		description := c.Query("error_description")
+		if description == "" {
+			description = c.FormValue("error_description")
+		}
+		if description == "" {
+			description = providerErr
+		}
+
+		u, _ := url.Parse(h.cfg.AuthCallbackURL)
+		u.Path = "/error"
+		u.RawQuery = url.Values{
+			"title":       {"Authentication Error"},
+			"error":       {providerErr},
+			"description": {description},
+			"action_text": {"Try Login Again"},
+		}.Encode()
+		return c.Redirect().To(u.String())
+	}
+
 	code := c.Query("code")
 	state := c.Query("state")
 	if code == "" {
@@ -130,12 +156,28 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 	if token != "" {
 		e, err := h.magicLinkService.VerifyMagicLink(c.Context(), token)
 		if err != nil {
-			return c.SendStatus(fiber.StatusUnauthorized)
+			u, _ := url.Parse(h.cfg.AuthCallbackURL)
+			u.Path = "/error"
+			u.RawQuery = url.Values{
+				"title":       {"Session Error"},
+				"error":       {"invalid_token"},
+				"description": {"The magic link is invalid or has expired."},
+				"action_text": {"Back to Login"},
+			}.Encode()
+			return c.Redirect().To(u.String())
 		}
 		email = e
 	} else if reqPhone != "" && otp != "" {
 		if err := h.otpService.VerifyOTP(c.Context(), reqPhone, otp); err != nil {
-			return c.SendStatus(fiber.StatusUnauthorized)
+			u, _ := url.Parse(h.cfg.AuthCallbackURL)
+			u.Path = "/error"
+			u.RawQuery = url.Values{
+				"title":       {"Verification Error"},
+				"error":       {"invalid_otp"},
+				"description": {"The OTP code you entered is incorrect or has expired."},
+				"action_text": {"Back to Login"},
+			}.Encode()
+			return c.Redirect().To(u.String())
 		}
 		phone = reqPhone
 	} else {

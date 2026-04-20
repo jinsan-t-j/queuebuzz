@@ -11,7 +11,6 @@ import (
 	"queuebuzz/internal/middlewares"
 	"queuebuzz/internal/providers/validator"
 
-	v10 "github.com/go-playground/validator/v10"
 	swagger "github.com/gofiber/contrib/v3/swaggerui"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/idempotency"
@@ -32,10 +31,8 @@ func New() *App {
 	errHandler := middlewares.NewErrorHandler(cfg)
 
 	app := fiber.New(fiber.Config{
-		ErrorHandler: errHandler.Handle,
-		StructValidator: &validator.StructValidator{
-			Validator: v10.New(),
-		},
+		ErrorHandler:    errHandler.Handle,
+		StructValidator: validator.New(),
 	})
 
 	app.Use(middlewares.SecurityHeaders())

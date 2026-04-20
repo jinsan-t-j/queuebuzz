@@ -162,7 +162,28 @@ func (s *Service) GetEntry(ctx context.Context, entryID string) (*queuedomain.En
 }
 
 func (s *Service) SessionExists(ctx context.Context, queueID, entryID string) (bool, error) {
-	return s.redisRepo.UserSessionExists(ctx, queueID, entryID)
+	exists, err := s.redisRepo.UserSessionExists(ctx, queueID, entryID)
+	if err == nil && exists {
+		return true, nil
+	}
+
+	// Resilience: If Redis session missing, check DB
+	entry, err := s.queueService.GetEntry(ctx, entryID)
+	if err != nil || entry == nil || entry.QueueID != queueID {
+		return false, nil
+	}
+
+	isTerminal := (entry.Status == constants.EntryStatusServed ||
+		entry.Status == constants.EntryStatusLeft ||
+		entry.Status == constants.EntryStatusSkipped)
+
+	if !isTerminal {
+		// Re-sync Redis session
+		_ = s.redisRepo.SetUserSession(ctx, queueID, entryID, 24*time.Hour)
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (s *Service) Leave(ctx context.Context, entryID string) error {

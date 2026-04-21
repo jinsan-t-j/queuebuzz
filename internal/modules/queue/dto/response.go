@@ -55,8 +55,39 @@ type GetStatusResponse struct {
 	WaitingCount int64       `json:"waiting_count"`
 }
 
-type QueueHistoryResponse struct {
-	Entries []HistoryEntry `json:"entries"`
+type HistoryDetailResponse struct {
+	QueueName string          `json:"queue_name"`
+	Date      string          `json:"date"`
+	Status    string          `json:"status"`
+	Notes     string          `json:"notes"`
+	ClosedAt  *string         `json:"closed_at,omitempty"`
+	Stats     SessionStats    `json:"stats"`
+	Insights  []string        `json:"insights"`
+	Timeline  []TimelineEvent `json:"timeline"`
+	Entries   []HistoryEntry  `json:"entries"`
+}
+
+type SessionStats struct {
+	TotalBookings int    `json:"total_bookings"`
+	TotalServed   int    `json:"total_served"`
+	TotalSkipped  int    `json:"total_skipped"`
+	AvgWaitTime   string `json:"avg_wait_time"`
+	PeakVolume    string `json:"peak_volume"`
+}
+
+type TimelineEvent struct {
+	Type      string             `json:"type"`
+	Timestamp string             `json:"timestamp"`
+	Message   string             `json:"message"`
+	Color     string             `json:"color"`
+	SubEvents []TimelineSubEvent `json:"sub_events,omitempty"`
+}
+
+type TimelineSubEvent struct {
+	TicketNo string `json:"ticket_no"`
+	Name     string `json:"name"`
+	Action   string `json:"action"`
+	Time     string `json:"time"`
 }
 
 type HistoryEntry struct {

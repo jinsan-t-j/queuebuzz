@@ -7,6 +7,7 @@ import (
 
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/log"
+	"queuebuzz/internal/modules/queue/domain"
 	"queuebuzz/internal/modules/queue/repository"
 
 	"github.com/redis/go-redis/v9"
@@ -218,9 +219,23 @@ func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode strin
 	defer cancel()
 
 	// 1. Update queue status to EXPIRED
+	now := time.Now()
 	_, _ = s.queueCol.UpdateOne(opCtx,
 		bson.M{"_id": queueID},
-		bson.M{"$set": bson.M{"status": constants.QueueStatusExpired}},
+		bson.M{
+			"$set": bson.M{
+				"status":     constants.QueueStatusExpired,
+				"closed_at":  now,
+				"updated_at": now,
+			},
+			"$push": bson.M{
+				"activity_logs": domain.ActivityLog{
+					Type:      "STATUS_CHANGE",
+					Value:     "EXPIRED",
+					Timestamp: now,
+				},
+			},
+		},
 	)
 
 	// 2. Delete join code from Redis

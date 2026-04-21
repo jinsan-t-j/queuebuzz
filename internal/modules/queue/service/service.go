@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -9,8 +10,10 @@ import (
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/log"
 	"queuebuzz/internal/modules/queue/domain"
-
+	"queuebuzz/internal/modules/queue/dto"
 	"queuebuzz/internal/modules/queue/repository"
+
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -110,6 +113,9 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 	}
 
 	queue.JoinCode = joinCode
+	queue.ActivityLogs = []domain.ActivityLog{
+		{Type: "STATUS_CHANGE", Value: "CREATED", Timestamp: now},
+	}
 	if _, err := s.queueCol.InsertOne(ctx, queue); err != nil {
 		return nil, fmt.Errorf("failed to create queue: %w", err)
 	}
@@ -148,7 +154,22 @@ func (s *Service) GetQueue(ctx context.Context, queueID string) (*domain.Queue, 
 }
 
 func (s *Service) TerminateQueue(ctx context.Context, queueID string) error {
-	err := s.updateQueueStatus(ctx, queueID, constants.QueueStatusClosed)
+	now := time.Now()
+	update := bson.M{
+		"$set": bson.M{
+			"status":     constants.QueueStatusClosed,
+			"closed_at":  now,
+			"updated_at": now,
+		},
+		"$push": bson.M{
+			"activity_logs": domain.ActivityLog{
+				Type:      "STATUS_CHANGE",
+				Value:     "COMPLETED",
+				Timestamp: now,
+			},
+		},
+	}
+	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, update)
 	if err == nil {
 		s.invalidateHostSummaryByQueueID(ctx, queueID)
 	}
@@ -187,7 +208,18 @@ func (s *Service) UpdateQueue(ctx context.Context, queueID string, updates bson.
 func (s *Service) updateQueueStatus(ctx context.Context, queueID, status string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{"$set": bson.M{"status": status, "updated_at": time.Now()}})
+	now := time.Now()
+	update := bson.M{
+		"$set": bson.M{"status": status, "updated_at": now},
+		"$push": bson.M{
+			"activity_logs": domain.ActivityLog{
+				Type:      "STATUS_CHANGE",
+				Value:     status,
+				Timestamp: now,
+			},
+		},
+	}
+	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, update)
 	return err
 }
 
@@ -827,4 +859,224 @@ func (s *Service) rehydrateQueue(ctx context.Context, queueID string) ([]string,
 	_ = s.redisRepo.AddToQueueBulk(ctx, queueID, members)
 
 	return ids, nil
+}
+
+func (s *Service) GetHistoryDetail(ctx context.Context, queueID string) (*dto.HistoryDetailResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// 1. Try Cache First
+	if cached, err := s.redisRepo.GetHistoryDetail(ctx, queueID); err == nil {
+		var resp dto.HistoryDetailResponse
+		if err := json.Unmarshal(cached, &resp); err == nil {
+			return &resp, nil
+		}
+	}
+
+	// 2. Fetch Queue
+	var queue domain.Queue
+	if err := s.queueCol.FindOne(ctx, bson.M{"_id": queueID}).Decode(&queue); err != nil {
+		return nil, err
+	}
+
+	// 2. Fetch All Entries
+	cursor, err := s.entryCol.Find(ctx, bson.M{"queue_id": queueID}, options.Find().SetSort(bson.M{"created_at": 1}))
+	if err != nil {
+		return nil, err
+	}
+	var entries []domain.Entry
+	if err := cursor.All(ctx, &entries); err != nil {
+		return nil, err
+	}
+
+	// 3. Stats Calculation
+	totalBookings := len(entries)
+	servedCount := 0
+	skippedCount := 0
+	var totalWait time.Duration
+	hourlyCounts := make(map[int]int)
+
+	historyEntries := make([]dto.HistoryEntry, len(entries))
+	for i, e := range entries {
+		historyEntries[i] = dto.HistoryEntry{
+			TicketNo:    e.TicketNo,
+			DisplayName: e.Name,
+			Status:      e.Status,
+		}
+
+		hourlyCounts[e.CreatedAt.Hour()]++
+
+		switch e.Status {
+		case constants.EntryStatusServed:
+			servedCount++
+			if e.ServedAt != nil {
+				totalWait += e.ServedAt.Sub(e.CreatedAt)
+				historyEntries[i].ServedAt = e.ServedAt.Format(time.RFC3339)
+				historyEntries[i].WaitTimeMin = int(e.ServedAt.Sub(e.CreatedAt).Minutes())
+			}
+		case constants.EntryStatusSkipped, constants.EntryStatusLeft:
+			skippedCount++
+		}
+	}
+
+	avgWait := "0m"
+	if servedCount > 0 {
+		avgWait = fmt.Sprintf("%dm", int((totalWait / time.Duration(servedCount)).Minutes()))
+	}
+
+	// 4. Peak Volume Calculation
+	peakHour := -1
+	maxCount := 0
+	for h, c := range hourlyCounts {
+		if c > maxCount {
+			maxCount = c
+			peakHour = h
+		}
+	}
+	peakVolume := "N/A"
+	if peakHour != -1 {
+		peakVolume = fmt.Sprintf("%02d:00 - %02d:00", peakHour, peakHour+1)
+	}
+
+	// 5. Timeline Interleaving
+	type rawEvent struct {
+		Timestamp time.Time
+		Type      string
+		Value     string
+		Metadata  interface{}
+	}
+	var events []rawEvent
+
+	// Add Queue activities
+	for _, logEntry := range queue.ActivityLogs {
+		events = append(events, rawEvent{
+			Timestamp: logEntry.Timestamp,
+			Type:      "STATUS_CHANGE",
+			Value:     logEntry.Value,
+		})
+	}
+
+	// Add Entry activities
+	for _, e := range entries {
+		events = append(events, rawEvent{Timestamp: e.CreatedAt, Type: "JOINED", Metadata: e})
+		if e.ServedAt != nil {
+			events = append(events, rawEvent{Timestamp: *e.ServedAt, Type: "SERVED", Metadata: e})
+		} else if e.FinishedAt != nil && e.Status != constants.EntryStatusServed {
+			events = append(events, rawEvent{Timestamp: *e.FinishedAt, Type: "SKIPPED", Metadata: e})
+		}
+	}
+
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Timestamp.Before(events[j].Timestamp)
+	})
+
+	// 6. Timeline Aggregation (5 min window for JOINED)
+	var finalTimeline []dto.TimelineEvent
+	for i := 0; i < len(events); i++ {
+		ev := events[i]
+
+		if ev.Type == "JOINED" {
+			windowEnd := ev.Timestamp.Add(5 * time.Minute)
+			var subEvents []dto.TimelineSubEvent
+			count := 0
+
+			j := i
+			for j < len(events) && events[j].Type == "JOINED" && events[j].Timestamp.Before(windowEnd) {
+				sub := events[j].Metadata.(domain.Entry)
+				subEvents = append(subEvents, dto.TimelineSubEvent{
+					TicketNo: sub.TicketNo,
+					Name:     sub.Name,
+					Action:   "Joined",
+					Time:     sub.CreatedAt.Format("15:04"),
+				})
+				count++
+				j++
+			}
+
+			msg := "1 guest joined the queue"
+			if count > 1 {
+				msg = fmt.Sprintf("%d guests joined the queue", count)
+			}
+
+			finalTimeline = append(finalTimeline, dto.TimelineEvent{
+				Type:      "JOINED",
+				Timestamp: ev.Timestamp.Format("15:04"),
+				Message:   msg,
+				Color:     "plum-soft",
+				SubEvents: subEvents,
+			})
+			i = j - 1
+		} else {
+			tEvent := dto.TimelineEvent{
+				Type:      ev.Type,
+				Timestamp: ev.Timestamp.Format("15:04"),
+			}
+
+			switch ev.Type {
+			case "STATUS_CHANGE":
+				tEvent.Message = fmt.Sprintf("Queue status changed to %s", ev.Value)
+				tEvent.Color = "plum-muted"
+
+				switch ev.Value {
+				case "CREATED", "ACTIVE":
+					tEvent.Color = "mint"
+				case "PAUSED":
+					tEvent.Color = "warning"
+				case "EXPIRED":
+					tEvent.Color = "danger"
+				}
+			case "SERVED":
+				sub := ev.Metadata.(domain.Entry)
+				tEvent.Message = fmt.Sprintf("Guest %s (%s) was served", sub.Name, sub.TicketNo)
+				tEvent.Color = "mint"
+			case "SKIPPED":
+				sub := ev.Metadata.(domain.Entry)
+				tEvent.Message = fmt.Sprintf("Guest %s (%s) left or was skipped", sub.Name, sub.TicketNo)
+				tEvent.Color = "danger"
+			}
+
+			finalTimeline = append(finalTimeline, tEvent)
+		}
+	}
+
+	// 7. Simple Insights
+	insights := []string{
+		fmt.Sprintf("You served %d guests in this session.", servedCount),
+	}
+	if servedCount > 0 && totalBookings > 0 {
+		conversion := (float64(servedCount) / float64(totalBookings)) * 100
+		insights = append(insights, fmt.Sprintf("Session conversion rate: %.1f%%", conversion))
+	}
+	if peakVolume != "N/A" {
+		insights = append(insights, fmt.Sprintf("Peak activity was detected around %s.", peakVolume))
+	}
+
+	response := &dto.HistoryDetailResponse{
+		QueueName: queue.Name,
+		Date:      queue.CreatedAt.Format("02 Jan 2006"),
+		Status:    queue.Status,
+		Notes:     queue.Notes,
+		Stats: dto.SessionStats{
+			TotalBookings: totalBookings,
+			TotalServed:   servedCount,
+			TotalSkipped:  skippedCount,
+			AvgWaitTime:   avgWait,
+			PeakVolume:    peakVolume,
+		},
+		Insights: insights,
+		Timeline: finalTimeline,
+		Entries:  historyEntries,
+	}
+
+	if queue.ClosedAt != nil {
+		cAt := queue.ClosedAt.Format(time.RFC3339)
+		response.ClosedAt = &cAt
+	}
+
+	// 8. Cache result if queue is ended
+	if queue.Status != constants.QueueStatusActive && queue.Status != constants.QueueStatusPaused {
+		_ = s.redisRepo.SetHistoryDetail(ctx, queueID, response)
+	}
+
+	return response, nil
 }

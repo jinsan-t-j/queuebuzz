@@ -43,6 +43,20 @@ func (r *RedisRepository) InvalidateHistorySummary(ctx context.Context, hostPubl
 	return r.rdb.Del(ctx, key).Err()
 }
 
+func (r *RedisRepository) SetHistoryDetail(ctx context.Context, queueID string, detail interface{}) error {
+	key := fmt.Sprintf("history_detail:%s", queueID)
+	data, err := json.Marshal(detail)
+	if err != nil {
+		return err
+	}
+	return r.rdb.Set(ctx, key, data, 7*24*time.Hour).Err()
+}
+
+func (r *RedisRepository) GetHistoryDetail(ctx context.Context, queueID string) ([]byte, error) {
+	key := fmt.Sprintf("history_detail:%s", queueID)
+	return r.rdb.Get(ctx, key).Bytes()
+}
+
 type RedisRepository struct {
 	rdb *redis.Client
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"queuebuzz/internal/constants"
@@ -479,7 +480,13 @@ func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostPublicID s
 		match["name"] = bson.M{"$regex": search, "$options": "i"}
 	}
 	if status != "" && status != "all" {
-		match["status"] = status
+		statusUpper := strings.ToUpper(status)
+		switch statusUpper {
+		case "COMPLETED", "TERMINATED":
+			match["status"] = constants.QueueStatusClosed
+		default:
+			match["status"] = statusUpper
+		}
 	}
 
 	pipeline := mongodriver.Pipeline{

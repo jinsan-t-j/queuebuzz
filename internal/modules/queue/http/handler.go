@@ -414,8 +414,13 @@ func (h *Handler) Update(c fiber.Ctx) error {
 	if req.MaxPartySize != nil {
 		updates["max_party_size"] = *req.MaxPartySize
 	}
+
 	if req.StrictQueueMode != nil {
 		updates["strict_queue_mode"] = *req.StrictQueueMode
+	}
+
+	if req.Notes != nil {
+		updates["notes"] = *req.Notes
 	}
 
 	if len(updates) == 0 {
@@ -626,38 +631,12 @@ func (h *Handler) Serve(c fiber.Ctx) error {
 
 func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 	queueID := ctx.Params("id")
-	entries, err := h.queueService.GetQueueHistory(ctx.Context(), queueID)
+	response, err := h.queueService.GetHistoryDetail(ctx.Context(), queueID)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	response := dto.QueueHistoryResponse{
-		Entries: make([]dto.HistoryEntry, len(entries)),
-	}
-
-	for i, e := range entries {
-		var waitTime int
-		if e.ServedAt != nil {
-			waitTime = int(e.ServedAt.Sub(e.CreatedAt).Minutes())
-		} else if e.FinishedAt != nil {
-			waitTime = int(e.FinishedAt.Sub(e.CreatedAt).Minutes())
-		}
-
-		var servedAt string
-		if e.ServedAt != nil {
-			servedAt = e.ServedAt.Format(time.RFC3339)
-		}
-
-		response.Entries[i] = dto.HistoryEntry{
-			TicketNo:    e.TicketNo,
-			DisplayName: e.Name,
-			Status:      e.Status,
-			WaitTimeMin: waitTime,
-			ServedAt:    servedAt,
-		}
-	}
-
-	return helpers.NewSuccessResponse("History fetched", response).OK(ctx)
+	return helpers.NewSuccessResponse("History detail fetched", response).OK(ctx)
 }
 
 func (h *Handler) GetHistoryList(c fiber.Ctx) error {

@@ -17,6 +17,7 @@ type UpdateQueueRequest struct {
 	AllowPartyJoining *bool   `json:"allow_party_joining" validate:"omitempty"`
 	MaxPartySize      *int    `json:"max_party_size" validate:"omitempty,min=1,max=100"`
 	StrictQueueMode   *bool   `json:"strict_queue_mode" validate:"omitempty"`
+	Notes             *string `json:"notes" validate:"omitempty,max=500"`
 }
 
 type JoinByCodeRequest struct {

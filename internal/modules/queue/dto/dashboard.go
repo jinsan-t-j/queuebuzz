@@ -28,6 +28,7 @@ type DashboardStats struct {
 type ChartDataPoint struct {
 	Day      string `json:"day"`
 	Value    int    `json:"value"`
+	AvgWait  int    `json:"avgWait"` // in seconds
 	IsFuture bool   `json:"isFuture"`
 	IsToday  bool   `json:"isToday"`
 }

@@ -112,19 +112,23 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 	peakWaitToday := 0
 
 	weekMap := make(map[string]int)
+	weekWaitMap := make(map[string]time.Duration)
 	peakHoursMap := make(map[int]int)
 	returnByDayMap := make(map[string]struct{ total, returning int })
 	droppedSkippedMap := make(map[string]int) // "hour,day" -> value
 
 	for _, e := range entries {
 		eDate := e.CreatedAt.In(now.Location())
-		eDay := eDate.Format("MON")
+		eDay := eDate.Format("Mon")
 
 		// CATEGORIZATION SWITCH
 		switch e.Status {
 		case constants.EntryStatusServed:
 			// 1. Week Chart (Historical)
 			weekMap[eDay]++
+			if e.ServedAt != nil {
+				weekWaitMap[eDay] += e.ServedAt.Sub(e.CreatedAt)
+			}
 
 			// 2. Stats Today
 			if eDate.After(startOfToday) {
@@ -178,10 +182,15 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 	weekChart := make([]dto.ChartDataPoint, 7)
 	for i := 0; i < 7; i++ {
 		date := startOfWeek.AddDate(0, 0, i)
-		day := date.Format("MON")
+		day := date.Format("Mon")
+		avgWait := 0
+		if weekMap[day] > 0 {
+			avgWait = int(weekWaitMap[day].Seconds() / float64(weekMap[day]))
+		}
 		weekChart[i] = dto.ChartDataPoint{
 			Day:      day,
 			Value:    weekMap[day],
+			AvgWait:  avgWait,
 			IsToday:  date.Format("2006-01-02") == now.Format("2006-01-02"),
 			IsFuture: false,
 		}

@@ -16,7 +16,7 @@ func CORSMiddleware(allowedOrigin string) fiber.Handler {
 	return cors.New(cors.Config{
 		AllowOrigins:        origins,
 		AllowHeaders:        []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-Token", "Cache-Control", "Connection"},
-		AllowMethods:        []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowMethods:        []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowCredentials:    true,
 		AllowPrivateNetwork: true,
 		MaxAge:              3600,

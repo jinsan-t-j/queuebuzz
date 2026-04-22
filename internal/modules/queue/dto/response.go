@@ -16,6 +16,7 @@ type QueueRecord struct {
 	MaxPartySize      int     `json:"max_party_size"`
 	StrictQueueMode   bool    `json:"strict_queue_mode"`
 	RecoveryEmail     *string `json:"recovery_email,omitempty"`
+	Notes             string  `json:"notes,omitempty"`
 	CreatedAt         string  `json:"created_at"`
 	UpdatedAt         string  `json:"updated_at"`
 	ExpiresAt         string  `json:"expires_at"`
@@ -177,6 +178,7 @@ func ToQueueResponse(queue domain.Queue) QueueRecord {
 		MaxPartySize:      queue.MaxPartySize,
 		StrictQueueMode:   queue.StrictQueueMode,
 		RecoveryEmail:     queue.RecoveryEmail,
+		Notes:             queue.Notes,
 		CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:         queue.UpdatedAt.Format(time.RFC3339),
 		ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),

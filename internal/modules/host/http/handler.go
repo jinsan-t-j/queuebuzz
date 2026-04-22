@@ -9,6 +9,7 @@ import (
 	hostservice "queuebuzz/internal/modules/host/service"
 	queueservice "queuebuzz/internal/modules/queue/service"
 	legacyservices "queuebuzz/internal/services"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -65,6 +66,18 @@ func (h *Handler) Claim(c fiber.Ctx) error {
 	}
 
 	_ = h.redisService.DeleteAnonHostToken(c.Context(), anonClaims.QueueID)
+
+	c.Cookie(&fiber.Cookie{
+		Name:     "queuebuzz_host_token",
+		Value:    "",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HTTPOnly: true,
+		Secure:   h.cfg.IsProduction(),
+		SameSite: "Lax",
+		Path:     "/",
+	})
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "Queue claimed successfully"})
 }
 

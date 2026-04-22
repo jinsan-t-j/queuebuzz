@@ -41,6 +41,9 @@ func EnsureEntryIndexes(ctx context.Context, db *mongodriver.Database) error {
 		{
 			Keys: bson.D{{Key: "queue_id", Value: 1}},
 		},
+		{
+			Keys: bson.D{{Key: "identity_hash", Value: 1}},
+		},
 	}
 	_, err := entryCol.Indexes().CreateMany(ctx, entryIndexes)
 	return err

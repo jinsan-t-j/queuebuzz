@@ -67,7 +67,8 @@ func NewContainer() *Container {
 	customerRedisRepo := customerrepo.NewRedisRepository(rdb)
 	queueRedisRepo := queuerepo.NewRedisRepository(rdb)
 
-	queueSvc := queueservice.New(queueCol, entryCol, queueRedisRepo)
+	analyticsSvc := queueservice.NewAnalyticsService(queueCol, entryCol)
+	queueSvc := queueservice.New(queueCol, entryCol, queueRedisRepo, analyticsSvc)
 
 	emailSvc := services.NewEmailService(cfg)
 	otpSvc := services.NewOTPService(rdb)
@@ -93,7 +94,7 @@ func NewContainer() *Container {
 
 	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc)
-	queueHandler := queuehttp.NewHandler(cfg, queueSvc, authSvc, queueRedisRepo, broker, notifier, posJob, hostNotifierJob, caller)
+	queueHandler := queuehttp.NewHandler(cfg, queueSvc, analyticsSvc, authSvc, hostSvc, queueRedisRepo, broker, notifier, posJob, hostNotifierJob, caller)
 	customerSvc := customerservice.New(entryCol, customerRedisRepo, queueSvc)
 	customerHandler := customerhttp.NewHandler(cfg, customerSvc, queueSvc, authSvc, joinCodeSvc, broker, posJob, hostNotifierJob)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)

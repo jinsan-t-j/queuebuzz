@@ -85,13 +85,15 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 
 	// 4. Delegate Creation
 	entry := queuedomain.Entry{
-		QueueID:   params.QueueID,
-		Name:      params.Name,
-		Email:     params.Email,
-		Phone:     params.Phone,
-		PartySize: params.PartySize,
-		FCMToken:  params.FCMToken,
-		CreatedBy: params.CreatedBy,
+		QueueID:     params.QueueID,
+		Name:        params.Name,
+		Email:       params.Email,
+		Phone:       params.Phone,
+		PartySize:   params.PartySize,
+		FCMToken:    params.FCMToken,
+		CreatedBy:   params.CreatedBy,
+		Fingerprint: params.Fingerprint,
+		Metadata:    params.Metadata,
 	}
 
 	result, err := s.queueService.CreateEntry(ctx, entry)

@@ -1,5 +1,7 @@
 package dto
 
+import "go.mongodb.org/mongo-driver/v2/bson"
+
 type CreateQueueRequest struct {
 	Name              string  `json:"name" validate:"required,min=3,max=50"`
 	Slug              *string `json:"slug" validate:"omitempty,min=3,max=20,slug"`
@@ -17,7 +19,7 @@ type UpdateQueueRequest struct {
 	AllowPartyJoining *bool   `json:"allow_party_joining" validate:"omitempty"`
 	MaxPartySize      *int    `json:"max_party_size" validate:"omitempty,min=1,max=100"`
 	StrictQueueMode   *bool   `json:"strict_queue_mode" validate:"omitempty"`
-	Notes             *string `json:"notes" validate:"omitempty,max=500"`
+	Notes             *string `json:"notes" validate:"omitempty,max=5000"`
 }
 
 type JoinByCodeRequest struct {
@@ -28,6 +30,8 @@ type JoinByCodeRequest struct {
 	Phone       *string `json:"phone" validate:"omitempty,len=10"`
 	PartySize   *int    `json:"party_size" validate:"omitempty,min=1,max=100"`
 	PIN         *string `json:"pin" validate:"omitempty,len=4"`
+	Fingerprint string  `json:"fingerprint"`
+	Metadata    bson.M  `json:"metadata" validate:"omitempty"`
 }
 
 type JoinRequest struct {
@@ -37,6 +41,8 @@ type JoinRequest struct {
 	Phone       *string `json:"phone" validate:"omitempty,len=10"`
 	PartySize   *int    `json:"party_size" validate:"omitempty,min=1,max=100"`
 	PIN         *string `json:"pin" validate:"omitempty,len=4"`
+	Fingerprint string  `json:"fingerprint"`
+	Metadata    bson.M  `json:"metadata" validate:"omitempty"`
 }
 
 type AddEntryRequest struct {

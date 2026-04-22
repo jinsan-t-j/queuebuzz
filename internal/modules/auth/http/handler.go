@@ -58,7 +58,8 @@ func NewHandler(
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /auth/social/{provider}/start [get]
 func (h *Handler) SocialLogin(c fiber.Ctx) error {
-	url, err := h.socialAuthService.StartAuth(c.Context(), c.Params("provider"), "")
+	claimQueueID := c.Query("claim_queue_id")
+	url, err := h.socialAuthService.StartAuth(c.Params("provider"), "", claimQueueID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -130,7 +131,16 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	h.setAuthCookies(c, accessToken, refreshToken, accessExp, refreshExp)
-	return c.Redirect().To(h.cfg.AuthCallbackURL)
+
+	targetURL := h.cfg.AuthCallbackURL
+	if identity.ClaimQueueID != "" {
+		u, _ := url.Parse(targetURL)
+		q := u.Query()
+		q.Set("claim_queue_id", identity.ClaimQueueID)
+		u.RawQuery = q.Encode()
+		targetURL = u.String()
+	}
+	return c.Redirect().To(targetURL)
 }
 
 // Verify godoc
@@ -149,12 +159,13 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 func (h *Handler) Verify(c fiber.Ctx) error {
 	var email string
 	var phone string
+	var claimQueueID string
 	token := c.Query("token")
 	reqPhone := c.Query("phone")
 	otp := c.Query("otp")
 
 	if token != "" {
-		e, err := h.magicLinkService.VerifyMagicLink(c.Context(), token)
+		payload, err := h.magicLinkService.VerifyMagicLink(c.Context(), token)
 		if err != nil {
 			u, _ := url.Parse(h.cfg.AuthCallbackURL)
 			u.Path = "/error"
@@ -166,7 +177,8 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 			}.Encode()
 			return c.Redirect().To(u.String())
 		}
-		email = e
+		email = payload.Email
+		claimQueueID = payload.ClaimQueueID
 	} else if reqPhone != "" && otp != "" {
 		if err := h.otpService.VerifyOTP(c.Context(), reqPhone, otp); err != nil {
 			u, _ := url.Parse(h.cfg.AuthCallbackURL)
@@ -193,7 +205,16 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	h.setAuthCookies(c, accessToken, refreshToken, accessExp, refreshExp)
-	return c.Redirect().To(h.cfg.AuthCallbackURL)
+
+	targetURL := h.cfg.AuthCallbackURL
+	if claimQueueID != "" {
+		u, _ := url.Parse(targetURL)
+		q := u.Query()
+		q.Set("claim_queue_id", claimQueueID)
+		u.RawQuery = q.Encode()
+		targetURL = u.String()
+	}
+	return c.Redirect().To(targetURL)
 }
 
 // Refresh godoc
@@ -270,7 +291,7 @@ func (h *Handler) Authenticate(c fiber.Ctx) error {
 	}
 
 	if method == "social" && provider != "" {
-		url, err := h.socialAuthService.StartAuth(c.Context(), provider, req.Email)
+		url, err := h.socialAuthService.StartAuth(provider, req.Email, req.ClaimQueueID)
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
@@ -282,7 +303,7 @@ func (h *Handler) Authenticate(c fiber.Ctx) error {
 	}
 
 	// For any other case (magic-link or no account), initiate magic link dispatching
-	token, err := h.magicLinkService.GenerateAndStoreMagicLink(c.Context(), req.Email)
+	token, err := h.magicLinkService.GenerateAndStoreMagicLink(c.Context(), req.Email, req.ClaimQueueID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}

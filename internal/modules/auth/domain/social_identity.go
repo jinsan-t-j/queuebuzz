@@ -6,4 +6,5 @@ type SocialIdentity struct {
 	Email          string
 	EmailVerified  bool
 	Name           string
+	ClaimQueueID   string
 }

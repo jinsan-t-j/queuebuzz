@@ -214,13 +214,22 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 		return err
 	}
 
+	if req.Metadata == nil {
+		req.Metadata = make(bson.M)
+	}
+	if ua := c.Get("User-Agent"); ua != "" {
+		req.Metadata["user_agent"] = ua
+	}
+
 	result, err := h.customerService.JoinQueue(c.Context(), queueservice.JoinQueueParams{
-		QueueID:   c.Params("id"),
-		FCMToken:  req.FCMToken,
-		Name:      *req.DisplayName,
-		Email:     req.Email,
-		Phone:     req.Phone,
-		PartySize: req.PartySize,
+		QueueID:     c.Params("id"),
+		FCMToken:    req.FCMToken,
+		Name:        *req.DisplayName,
+		Email:       req.Email,
+		Phone:       req.Phone,
+		PartySize:   req.PartySize,
+		Fingerprint: req.Fingerprint,
+		Metadata:    req.Metadata,
 	})
 
 	if err != nil {

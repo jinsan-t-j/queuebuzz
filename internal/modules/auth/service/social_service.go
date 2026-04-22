@@ -37,11 +37,6 @@ const (
 	jwksCacheTTL   = time.Hour
 )
 
-type socialStatePayload struct {
-	Provider string `json:"provider"`
-	Nonce    string `json:"nonce"`
-}
-
 type jwk struct {
 	Kty string `json:"kty"`
 	Kid string `json:"kid"`
@@ -67,6 +62,8 @@ type SocialAuthService struct {
 	googleConfig *oauth2.Config
 	jwksCache    map[string]jwksCacheEntry
 	cacheMu      sync.Mutex
+	privateKey   *rsa.PrivateKey
+	publicKey    *rsa.PublicKey
 }
 
 func NewSocialAuthService(cfg *config.Config, redisService *legacyservices.RedisService) *SocialAuthService {
@@ -81,26 +78,28 @@ func NewSocialAuthService(cfg *config.Config, redisService *legacyservices.Redis
 			Scopes:       []string{"openid", "email", "profile"},
 			Endpoint:     googleoauth.Endpoint,
 		},
-		jwksCache: make(map[string]jwksCacheEntry),
+		jwksCache:  make(map[string]jwksCacheEntry),
+		privateKey: parseRSAPrivateKey(cfg.JWTPrivateKey),
+		publicKey:  parseRSAPublicKey(cfg.JWTPublicKey),
 	}
 }
 
-func (s *SocialAuthService) StartAuth(ctx context.Context, provider string, email string) (string, error) {
-	state, err := randomToken(32)
-	if err != nil {
-		return "", err
-	}
+func (s *SocialAuthService) StartAuth(provider string, email string, claimQueueID string) (string, error) {
 	nonce, err := randomToken(32)
 	if err != nil {
 		return "", err
 	}
 
-	payload, err := json.Marshal(socialStatePayload{Provider: provider, Nonce: nonce})
-	if err != nil {
-		return "", err
+	claims := jwt.MapClaims{
+		"prv": provider,
+		"nce": nonce,
+		"qid": claimQueueID,
+		"exp": time.Now().Add(oauthStateTTL).Unix(),
 	}
-	if err := s.redisService.SetOAuthState(ctx, state, string(payload), oauthStateTTL); err != nil {
-		return "", err
+
+	state, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(s.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign oauth state: %w", err)
 	}
 
 	switch provider {
@@ -140,29 +139,45 @@ func (s *SocialAuthService) StartAuth(ctx context.Context, provider string, emai
 }
 
 func (s *SocialAuthService) CompleteAuth(ctx context.Context, provider, code, state string) (*authdomain.SocialIdentity, error) {
-	stored, err := s.redisService.GetOAuthState(ctx, state)
-	if err != nil {
-		return nil, err
-	}
 
-	if stored == "" {
+	token, err := jwt.Parse(state, func(token *jwt.Token) (interface{}, error) {
+		if token.Method != jwt.SigningMethodRS256 {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return s.publicKey, nil
+	})
+
+	if err != nil || !token.Valid {
 		return nil, fmt.Errorf("invalid or expired social auth state")
 	}
-	defer func() { _ = s.redisService.DeleteOAuthState(ctx, state) }()
 
-	var payload socialStatePayload
-	if err := json.Unmarshal([]byte(stored), &payload); err != nil {
-		return nil, err
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid oauth state claims")
 	}
-	if payload.Provider != provider {
+
+	if stringClaim(claims, "prv") != provider {
 		return nil, fmt.Errorf("social auth provider mismatch")
 	}
 
+	nonce := stringClaim(claims, "nce")
+	claimQueueID := stringClaim(claims, "qid")
+
 	switch provider {
 	case "google":
-		return s.completeGoogleAuth(ctx, code, payload.Nonce)
+		identity, err := s.completeGoogleAuth(ctx, code, nonce)
+		if err != nil {
+			return nil, err
+		}
+		identity.ClaimQueueID = claimQueueID
+		return identity, nil
 	case "apple":
-		return s.completeAppleAuth(ctx, code, payload.Nonce)
+		identity, err := s.completeAppleAuth(ctx, code, nonce)
+		if err != nil {
+			return nil, err
+		}
+		identity.ClaimQueueID = claimQueueID
+		return identity, nil
 	default:
 		return nil, fmt.Errorf("unsupported provider")
 	}

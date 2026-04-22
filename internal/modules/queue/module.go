@@ -45,6 +45,7 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	queue.Get("/history", middlewares.AuthMiddleware(), m.QueueHandler.GetHistoryList)
 	queue.Get("/slug-check", m.QueueHandler.CheckSlug)
 	queue.Get("/live", middlewares.AuthMiddleware(), m.QueueHandler.GetLiveQueue)
+	queue.Get("/dashboard", middlewares.AuthMiddleware(), m.QueueHandler.GetDashboard)
 
 	queue.Post("/create", middlewares.OptionalAuthMiddleware(), m.QueueHandler.Create)
 

@@ -23,6 +23,7 @@ import (
 	"queuebuzz/internal/modules/queue/jobs"
 	"queuebuzz/internal/modules/queue/repository"
 
+	"queuebuzz/internal/modules/host/service"
 	queueservice "queuebuzz/internal/modules/queue/service"
 	"queuebuzz/internal/sse"
 
@@ -31,21 +32,25 @@ import (
 )
 
 type Handler struct {
-	cfg             *config.Config
-	queueService    *queueservice.Service
-	authService     *authservice.AuthService
-	redisRepo       *repository.RedisRepository
-	broker          *sse.Broker
-	notifier        *queueservice.QueueNotifier
-	posJob          *jobs.PositionJob
-	hostNotifierJob *jobs.HostNotifierJob
-	caller          *jobs.Caller
+	cfg              *config.Config
+	queueService     *queueservice.Service
+	analyticsService *queueservice.AnalyticsService
+	authService      *authservice.AuthService
+	hostService      *service.Service
+	redisRepo        *repository.RedisRepository
+	broker           *sse.Broker
+	notifier         *queueservice.QueueNotifier
+	posJob           *jobs.PositionJob
+	hostNotifierJob  *jobs.HostNotifierJob
+	caller           *jobs.Caller
 }
 
 func NewHandler(
 	cfg *config.Config,
 	queueSvc *queueservice.Service,
+	analyticsSvc *queueservice.AnalyticsService,
 	authSvc *authservice.AuthService,
+	hostSvc *service.Service,
 	redisRepo *repository.RedisRepository,
 	broker *sse.Broker,
 	notifier *queueservice.QueueNotifier,
@@ -54,15 +59,17 @@ func NewHandler(
 	caller *jobs.Caller,
 ) *Handler {
 	return &Handler{
-		cfg:             cfg,
-		queueService:    queueSvc,
-		authService:     authSvc,
-		redisRepo:       redisRepo,
-		broker:          broker,
-		notifier:        notifier,
-		posJob:          posJob,
-		hostNotifierJob: hostNotifierJob,
-		caller:          caller,
+		cfg:              cfg,
+		queueService:     queueSvc,
+		analyticsService: analyticsSvc,
+		authService:      authSvc,
+		hostService:      hostSvc,
+		redisRepo:        redisRepo,
+		broker:           broker,
+		notifier:         notifier,
+		posJob:           posJob,
+		hostNotifierJob:  hostNotifierJob,
+		caller:           caller,
 	}
 }
 
@@ -476,16 +483,18 @@ func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 
 	h.hostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusClosed)
 
-	c.Cookie(&fiber.Cookie{
-		Name:     "queuebuzz_host_token",
-		Value:    "",
-		Expires:  time.Unix(0, 0),
-		MaxAge:   -1,
-		HTTPOnly: true,
-		Secure:   h.cfg.IsProduction(),
-		SameSite: "Lax",
-		Path:     "/",
-	})
+	if c.Cookies("access_token") == "" {
+		c.Cookie(&fiber.Cookie{
+			Name:     "queuebuzz_host_token",
+			Value:    "",
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+			HTTPOnly: true,
+			Secure:   h.cfg.IsProduction(),
+			SameSite: "Lax",
+			Path:     "/",
+		})
+	}
 	return c.SendStatus(fiber.StatusOK)
 }
 
@@ -765,4 +774,35 @@ func (h *Handler) UnregisterHostFCM(c fiber.Ctx) error {
 	}
 
 	return helpers.NewSuccessResponse("Host FCM token unregistered", nil).OK(c)
+}
+
+// GetDashboard godoc
+// @Summary Get dashboard metrics
+// @Description Gets real-time and historical metrics for the host dashboard.
+// @Tags Dashboard
+// @Produce json
+// @Success 200 {object} helpers.SuccessResponse{Data=dto.DashboardData}
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Internal Server Error"
+// @Router /queue/dashboard [get]
+func (h *Handler) GetDashboard(c fiber.Ctx) error {
+	hostID, _ := c.Locals("host_id").(string)
+	hostPublicID, _ := c.Locals("host_public_id").(string)
+
+	if hostID == "" || hostPublicID == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "host session not found")
+	}
+
+	hostName := "Host"
+	host, err := h.hostService.FindByID(c.Context(), hostID)
+	if err == nil && host != nil {
+		hostName = host.Name
+	}
+
+	data, err := h.analyticsService.GetDashboardData(c.Context(), hostPublicID, hostName)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load dashboard metrics: "+err.Error())
+	}
+
+	return helpers.NewSuccessResponse("Dashboard data fetched", data).OK(c)
 }

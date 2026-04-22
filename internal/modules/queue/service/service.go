@@ -16,6 +16,7 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
@@ -23,20 +24,23 @@ import (
 )
 
 type Service struct {
-	queueCol  *mongodriver.Collection
-	entryCol  *mongodriver.Collection
-	redisRepo *repository.RedisRepository
+	queueCol     *mongodriver.Collection
+	entryCol     *mongodriver.Collection
+	redisRepo    *repository.RedisRepository
+	analyticsSvc *AnalyticsService
 }
 
 func New(
 	queueCol *mongodriver.Collection,
 	entryCol *mongodriver.Collection,
 	redisRepo *repository.RedisRepository,
+	analyticsSvc *AnalyticsService,
 ) *Service {
 	return &Service{
-		queueCol:  queueCol,
-		entryCol:  entryCol,
-		redisRepo: redisRepo,
+		queueCol:     queueCol,
+		entryCol:     entryCol,
+		redisRepo:    redisRepo,
+		analyticsSvc: analyticsSvc,
 	}
 }
 
@@ -52,13 +56,15 @@ type CreateQueueParams struct {
 }
 
 type JoinQueueParams struct {
-	QueueID   string
-	Name      string
-	Email     *string
-	Phone     *string
-	PartySize *int
-	FCMToken  *string
-	CreatedBy *string
+	QueueID     string
+	Name        string
+	Email       *string
+	Phone       *string
+	PartySize   *int
+	FCMToken    *string
+	CreatedBy   *string
+	Fingerprint string
+	Metadata    bson.M
 }
 
 type JoinQueueResult struct {
@@ -197,6 +203,12 @@ func (s *Service) UpdateQueue(ctx context.Context, queueID string, updates bson.
 
 	var queue domain.Queue
 	updates["updated_at"] = time.Now()
+
+	if notes, ok := updates["notes"].(string); ok {
+		p := bluemonday.UGCPolicy()
+		updates["notes"] = p.Sanitize(notes)
+	}
+
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 	err := s.queueCol.FindOneAndUpdate(ctx, bson.M{"_id": queueID}, bson.M{"$set": updates}, opts).Decode(&queue)
 	if err != nil {
@@ -224,10 +236,19 @@ func (s *Service) updateQueueStatus(ctx context.Context, queueID, status string)
 }
 
 func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQueueResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Ensure ticket counter is initialized (fallback to DB if Redis wiped)
+	// 1. Get Host context for identity isolation
+	queue, err := s.GetQueue(ctx, entry.QueueID)
+	if err != nil {
+		return nil, fmt.Errorf("queue not found: %w", err)
+	}
+
+	// 2. Process Identity & Returning Status
+	s.analyticsSvc.ProcessIdentity(ctx, &entry, queue)
+
+	// 4. Standard entry creation
 	if err := s.ensureTicketCounter(ctx, entry.QueueID); err != nil {
 		return nil, err
 	}

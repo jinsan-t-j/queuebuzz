@@ -42,29 +42,37 @@ func (m *Module) Start(_ context.Context) {
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	queue := router.Group("/queue")
 
-	queue.Get("/history", middlewares.AuthMiddleware(), m.QueueHandler.GetHistoryList)
+	// Host Account Level (Global)
+	host := queue.Group("/", middlewares.AuthMiddleware())
+	host.Get("/dashboard", m.QueueHandler.GetDashboard)
+	host.Get("/history", m.QueueHandler.GetHistoryList)
+	host.Get("/live", m.QueueHandler.GetLiveQueue) // Get current active queue session
+	host.Post("/create", m.QueueHandler.Create)
+
 	queue.Get("/slug-check", m.QueueHandler.CheckSlug)
-	queue.Get("/live", middlewares.AuthMiddleware(), m.QueueHandler.GetLiveQueue)
-	queue.Get("/dashboard", middlewares.AuthMiddleware(), m.QueueHandler.GetDashboard)
 
-	queue.Post("/create", middlewares.OptionalAuthMiddleware(), m.QueueHandler.Create)
+	// Public / Guest Facing
+	public := queue.Group("/p/:id")
+	public.Get("/live", m.QueueHandler.GetLiveQueueByID)
+	public.Post("/join", m.QueueHandler.AddEntry)
+	public.Get("/events", m.QueueHandler.PublicEvents)
 
-	queue.Get("/:id/live", m.QueueHandler.GetLiveQueueByID)
-	queue.Post("/:id/join", m.QueueHandler.AddEntry)
-	queue.Get("/:id/events/public", m.QueueHandler.PublicEvents)
+	// Host Management (Per-Queue)
+	manage := queue.Group("/manage/:id", middlewares.HostAuthMiddleware(), middlewares.HostOwnerMiddleware())
+	manage.Patch("/", m.QueueHandler.Update)
+	manage.Get("/events", middlewares.SSERateLimiter, m.QueueHandler.StreamEvents)
+	manage.Post("/call/:entry_id?", middlewares.HostActionLimiter, m.QueueHandler.CallEntry)
+	manage.Post("/serve/:entry_id", middlewares.HostActionLimiter, m.QueueHandler.Serve)
+	manage.Post("/pause", m.QueueHandler.PauseQueue)
+	manage.Post("/resume", m.QueueHandler.ResumeQueue)
+	manage.Post("/terminate", m.QueueHandler.TerminateQueue)
+	manage.Post("/add-entry", m.QueueHandler.AddEntry)
 
-	queueHost := queue.Group("/:id", middlewares.HostAuthMiddleware(), middlewares.HostOwnerMiddleware())
-	queueHost.Patch("/", m.QueueHandler.Update)
-	queueHost.Get("/events", middlewares.SSERateLimiter, m.QueueHandler.StreamEvents)
-	queueHost.Post("/call/:entry_id?", middlewares.HostActionLimiter, m.QueueHandler.CallEntry)
-	queueHost.Post("/serve/:entry_id", middlewares.HostActionLimiter, m.QueueHandler.Serve)
-	queueHost.Post("/pause", m.QueueHandler.PauseQueue)
-	queueHost.Post("/resume", m.QueueHandler.ResumeQueue)
-	queueHost.Post("/terminate", m.QueueHandler.TerminateQueue)
-	queueHost.Post("/add-entry", m.QueueHandler.AddEntry)
+	// Queue-specific history and broadcast
+	manage.Get("/history", m.QueueHandler.GetHistory)
+	manage.Post("/broadcast", m.NotificationHandler.BroadcastToQueue)
 
-	queueHost.Get("/history", m.QueueHandler.GetHistory)
-	queueHost.Post("/broadcast", m.NotificationHandler.BroadcastToQueue)
-	queueHost.Post("/register-host-fcm", m.QueueHandler.RegisterHostFCM)
-	queueHost.Delete("/register-host-fcm", m.QueueHandler.UnregisterHostFCM)
+	// FCM and settings
+	manage.Post("/register-host-fcm", m.QueueHandler.RegisterHostFCM)
+	manage.Delete("/register-host-fcm", m.QueueHandler.UnregisterHostFCM)
 }

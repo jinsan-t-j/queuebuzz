@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -102,8 +102,6 @@ func (b *Broker) Publish(topic string, event []byte) {
 		return
 	}
 
-	fmt.Println("Publishing to topic:", topic)
-
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -150,6 +148,11 @@ func (b *Broker) ServeHTTP(c fiber.Ctx, topic string, snapshot func() ([][]byte,
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
 	c.Set("X-Accel-Buffering", "no")
+
+	// Fiber strings (c.Params, c.Query) are reused after handler returns.
+	// We must clone the topic because it's used as a map key in Subscribe
+	// and accessed in the background by SendStreamWriter.
+	topic = strings.Clone(topic)
 
 	ch, unsub := b.Subscribe(topic)
 	done := c.Context().Done()

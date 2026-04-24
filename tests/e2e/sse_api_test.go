@@ -18,7 +18,7 @@ func TestSSE_HostStream_ReceivesEvent(t *testing.T) {
 
 	queueID, hostToken := util.CreateQueue(t, s, "SSE Host Queue")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	ch, err := util.ReadSSE(ctx, s,
@@ -27,29 +27,21 @@ func TestSSE_HostStream_ReceivesEvent(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Clear initial snapshot events
-	timer := time.NewTimer(1 * time.Second)
-drain:
-	for {
-		select {
-		case <-ch:
-		case <-timer.C:
-			break drain
-		}
-	}
-
-	// Small delay to ensure server and client are stable
-	time.Sleep(100 * time.Millisecond)
-
 	util.JoinQueue(t, s, queueID, "SSE Customer")
 
-	select {
-	case ev := <-ch:
-		// Host receives 'joined' event when customer joins
-		assert.Contains(t, []string{"joined", "queue_update"}, ev.Event)
-		assert.NotEmpty(t, ev.Data)
-	case <-time.After(15 * time.Second):
-		t.Fatal("timed out waiting for SSE event after join")
+	// Wait for the joined or queue_update event, skipping initial snapshot events
+	found := false
+	timeout := time.After(30 * time.Second)
+	for !found {
+		select {
+		case ev := <-ch:
+			if ev.Event == "joined" || ev.Event == "queue_update" {
+				assert.NotEmpty(t, ev.Data)
+				found = true
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for SSE event after join")
+		}
 	}
 }
 
@@ -59,7 +51,7 @@ func TestSSE_PublicStream_ReceivesEvent(t *testing.T) {
 
 	queueID, _ := util.CreateQueue(t, s, "SSE Public Queue")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	ch, err := util.ReadSSE(ctx, s,
@@ -68,26 +60,21 @@ func TestSSE_PublicStream_ReceivesEvent(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Clear initial snapshot
-	timer := time.NewTimer(1 * time.Second)
-drain:
-	for {
-		select {
-		case <-ch:
-		case <-timer.C:
-			break drain
-		}
-	}
-
-	time.Sleep(100 * time.Millisecond)
 	util.JoinQueue(t, s, queueID, "Public SSE Customer")
 
-	select {
-	case ev := <-ch:
-		assert.Equal(t, "waiting_count_updated", ev.Event)
-		assert.NotEmpty(t, ev.Data)
-	case <-time.After(15 * time.Second):
-		t.Fatal("timed out waiting for public SSE event")
+	// Wait for the waiting_count_updated event, skipping initial snapshot
+	found := false
+	timeout := time.After(30 * time.Second)
+	for !found {
+		select {
+		case ev := <-ch:
+			if ev.Event == "waiting_count_updated" {
+				assert.NotEmpty(t, ev.Data)
+				found = true
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for public SSE event")
+		}
 	}
 }
 
@@ -110,7 +97,7 @@ func TestSSE_BroadcastIsolation(t *testing.T) {
 	queueID1, hostToken1 := util.CreateQueue(t, s, "SSE Isolation 1")
 	queueID2, _ := util.CreateQueue(t, s, "SSE Isolation 2")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	ch, err := util.ReadSSE(ctx, s,

@@ -286,7 +286,7 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /queue/{id}/events [get]
 func (h *Handler) StreamEvents(c fiber.Ctx) error {
-	queueID := c.Params("id")
+	queueID := strings.Clone(c.Params("id"))
 	if queueID == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "queue id is required")
 	}
@@ -340,7 +340,7 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /queue/{id}/events/public [get]
 func (h *Handler) PublicEvents(c fiber.Ctx) error {
-	queueID := c.Params("id")
+	queueID := strings.Clone(c.Params("id"))
 	if queueID == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "queue id is required")
 	}

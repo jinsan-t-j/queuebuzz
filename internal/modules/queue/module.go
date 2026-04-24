@@ -43,12 +43,11 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	queue := router.Group("/queue")
 
 	// Public / Guest Facing
-	public := queue.Group("/p/:id")
-	public.Get("/live", m.QueueHandler.GetLiveQueueByID)
-	public.Post("/join", m.QueueHandler.AddEntry)
-	public.Get("/events", m.QueueHandler.PublicEvents)
-
-	queue.Get("/slug-check", m.QueueHandler.CheckSlug)
+	public := queue.Group("/p")
+	public.Post("/create", m.QueueHandler.Create)
+	public.Get("/:id/live", m.QueueHandler.GetLiveQueueByID)
+	public.Post("/:id/join", m.QueueHandler.AddEntry)
+	public.Get("/:id/events", m.QueueHandler.PublicEvents)
 
 	// Host Management (Per-Queue)
 	manage := queue.Group("/manage/:id", middlewares.HostAuthMiddleware(), middlewares.HostOwnerMiddleware())
@@ -72,7 +71,7 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	// Host Account Level (Global)
 	host := queue.Group("/", middlewares.AuthMiddleware())
 	host.Get("/dashboard", m.QueueHandler.GetDashboard)
+	host.Get("/slug-check", m.QueueHandler.CheckSlug)
 	host.Get("/history", m.QueueHandler.GetHistoryList)
-	host.Get("/live", m.QueueHandler.GetLiveQueue) // Get current active queue session
-	host.Post("/create", m.QueueHandler.Create)
+	host.Get("/live", m.QueueHandler.GetLiveQueue)
 }

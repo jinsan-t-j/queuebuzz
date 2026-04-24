@@ -13,20 +13,9 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-var (
-	hostOwnerAuthSvc *authservice.AuthService
-	queueCollection  *mongo.Collection
-)
-
-// InitHostOwnerMiddleware sets up depenencies for the host owner middleware.
-func InitHostOwnerMiddleware(authSvc *authservice.AuthService, queueCol *mongo.Collection) {
-	hostOwnerAuthSvc = authSvc
-	queueCollection = queueCol
-}
-
 // HostOwnerMiddleware verifies that the authenticated host owns the queue in :id.
 // Works for both anonymous hosts (SHA256 hash check) and registered hosts (host_id match).
-func HostOwnerMiddleware() fiber.Handler {
+func HostOwnerMiddleware(authSvc *authservice.AuthService, queueCollection *mongo.Collection) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		role, _ := c.Locals("role").(string)
 		queueID := c.Params("id")
@@ -39,11 +28,11 @@ func HostOwnerMiddleware() fiber.Handler {
 		case constants.RoleAnonymousHost:
 			claimQueueID, _ := c.Locals("queue_id").(string)
 			if claimQueueID != queueID {
-				return fiber.NewError(fiber.StatusForbidden, claimQueueID+" "+queueID)
+				return fiber.NewError(fiber.StatusForbidden)
 			}
 
 			rawToken, _ := c.Locals("raw_access_token").(string)
-			if err := hostOwnerAuthSvc.VerifyAnonymousOwnership(c.Context(), rawToken, queueID); err != nil {
+			if err := authSvc.VerifyAnonymousOwnership(c.Context(), rawToken, queueID); err != nil {
 				ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
 				defer cancel()
 
@@ -58,7 +47,7 @@ func HostOwnerMiddleware() fiber.Handler {
 
 				// If queue is found and is still anonymous, re-sync session and proceed.
 				if dbErr == nil && q.HostID == nil {
-					_ = hostOwnerAuthSvc.ReSyncAnonymousSession(c.Context(), rawToken, queueID)
+					_ = authSvc.ReSyncAnonymousSession(c.Context(), rawToken, queueID)
 				} else {
 					return fiber.NewError(fiber.StatusForbidden, "Unauthorized access to this queue")
 				}

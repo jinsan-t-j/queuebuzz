@@ -9,6 +9,7 @@ import (
 
 	"queuebuzz/internal/app"
 	"queuebuzz/internal/config"
+	"queuebuzz/internal/firebase"
 	"queuebuzz/internal/log"
 
 	_ "queuebuzz/docs"
@@ -76,7 +77,8 @@ func main() {
 	}
 
 	log.Info().Msg("Building application container...")
-	application := app.New()
+	sender := firebase.NewSender(cfg.FirebaseCredentials)
+	application := app.New(cfg, sender)
 
 	log.Info().Msg("Starting Fiber server listener...")
 	application.Start()

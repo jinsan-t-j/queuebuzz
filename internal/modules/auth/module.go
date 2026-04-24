@@ -17,14 +17,14 @@ func New(handler *authhttp.Handler, service *authservice.AuthService) *Module {
 	return &Module{Handler: handler, Service: service}
 }
 
-func (m *Module) RegisterRoutes(router fiber.Router) {
-	router.Get("/auth/social/:provider/start", middlewares.RegisterRateLimiter, m.Handler.SocialLogin)
-	router.Get("/auth/social/:provider/callback", middlewares.RegisterRateLimiter, m.Handler.SocialCallback)
-	router.Post("/auth/social/:provider/callback", middlewares.RegisterRateLimiter, m.Handler.SocialCallback)
+func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateLimiters) {
+	router.Get("/auth/social/:provider/start", limiters.Register, m.Handler.SocialLogin)
+	router.Get("/auth/social/:provider/callback", limiters.Register, m.Handler.SocialCallback)
+	router.Post("/auth/social/:provider/callback", limiters.Register, m.Handler.SocialCallback)
 
-	router.Get("/auth/verify", middlewares.VerifyRateLimiter, m.Handler.Verify)
+	router.Get("/auth/verify", limiters.Verify, m.Handler.Verify)
 
 	router.Post("/api/v1/auth/refresh/token", m.Handler.Refresh)
-	router.Post("/api/v1/auth/login", middlewares.RegisterRateLimiter, m.Handler.Authenticate)
-	router.Post("/api/v1/auth/logout", middlewares.AuthMiddleware(), m.Handler.Logout)
+	router.Post("/api/v1/auth/login", limiters.Register, m.Handler.Authenticate)
+	router.Post("/api/v1/auth/logout", middlewares.AuthMiddleware(m.Service), m.Handler.Logout)
 }

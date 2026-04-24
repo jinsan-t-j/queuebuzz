@@ -517,10 +517,10 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 	}
 
 	queueID := c.Params("id")
-	createdBy := c.Locals("host_id").(string)
+	createdBy, _ := c.Locals("host_id").(string)
 	if createdBy == "" {
 		// Fallback to queue_id for anonymous hosts so it's not empty
-		createdBy = c.Locals("queue_id").(string)
+		createdBy, _ = c.Locals("queue_id").(string)
 	}
 
 	entry := domain.Entry{
@@ -544,7 +544,12 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 	h.hostNotifierJob.DispatchUserJoined(result.Entry.QueueID, entryRecord)
 	h.posJob.Dispatch(result.Entry.QueueID)
 
-	return helpers.NewSuccessResponse("Entry added", entryRecord).OK(c)
+	// Mask PII for the public response
+	maskedRecord := entryRecord
+	maskedRecord.Email = helpers.MaskEmail(entryRecord.Email)
+	maskedRecord.Phone = helpers.MaskPhone(entryRecord.Phone)
+
+	return helpers.NewSuccessResponse("Successfully joined the queue", maskedRecord).Created(c)
 }
 
 // CallEntry godoc

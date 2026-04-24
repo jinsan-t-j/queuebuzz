@@ -50,6 +50,9 @@ type Config struct {
 	AppleOAuthTeamID        string `env:"APPLE_OAUTH_TEAM_ID" env-default:""`
 	AppleOAuthKeyID         string `env:"APPLE_OAUTH_KEY_ID" env-default:""`
 	AppleOAuthPrivateKey    string `env:"APPLE_OAUTH_PRIVATE_KEY" env-default:""`
+
+	// Testing
+	DisableRateLimit bool `env:"DISABLE_RATE_LIMIT" env-default:"false"`
 }
 
 var (
@@ -59,22 +62,32 @@ var (
 
 func Get() *Config {
 	once.Do(func() {
-		cfg = &Config{}
-		_ = cleanenv.ReadConfig(".env", cfg)
-
-		if err := cleanenv.ReadEnv(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "CONFIG ERROR (env): %v\n", err)
-			log.Fatal().Err(err).Msg("Config error loading environment variables")
-		}
-
-		if port := os.Getenv("PORT"); port != "" {
-			cfg.AppPort = port
-		}
+		cfg = Load()
 	})
 
 	return cfg
 }
 
+func Load() *Config {
+	c := &Config{}
+	_ = cleanenv.ReadConfig(".env", c)
+
+	if err := cleanenv.ReadEnv(c); err != nil {
+		fmt.Fprintf(os.Stderr, "CONFIG ERROR (env): %v\n", err)
+		log.Fatal().Err(err).Msg("Config error loading environment variables")
+	}
+
+	if port := os.Getenv("PORT"); port != "" {
+		c.AppPort = port
+	}
+
+	return c
+}
+
 func (c *Config) IsProduction() bool {
 	return c.AppEnv == "production"
+}
+
+func (c *Config) IsTesting() bool {
+	return c.AppEnv == "test"
 }

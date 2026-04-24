@@ -253,7 +253,7 @@ func (h *Handler) Logout(c fiber.Ctx) error {
 		_ = h.redisService.DeleteRefreshToken(c.Context(), refreshToken)
 	}
 
-	for _, name := range []string{"access_token", "refresh_token"} {
+	for _, name := range []string{"access_token", "refresh_token", "queuebuzz_host_token"} {
 		c.Cookie(&fiber.Cookie{
 			Name:     name,
 			Value:    "",

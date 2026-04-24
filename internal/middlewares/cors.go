@@ -8,9 +8,16 @@ import (
 )
 
 func CORSMiddleware(allowedOrigin string) fiber.Handler {
-	origins := strings.Split(allowedOrigin, ",")
-	for i, origin := range origins {
-		origins[i] = strings.TrimSpace(origin)
+	origins := []string{}
+	for _, origin := range strings.Split(allowedOrigin, ",") {
+		trimmed := strings.TrimSpace(origin)
+		if trimmed != "" {
+			origins = append(origins, trimmed)
+		}
+	}
+
+	if len(origins) == 0 {
+		origins = []string{"*"}
 	}
 
 	return cors.New(cors.Config{

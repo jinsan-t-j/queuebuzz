@@ -99,6 +99,7 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 	if hostID == "" {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
+
 	host, err := h.hostService.FindByID(c.Context(), hostID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound)

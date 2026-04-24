@@ -98,6 +98,11 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 	}
 
 	now := time.Now()
+	allowParty := params.AllowPartyJoining != nil && *params.AllowPartyJoining
+	maxParty := 0
+	if params.MaxPartySize != nil {
+		maxParty = *params.MaxPartySize
+	}
 	queue := domain.Queue{
 		ID:                uuid.New().String(),
 		HostID:            params.HostID,
@@ -105,8 +110,8 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		Name:              params.Name,
 		Slug:              params.Slug,
 		AvgServiceMins:    params.AvgServiceMins,
-		AllowPartyJoining: *params.AllowPartyJoining,
-		MaxPartySize:      *params.MaxPartySize,
+		AllowPartyJoining: allowParty,
+		MaxPartySize:      maxParty,
 		Status:            constants.QueueStatusActive,
 		CreatedAt:         now,
 		UpdatedAt:         now,
@@ -846,7 +851,7 @@ func (s *Service) ensureTicketCounter(ctx context.Context, queueID string) error
 	}
 
 	// Sync Redis with DB last known ticket
-	log.Info().Str("queue_id", queueID).Int64("last_num", lastNum).Msg("Redis: re-hydrated ticket counter from MongoDB")
+	log.Debug().Str("queue_id", queueID).Int64("last_num", lastNum).Msg("Redis: re-hydrated ticket counter from MongoDB")
 	return s.redisRepo.SetTicketCounter(ctx, queueID, lastNum)
 }
 

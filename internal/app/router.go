@@ -7,10 +7,10 @@ func RegisterRoutes(app *fiber.App, c *Container) {
 		return ctx.SendString("OK")
 	})
 
-	c.Auth.RegisterRoutes(app)
+	c.Auth.RegisterRoutes(app, c.RateLimiters)
 
 	api := app.Group("/api/v1")
 	c.Host.RegisterRoutes(api)
-	c.Queue.RegisterRoutes(api)
-	c.Customer.RegisterRoutes(api)
+	c.Queue.RegisterRoutes(api, c.RateLimiters)
+	c.Customer.RegisterRoutes(api, c.RateLimiters)
 }

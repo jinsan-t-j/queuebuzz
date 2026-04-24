@@ -91,32 +91,32 @@ func (e *ErrorHandler) Handle(c fiber.Ctx, err error) error {
 		statusCode = fiberError.Code
 		message = fiberError.Message
 
-		if statusCode >= fiber.StatusInternalServerError {
-			log.Error().
-				Err(fiberError).
-				Str("method", c.Method()).
-				Str("path", c.Path()).
-				Int("status", statusCode).
-				Msg("Fiber Server Error")
-		} else {
-			log.Info().
-				Err(fiberError).
-				Str("method", c.Method()).
-				Str("path", c.Path()).
-				Int("status", statusCode).
-				Msg("Fiber Client Error")
-		}
-
 	default:
-		statusCode = fiber.StatusInternalServerError
-		message = genericError
-
-		log.Error().
-			Err(err).
-			Str("method", c.Method()).
-			Str("path", c.Path()).
-			Msg("Unhandled Server Error")
+		// Check for common client errors that might not be wrapped in fiber.Error
+		if err.Error() == "unexpected end of JSON input" || err.Error() == "EOF" {
+			statusCode = fiber.StatusBadRequest
+			message = syntaxError
+		} else {
+			statusCode = fiber.StatusInternalServerError
+			message = genericError
+		}
 	}
+
+	// Logging: 5xx are ERROR, 4xx are DEBUG (silences noise as requested)
+	logEvent := log.Debug()
+	msg := "Fiber Client Error"
+
+	if statusCode >= fiber.StatusInternalServerError {
+		logEvent = log.Error()
+		msg = "Fiber Server Error"
+	}
+
+	logEvent.
+		Err(err).
+		Str("method", c.Method()).
+		Str("path", c.Path()).
+		Int("status", statusCode).
+		Msg(msg)
 
 	if isProduction {
 		if statusCode >= 500 {

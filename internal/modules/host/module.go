@@ -3,6 +3,7 @@ package host
 import (
 	"queuebuzz/internal/middlewares"
 	authhttp "queuebuzz/internal/modules/auth/http"
+	authservice "queuebuzz/internal/modules/auth/service"
 	hosthttp "queuebuzz/internal/modules/host/http"
 
 	"github.com/gofiber/fiber/v3"
@@ -11,12 +12,14 @@ import (
 type Module struct {
 	RegisterHandler *authhttp.Handler
 	ClaimHandler    *hosthttp.Handler
+	AuthService     *authservice.AuthService
 }
 
-func New(registerHandler *authhttp.Handler, hostHandler *hosthttp.Handler) *Module {
+func New(registerHandler *authhttp.Handler, hostHandler *hosthttp.Handler, authSvc *authservice.AuthService) *Module {
 	return &Module{
 		RegisterHandler: registerHandler,
 		ClaimHandler:    hostHandler,
+		AuthService:     authSvc,
 	}
 }
 
@@ -26,6 +29,6 @@ func New(registerHandler *authhttp.Handler, hostHandler *hosthttp.Handler) *Modu
 // @Tags host
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	host := router.Group("/host")
-	host.Get("/me", middlewares.AuthMiddleware(), m.ClaimHandler.GetMe)
-	host.Post("/claim", middlewares.AuthMiddleware(), m.ClaimHandler.Claim)
+	host.Get("/me", middlewares.AuthMiddleware(m.AuthService), m.ClaimHandler.GetMe)
+	host.Post("/claim", middlewares.AuthMiddleware(m.AuthService), m.ClaimHandler.Claim)
 }

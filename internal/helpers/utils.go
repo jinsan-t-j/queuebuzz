@@ -53,3 +53,35 @@ func randomHex(length int) string {
 	}
 	return string(b)
 }
+func MaskEmail(email *string) *string {
+	if email == nil || *email == "" {
+		return nil
+	}
+	parts := strings.Split(*email, "@")
+	if len(parts) != 2 {
+		masked := "***"
+		return &masked
+	}
+	name := parts[0]
+	domain := parts[1]
+	if len(name) > 2 {
+		name = name[:2] + "****"
+	} else {
+		name = "****"
+	}
+	masked := name + "@" + domain
+	return &masked
+}
+
+func MaskPhone(phone *string) *string {
+	if phone == nil || *phone == "" {
+		return nil
+	}
+	p := *phone
+	if len(p) > 4 {
+		masked := "*******" + p[len(p)-3:]
+		return &masked
+	}
+	masked := "*******"
+	return &masked
+}

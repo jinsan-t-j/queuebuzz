@@ -30,5 +30,7 @@ func New(registerHandler *authhttp.Handler, hostHandler *hosthttp.Handler, authS
 func (m *Module) RegisterRoutes(router fiber.Router) {
 	host := router.Group("/host")
 	host.Get("/me", middlewares.AuthMiddleware(m.AuthService), m.ClaimHandler.GetMe)
+	host.Patch("/me", middlewares.AuthMiddleware(m.AuthService), m.ClaimHandler.UpdateMe)
+	host.Delete("/me", middlewares.AuthMiddleware(m.AuthService), m.ClaimHandler.DeleteMe)
 	host.Post("/claim", middlewares.AuthMiddleware(m.AuthService), m.ClaimHandler.Claim)
 }

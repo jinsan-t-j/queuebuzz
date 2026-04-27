@@ -62,6 +62,17 @@ func (r *MongoRepository) UpdateSocialLink(ctx context.Context, id string, provi
 	return err
 }
 
+func (r *MongoRepository) UpdateHost(ctx context.Context, id string, updates bson.M) error {
+	_, err := r.hostCol.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": updates})
+	return err
+}
+
+func (r *MongoRepository) DeleteHost(ctx context.Context, id string) error {
+	_, _ = r.queueCol.DeleteMany(ctx, bson.M{"host_id": id})
+	_, err := r.hostCol.DeleteOne(ctx, bson.M{"_id": id})
+	return err
+}
+
 func (r *MongoRepository) ClaimQueue(ctx context.Context, queueID, hostID, publicID string) error {
 	_, err := r.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{"$set": bson.M{
 		"host_id":        hostID,

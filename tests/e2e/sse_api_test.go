@@ -126,3 +126,44 @@ drain:
 		// Success: isolation preserved
 	}
 }
+
+func TestSSE_Concurrent_IsolatedTopics(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	// 1. Create two queues
+	q1, _ := util.CreateQueue(t, s, "Queue 1")
+	q2, _ := util.CreateQueue(t, s, "Queue 2")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// 2. Subscribe to both public streams concurrently
+	ch1, err := util.ReadSSE(ctx, s, fmt.Sprintf("/api/v1/queue/p/%s/events", q1), nil)
+	require.NoError(t, err)
+
+	ch2, err := util.ReadSSE(ctx, s, fmt.Sprintf("/api/v1/queue/p/%s/events", q2), nil)
+	require.NoError(t, err)
+
+	// Consume initial state events sent on connection
+	<-ch1
+	<-ch2
+
+	// 3. Join Q1 only
+	util.JoinQueue(t, s, q1, "Customer for Q1")
+
+	// 4. Verify Q1 gets event, Q2 doesn't (isolation)
+	select {
+	case ev := <-ch1:
+		assert.Equal(t, "waiting_count_updated", ev.Event)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for event on Q1")
+	}
+
+	select {
+	case ev := <-ch2:
+		t.Fatalf("unexpected event on Q2: %+v", ev)
+	case <-time.After(500 * time.Millisecond):
+		// Success: Q2 is isolated
+	}
+}

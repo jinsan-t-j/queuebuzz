@@ -63,3 +63,36 @@ func TestQueue_Management_Unauthorized(t *testing.T) {
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
+
+func TestQueue_Settings_Update(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	queueID, hostToken := util.CreateQueue(t, s, "Settings Queue")
+
+	// 1. Update settings
+	strictMode := true
+	collectEmails := true
+	notes := "Welcome to our store!"
+	payload := map[string]any{
+		"strict_queue_mode":   strictMode,
+		"collect_emails":      collectEmails,
+		"notes":               notes,
+		"avg_service_mins":    15,
+	}
+
+	resp, err := util.PATCH(s, fmt.Sprintf("/api/v1/queue/manage/%s", queueID), payload, util.HostCookie(hostToken))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// 2. Verify settings are applied (via management detail/history)
+	// Note: GetLiveQueueByID returns the queue record
+	resp, err = util.GET(s, fmt.Sprintf("/api/v1/queue/p/%s/live", queueID))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	
+	data := util.DecodedBody(t, resp)
+	assert.Equal(t, notes, data["notes"])
+	assert.Equal(t, float64(15), data["avg_service_mins"])
+}

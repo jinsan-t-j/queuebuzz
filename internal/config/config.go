@@ -51,6 +51,13 @@ type Config struct {
 	AppleOAuthKeyID         string `env:"APPLE_OAUTH_KEY_ID" env-default:""`
 	AppleOAuthPrivateKey    string `env:"APPLE_OAUTH_PRIVATE_KEY" env-default:""`
 
+	// R2 Storage
+	R2AccessKeyID     string `env:"R2_ACCESS_KEY_ID" env-required:"true"`
+	R2SecretAccessKey string `env:"R2_SECRET_ACCESS_KEY" env-required:"true"`
+	R2BucketName      string `env:"R2_BUCKET_NAME" env-required:"true"`
+	R2Endpoint        string `env:"R2_ENDPOINT" env-required:"true"`
+	R2PublicURL       string `env:"R2_PUBLIC_URL" env-required:"true"`
+
 	// Testing
 	DisableRateLimit bool `env:"DISABLE_RATE_LIMIT" env-default:"false"`
 }

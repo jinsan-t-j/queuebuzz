@@ -284,7 +284,7 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 		PeakHours:      peakHoursItems,
 		Greeting:       dto.GreetingData{Name: hostName},
 		QuickSetup: dto.QuickSetupData{
-			Show: !activeFound && len(queues) < 5,
+			Show: len(queues) < 5,
 			Steps: []dto.QuickSetupStep{
 				{Label: "Create your first queue", Sub: "Define your service parameters", IsDone: len(queues) > 0},
 				{Label: "Connect your first customer", Sub: "Start your journey", IsDone: stats.ServedToday > 0},

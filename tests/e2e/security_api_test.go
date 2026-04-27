@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"queuebuzz/internal/config"
 	"queuebuzz/tests/e2e/setup"
 	"queuebuzz/tests/e2e/util"
 	"strings"
@@ -19,9 +18,9 @@ func TestSecurity_RateLimit_Triggered(t *testing.T) {
 	s := Suite(t)
 
 	// Create a dedicated instance with rate limiting ENABLED
-	cfg := config.Load()
+	cfg := *s.App.Container.Config
 	cfg.DisableRateLimit = false
-	testApp := setup.BootAppWithConfig(t, cfg, &setup.MockSender{}, s.Proxy)
+	testApp := setup.BootAppWithConfig(t, &cfg, &setup.MockSender{}, s.Proxy)
 	defer testApp.Shutdown()
 
 	got429 := false

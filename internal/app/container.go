@@ -30,6 +30,7 @@ import (
 	"queuebuzz/internal/mongo"
 	"queuebuzz/internal/redis"
 	"queuebuzz/internal/services"
+	"queuebuzz/internal/services/storage"
 	"queuebuzz/internal/sse"
 
 	redisdriver "github.com/redis/go-redis/v9"
@@ -80,6 +81,11 @@ func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *
 	hostRepo := hostrepo.NewMongoRepository(hostCol, queueCol)
 	hostSvc := hostservice.New(hostRepo)
 
+	r2Svc, err := storage.NewR2Service(cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize R2 storage")
+	}
+
 	broker := sse.NewBroker()
 	notifier := queueservice.NewQueueNotifier(cfg, broker, notifSender, queueCol, entryCol)
 	expirySvc := queueservice.NewExpiryService(rdb, queueCol, entryCol, queueRedisRepo, notifier)
@@ -96,7 +102,7 @@ func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *
 	go keyspaceJob.Start(ctx)
 
 	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
-	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc)
+	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc, r2Svc)
 	queueHandler := queuehttp.NewHandler(cfg, queueSvc, analyticsSvc, authSvc, hostSvc, queueRedisRepo, broker, notifier, posJob, hostNotifierJob, caller)
 	customerSvc := customerservice.New(entryCol, customerRedisRepo, queueSvc)
 	customerHandler := customerhttp.NewHandler(cfg, customerSvc, queueSvc, authSvc, joinCodeSvc, broker, posJob, hostNotifierJob)

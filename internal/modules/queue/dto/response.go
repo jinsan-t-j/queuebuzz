@@ -6,20 +6,23 @@ import (
 )
 
 type QueueRecord struct {
-	ID                string  `json:"id"`
-	Name              string  `json:"name"`
-	JoinCode          string  `json:"join_code"`
-	Slug              string  `json:"slug"`
-	Status            string  `json:"status"`
-	AvgServiceMins    int     `json:"avg_service_mins"`
-	AllowPartyJoining bool    `json:"allow_party_joining"`
-	MaxPartySize      int     `json:"max_party_size"`
-	StrictQueueMode   bool    `json:"strict_queue_mode"`
-	RecoveryEmail     *string `json:"recovery_email,omitempty"`
-	Notes             string  `json:"notes,omitempty"`
-	CreatedAt         string  `json:"created_at"`
-	UpdatedAt         string  `json:"updated_at"`
-	ExpiresAt         string  `json:"expires_at"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	JoinCode            string  `json:"join_code"`
+	Slug                string  `json:"slug"`
+	Status              string  `json:"status"`
+	AvgServiceMins      int     `json:"avg_service_mins"`
+	AllowPartyJoining   bool    `json:"allow_party_joining"`
+	MaxPartySize        int     `json:"max_party_size"`
+	StrictQueueMode     bool    `json:"strict_queue_mode"`
+	CollectEmails       bool    `json:"collect_emails"`
+	RecoveryEmail       *string `json:"recovery_email,omitempty"`
+	Notes               string  `json:"notes,omitempty"`
+	HostProfileImageURL string  `json:"host_profile_image_url,omitempty"`
+	HostBannerImageURL  string  `json:"host_banner_image_url,omitempty"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
+	ExpiresAt           string  `json:"expires_at"`
 }
 
 type QueueStatus struct {
@@ -166,21 +169,24 @@ func ToEntryResponses(entries []domain.Entry) []EntryRecord {
 	return records
 }
 
-func ToQueueResponse(queue domain.Queue) QueueRecord {
+func ToQueueResponse(queue domain.Queue, profileImg, bannerImg string) QueueRecord {
 	return QueueRecord{
-		ID:                queue.ID,
-		Name:              queue.Name,
-		JoinCode:          queue.JoinCode,
-		Slug:              queue.Slug,
-		Status:            queue.Status,
-		AvgServiceMins:    queue.AvgServiceMins,
-		AllowPartyJoining: queue.AllowPartyJoining,
-		MaxPartySize:      queue.MaxPartySize,
-		StrictQueueMode:   queue.StrictQueueMode,
-		RecoveryEmail:     queue.RecoveryEmail,
-		Notes:             queue.Notes,
-		CreatedAt:         queue.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:         queue.UpdatedAt.Format(time.RFC3339),
-		ExpiresAt:         queue.ExpiresAt.Format(time.RFC3339),
+		ID:                  queue.ID,
+		Name:                queue.Name,
+		JoinCode:            queue.JoinCode,
+		Slug:                queue.Slug,
+		Status:              queue.Status,
+		AvgServiceMins:      queue.AvgServiceMins,
+		AllowPartyJoining:   queue.AllowPartyJoining,
+		MaxPartySize:        queue.MaxPartySize,
+		StrictQueueMode:     queue.StrictQueueMode,
+		CollectEmails:       queue.CollectEmails,
+		RecoveryEmail:       queue.RecoveryEmail,
+		Notes:               queue.Notes,
+		HostProfileImageURL: profileImg,
+		HostBannerImageURL:  bannerImg,
+		CreatedAt:           queue.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:           queue.UpdatedAt.Format(time.RFC3339),
+		ExpiresAt:           queue.ExpiresAt.Format(time.RFC3339),
 	}
 }

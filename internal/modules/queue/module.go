@@ -52,7 +52,7 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 
 	// Public / Guest Facing
 	public := queue.Group("/p")
-	public.Post("/create", m.QueueHandler.Create)
+	public.Post("/create", middlewares.OptionalAuthMiddleware(m.authService), m.QueueHandler.Create)
 	public.Get("/:id/live", m.QueueHandler.GetLiveQueueByID)
 	public.Post("/:id/join", m.QueueHandler.AddEntry)
 	public.Get("/:id/events", m.QueueHandler.PublicEvents)
@@ -81,5 +81,6 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 	host.Get("/dashboard", m.QueueHandler.GetDashboard)
 	host.Get("/slug-check", m.QueueHandler.CheckSlug)
 	host.Get("/history", m.QueueHandler.GetHistoryList)
+	host.Delete("/history", m.QueueHandler.ClearHistory)
 	host.Get("/live", m.QueueHandler.GetLiveQueue)
 }

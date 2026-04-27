@@ -43,9 +43,9 @@ func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*h
 
 	now := time.Now()
 	host = &hostdomain.Host{
-		ID:        generateHostID(),
-		PublicID:  helpers.GenerateSlug(),
-		Tier:      constants.TierFree,
+		ID:       generateHostID(),
+		PublicID: helpers.GenerateSlug(),
+		Tier:     constants.TierFree,
 		CreatedAt: now,
 		LastSeen:  now,
 	}
@@ -134,6 +134,14 @@ func (s *Service) FindByPublicID(ctx context.Context, publicID string) (*hostdom
 
 func (s *Service) ClaimQueue(ctx context.Context, queueID, hostID, publicID string) error {
 	return s.repo.ClaimQueue(ctx, queueID, hostID, publicID)
+}
+
+func (s *Service) UpdateHost(ctx context.Context, id string, updates bson.M) error {
+	return s.repo.UpdateHost(ctx, id, updates)
+}
+
+func (s *Service) DeleteHost(ctx context.Context, id string) error {
+	return s.repo.DeleteHost(ctx, id)
 }
 
 func (s *Service) CheckAuthMethod(ctx context.Context, email string) (method string, provider string, err error) {

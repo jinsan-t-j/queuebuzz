@@ -10,6 +10,7 @@ import (
 	"queuebuzz/tests/e2e/setup"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -34,6 +35,11 @@ func ExtractCookie(t *testing.T, resp *http.Response, name string, mustBeHTTPOnl
 	}
 	t.Fatalf("cookie %q not found in response", name)
 	return ""
+}
+
+// AuthCookie returns an http.Cookie for the authenticated host access token.
+func AuthCookie(token string) *http.Cookie {
+	return &http.Cookie{Name: "access_token", Value: token}
 }
 
 // HostCookie returns an http.Cookie for the host token.
@@ -183,4 +189,69 @@ func PATCH(s *setup.TestSuite, path string, body any, cookies ...*http.Cookie) (
 		req.AddCookie(c)
 	}
 	return s.Do(req)
+}
+// RegisterHost registers a new host and returns the access token.
+func RegisterHost(t *testing.T, s *setup.TestSuite, name, email, password string) string {
+	t.Helper()
+	
+	hostID := "host-" + email
+	publicID := "pub-" + email
+
+	_, err := s.DB.Collection("hosts").InsertOne(context.Background(), map[string]any{
+		"_id": hostID,
+		"public_id": publicID,
+		"name": name,
+		"email": email,
+		"tier": "free",
+		"created_at": time.Now(),
+		"last_seen": time.Now(),
+	})
+	require.NoError(t, err)
+
+	accessToken, _, _, _, err := s.App.Container.Auth.Service.IssueTokenPair(context.Background(), hostID, publicID)
+	require.NoError(t, err)
+
+	return accessToken
+}
+
+// ServeNext serves the next customer in the queue.
+func ServeNext(t *testing.T, s *setup.TestSuite, queueID, hostToken string) {
+	t.Helper()
+
+	// 1. Call Next
+	req, _ := http.NewRequest(http.MethodPost, s.BaseURL+fmt.Sprintf("/api/v1/queue/manage/%s/call", queueID), nil)
+	req.AddCookie(AuthCookie(hostToken))
+	resp, err := s.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var m map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+	data := m["data"].(map[string]any)
+	entryID := data["id"].(string)
+
+	// 2. Serve
+	req, _ = http.NewRequest(http.MethodPost, s.BaseURL+fmt.Sprintf("/api/v1/queue/manage/%s/serve/%s", queueID, entryID), nil)
+	req.AddCookie(AuthCookie(hostToken))
+	resp, err = s.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+// CreateAuthenticatedQueue creates a queue using a host access token and returns its ID.
+func CreateAuthenticatedQueue(t *testing.T, s *setup.TestSuite, name string, accessToken string) string {
+	t.Helper()
+	payload, _ := json.Marshal(map[string]any{"name": name})
+	req, _ := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/queue/p/create", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(AuthCookie(accessToken))
+
+	resp, err := s.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	data := DecodedBody(t, resp)
+	return data["id"].(string)
 }

@@ -45,17 +45,9 @@ jobs:
     name: Test
     if: github.event_name == 'workflow_call' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    services:
-      minio:
-        image: bitnami/minio:latest
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-          MINIO_DEFAULT_BUCKETS: queuebuzz-test
 
     steps:
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5

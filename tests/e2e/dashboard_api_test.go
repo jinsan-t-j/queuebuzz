@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"queuebuzz/tests/e2e/util"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +16,8 @@ func TestDashboard_EmptyState(t *testing.T) {
 	s.CleanDB()
 
 	// Register a new host to get a clean state
-	hostToken := util.RegisterHost(t, s, "Empty Host", "empty@example.com", "password123")
+	email := fmt.Sprintf("empty-%d@example.com", time.Now().UnixNano())
+	hostToken := util.RegisterHost(t, s, "Empty Host", email, "password123")
 
 	// Fetch dashboard
 	resp, err := util.GET(s, "/api/v1/queue/dashboard", util.AuthCookie(hostToken))
@@ -48,7 +50,8 @@ func TestDashboard_WithActiveQueue(t *testing.T) {
 	s.CleanDB()
 
 	// 1. Create a host and a queue
-	hostToken := util.RegisterHost(t, s, "Active Host", "active@example.com", "password123")
+	email := fmt.Sprintf("active-%d@example.com", time.Now().UnixNano())
+	hostToken := util.RegisterHost(t, s, "Active Host", email, "password123")
 
 	// Use the host token to create a queue (optional, but good for linking)
 	// Wait, CreateQueue in util.go uses anonymous creation.
@@ -87,7 +90,8 @@ func TestHistory_List_And_Summary(t *testing.T) {
 	s.CleanDB()
 
 	// 1. Create a host and a historical queue
-	hostToken := util.RegisterHost(t, s, "History Host", "history@example.com", "password123")
+	email := fmt.Sprintf("history-%d@example.com", time.Now().UnixNano())
+	hostToken := util.RegisterHost(t, s, "History Host", email, "password123")
 	queueID := util.CreateAuthenticatedQueue(t, s, "Historical Queue", hostToken)
 
 	util.JoinQueue(t, s, queueID, "Guest")
@@ -119,7 +123,8 @@ func TestHistory_Pagination_And_Filtering(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	hostToken := util.RegisterHost(t, s, "Multi Host", "multi@example.com", "password123")
+	email := fmt.Sprintf("multi-%d@example.com", time.Now().UnixNano())
+	hostToken := util.RegisterHost(t, s, "Multi Host", email, "password123")
 
 	// Create 3 historical queues
 	queues := []string{"Queue Alpha", "Queue Beta", "Queue Gamma"}

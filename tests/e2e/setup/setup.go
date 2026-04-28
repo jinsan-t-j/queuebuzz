@@ -142,13 +142,20 @@ func BootAppWithConfig(t *testing.T, cfg *config.Config, sender firebase.Notific
 	}
 }
 
-// CleanDB drops the test database.
+// CleanDB drops the test database and flushes Redis.
 func (s *TestSuite) CleanDB() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	if s.DB != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
 		if err := s.DB.Drop(ctx); err != nil {
 			log.Error().Err(err).Msg("Failed to drop test database")
+		}
+	}
+
+	if s.App != nil && s.App.Container != nil && s.App.Container.Redis != nil {
+		if err := s.App.Container.Redis.FlushAll(ctx).Err(); err != nil {
+			log.Error().Err(err).Msg("Failed to flush Redis during CleanDB")
 		}
 	}
 }

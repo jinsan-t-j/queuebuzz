@@ -564,7 +564,7 @@ func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostPublicID s
 					"let":  bson.M{"queue_id": "$_id"},
 					"pipeline": bson.A{
 						bson.M{"$match": bson.M{
-							"$expr":  bson.M{"$eq": []string{"$queue_id", "$$queue_id"}},
+							"$expr":  bson.M{"$eq": bson.A{"$queue_id", "$$queue_id"}},
 							"status": constants.EntryStatusServed,
 						}},
 					},
@@ -574,7 +574,7 @@ func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostPublicID s
 					"total_served": bson.M{"$size": "$served_entries"},
 					"avg_wait_ms": bson.M{
 						"$cond": bson.A{
-							bson.M{"$gt": []interface{}{bson.M{"$size": "$served_entries"}, 0}},
+							bson.M{"$gt": bson.A{bson.M{"$size": "$served_entries"}, 0}},
 							bson.M{"$avg": bson.M{
 								"$map": bson.M{
 									"input": "$served_entries",
@@ -641,7 +641,7 @@ func (s *Service) GetHostHistorySummary(ctx context.Context, hostPublicID string
 			"let":  bson.M{"queue_id": "$_id"},
 			"pipeline": bson.A{
 				bson.M{"$match": bson.M{
-					"$expr":  bson.M{"$eq": []string{"$queue_id", "$$queue_id"}},
+					"$expr":  bson.M{"$eq": bson.A{"$queue_id", "$$queue_id"}},
 					"status": constants.EntryStatusServed,
 				}},
 			},

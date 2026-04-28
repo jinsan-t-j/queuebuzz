@@ -59,7 +59,12 @@ jobs:
       - name: Check for untidy modules
         run: |
           go mod tidy
-          git diff --exit-code go.mod go.sum
+          if [ -n "$(git status --porcelain go.mod go.sum)" ]; then
+            echo "❌ Go modules are untidy."
+            echo "👉 Please run 'go mod tidy' locally and commit the changes in 'go.mod' and 'go.sum'."
+            git diff go.mod go.sum
+            exit 1
+          fi
 
       - name: Run all tests
         run: go test -v -race -timeout 15m -coverpkg=./internal/... -coverprofile=coverage.out -covermode=atomic ./...
@@ -70,7 +75,12 @@ jobs:
         run: |
           go install github.com/swaggo/swag/cmd/swag@latest
           swag init -g main.go -o docs --parseDependency --parseInternal
-          git diff --exit-code docs/
+          if [ -n "$(git status --porcelain docs/)" ]; then
+            echo "❌ Swagger documentation is out of sync with the code."
+            echo "👉 Please run 'swag init -g main.go -o docs --parseDependency --parseInternal' locally and commit the changes in the 'docs/' directory."
+            git diff docs/
+            exit 1
+          fi
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

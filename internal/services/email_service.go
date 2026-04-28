@@ -70,6 +70,14 @@ func (s *EmailService) SendQueueClosingWarning(email, ticketNo string) error {
 }
 
 func (s *EmailService) send(to, subject, html string) error {
+	if s.cfg.IsTesting() {
+		log.Info().
+			Str("to", to).
+			Str("subject", subject).
+			Msg("Email delivery skipped (MOCKED in test environment)")
+		return nil
+	}
+
 	if !s.cfg.IsProduction() {
 		return s.sendViaMailpit(to, subject, html)
 	}

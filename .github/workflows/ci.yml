@@ -45,6 +45,16 @@ jobs:
     name: Test
     if: github.event_name == 'workflow_call' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    services:
+      minio:
+        image: minio/minio
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: --entrypoint sh -c "minio server /data"
+
     steps:
       - uses: actions/checkout@v4
 

@@ -7,11 +7,18 @@ linters:
   enable:
     - govet
     - goimports
-    - typecheck
     - ineffassign
     - misspell
     - nakedret
-    - unconvert
-    - staticcheck
-    - unused
     - revive
+    - staticcheck
+    - unconvert
+    - unused
+    - typecheck
+
+issues:
+  exclude-dirs:
+    - third_party
+    - builtin
+    - examples
+  exclude-use-default: true

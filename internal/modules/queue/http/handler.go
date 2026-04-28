@@ -556,8 +556,8 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 	}
 
 	entryRecord := dto.ToEntryResponse(result.Entry, result.Position)
-	h.hostNotifierJob.DispatchUserJoined(result.Entry.QueueID, entryRecord)
-	h.posJob.Dispatch(result.Entry.QueueID)
+	h.hostNotifierJob.DispatchUserJoined(result.QueueID, entryRecord)
+	h.posJob.Dispatch(result.QueueID)
 
 	// Mask PII for the public response
 	maskedRecord := entryRecord

@@ -43,9 +43,9 @@ func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*h
 
 	now := time.Now()
 	host = &hostdomain.Host{
-		ID:       generateHostID(),
-		PublicID: helpers.GenerateSlug(),
-		Tier:     constants.TierFree,
+		ID:        generateHostID(),
+		PublicID:  helpers.GenerateSlug(),
+		Tier:      constants.TierFree,
 		CreatedAt: now,
 		LastSeen:  now,
 	}

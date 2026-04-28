@@ -102,7 +102,7 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 	}
 
 	// 5. Customer Session Management
-	if err := s.redisRepo.SetUserSession(ctx, entry.QueueID, result.Entry.ID, 24*time.Hour); err != nil {
+	if err := s.redisRepo.SetUserSession(ctx, entry.QueueID, result.ID, 24*time.Hour); err != nil {
 		return nil, fmt.Errorf("failed to set user session: %w", err)
 	}
 

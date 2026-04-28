@@ -75,10 +75,10 @@ func TestQueue_Settings_Update(t *testing.T) {
 	collectEmails := true
 	notes := "Welcome to our store!"
 	payload := map[string]any{
-		"strict_queue_mode":   strictMode,
-		"collect_emails":      collectEmails,
-		"notes":               notes,
-		"avg_service_mins":    15,
+		"strict_queue_mode": strictMode,
+		"collect_emails":    collectEmails,
+		"notes":             notes,
+		"avg_service_mins":  15,
 	}
 
 	resp, err := util.PATCH(s, fmt.Sprintf("/api/v1/queue/manage/%s", queueID), payload, util.HostCookie(hostToken))
@@ -91,7 +91,7 @@ func TestQueue_Settings_Update(t *testing.T) {
 	resp, err = util.GET(s, fmt.Sprintf("/api/v1/queue/p/%s/live", queueID))
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	
+
 	data := util.DecodedBody(t, resp)
 	assert.Equal(t, notes, data["notes"])
 	assert.Equal(t, float64(15), data["avg_service_mins"])

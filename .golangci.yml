@@ -1,17 +1,34 @@
+version: "2"
 run:
-  timeout: 5m
   go: "1.25"
-
 linters:
-  disable-all: true
+  default: none
   enable:
     - govet
-    - goimports
-    - typecheck
     - ineffassign
     - misspell
     - nakedret
-    - unconvert
-    - staticcheck
-    - unused
     - revive
+    - staticcheck
+    - unconvert
+    - unused
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

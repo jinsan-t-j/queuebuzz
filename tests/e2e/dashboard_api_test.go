@@ -24,7 +24,7 @@ func TestDashboard_EmptyState(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	data := util.DecodedBody(t, resp)
-	
+
 	// Verify empty stats
 	stats := data["stats"].(map[string]any)
 	assert.Equal(t, float64(0), stats["servedToday"])
@@ -49,7 +49,7 @@ func TestDashboard_WithActiveQueue(t *testing.T) {
 
 	// 1. Create a host and a queue
 	hostToken := util.RegisterHost(t, s, "Active Host", "active@example.com", "password123")
-	
+
 	// Use the host token to create a queue (optional, but good for linking)
 	// Wait, CreateQueue in util.go uses anonymous creation.
 	// Let's create a queue using the host token.
@@ -149,4 +149,3 @@ func TestHistory_Pagination_And_Filtering(t *testing.T) {
 	items = data["data"].([]any)
 	assert.Len(t, items, 3)
 }
-

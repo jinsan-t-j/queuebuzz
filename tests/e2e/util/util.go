@@ -190,21 +190,22 @@ func PATCH(s *setup.TestSuite, path string, body any, cookies ...*http.Cookie) (
 	}
 	return s.Do(req)
 }
+
 // RegisterHost registers a new host and returns the access token.
-func RegisterHost(t *testing.T, s *setup.TestSuite, name, email, password string) string {
+func RegisterHost(t *testing.T, s *setup.TestSuite, name, email, _ string) string {
 	t.Helper()
-	
+
 	hostID := "host-" + email
 	publicID := "pub-" + email
 
 	_, err := s.DB.Collection("hosts").InsertOne(context.Background(), map[string]any{
-		"_id": hostID,
-		"public_id": publicID,
-		"name": name,
-		"email": email,
-		"tier": "free",
+		"_id":        hostID,
+		"public_id":  publicID,
+		"name":       name,
+		"email":      email,
+		"tier":       "free",
 		"created_at": time.Now(),
-		"last_seen": time.Now(),
+		"last_seen":  time.Now(),
 	})
 	require.NoError(t, err)
 
@@ -239,6 +240,7 @@ func ServeNext(t *testing.T, s *setup.TestSuite, queueID, hostToken string) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
+
 // CreateAuthenticatedQueue creates a queue using a host access token and returns its ID.
 func CreateAuthenticatedQueue(t *testing.T, s *setup.TestSuite, name string, accessToken string) string {
 	t.Helper()

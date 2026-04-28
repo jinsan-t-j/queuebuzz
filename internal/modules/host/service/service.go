@@ -136,6 +136,14 @@ func (s *Service) ClaimQueue(ctx context.Context, queueID, hostID, publicID stri
 	return s.repo.ClaimQueue(ctx, queueID, hostID, publicID)
 }
 
+func (s *Service) UpdateHost(ctx context.Context, id string, updates bson.M) error {
+	return s.repo.UpdateHost(ctx, id, updates)
+}
+
+func (s *Service) DeleteHost(ctx context.Context, id string) error {
+	return s.repo.DeleteHost(ctx, id)
+}
+
 func (s *Service) CheckAuthMethod(ctx context.Context, email string) (method string, provider string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()

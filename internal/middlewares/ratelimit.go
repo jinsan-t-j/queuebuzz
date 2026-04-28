@@ -3,46 +3,52 @@ package middlewares
 import (
 	"time"
 
+	"queuebuzz/internal/config"
+
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/limiter"
 )
 
-// RateLimiter creates a configurable rate limiting middleware.
-func RateLimiter(limit int, expiration time.Duration) fiber.Handler {
-	return limiter.New(limiter.Config{
-		Max:        limit,
-		Expiration: expiration,
-		KeyGenerator: func(c fiber.Ctx) string {
-			return c.IP()
-		},
-		LimitReached: func(c fiber.Ctx) error {
-			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
-				"message": "Too many requests. Please try again later.",
-			})
-		},
-	})
+// RateLimiters holds all pre-configured rate limiting middlewares.
+type RateLimiters struct {
+	Join     fiber.Handler
+	Register fiber.Handler
+	Verify   fiber.Handler
+	SSE      fiber.Handler
+	Global   fiber.Handler
+	Lenient  fiber.Handler
+	Host     fiber.Handler
 }
 
-// Predefined rate limiters per the security checklist
-var (
-	// JoinRateLimiter — 5 req / IP / min for join endpoints
-	JoinRateLimiter = RateLimiter(5, 1*time.Minute)
+// NewRateLimiters initializes rate limiters based on the provided configuration.
+func NewRateLimiters(cfg *config.Config) *RateLimiters {
+	disabled := cfg.DisableRateLimit
 
-	// RegisterRateLimiter — 5 req / IP / 5 min for registration
-	RegisterRateLimiter = RateLimiter(5, 5*time.Minute)
+	factory := func(limit int, expiration time.Duration) fiber.Handler {
+		return limiter.New(limiter.Config{
+			Max:        limit,
+			Expiration: expiration,
+			Next: func(_ fiber.Ctx) bool {
+				return disabled
+			},
+			KeyGenerator: func(c fiber.Ctx) string {
+				return c.IP()
+			},
+			LimitReached: func(c fiber.Ctx) error {
+				return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+					"message": "Too many requests. Please try again later.",
+				})
+			},
+		})
+	}
 
-	// VerifyRateLimiter — 5 req / IP / 15 min for auth verification
-	VerifyRateLimiter = RateLimiter(5, 15*time.Minute)
-
-	// SSERateLimiter — 10 connections / IP / min for SSE streams
-	SSERateLimiter = RateLimiter(10, 1*time.Minute)
-
-	// GlobalRateLimiter — 100 req / IP / min for all endpoints
-	GlobalRateLimiter = RateLimiter(100, 1*time.Minute)
-
-	// LenientRateLimiter — 30 req / IP / min for general endpoints
-	LenientRateLimiter = RateLimiter(30, 1*time.Minute)
-
-	// HostActionLimiter — 2 req / IP / sec for host call/serve actions
-	HostActionLimiter = RateLimiter(2, 1*time.Second)
-)
+	return &RateLimiters{
+		Join:     factory(5, 1*time.Minute),
+		Register: factory(5, 5*time.Minute),
+		Verify:   factory(5, 15*time.Minute),
+		SSE:      factory(10, 1*time.Minute),
+		Global:   factory(100, 1*time.Minute),
+		Lenient:  factory(30, 1*time.Minute),
+		Host:     factory(2, 1*time.Second),
+	}
+}

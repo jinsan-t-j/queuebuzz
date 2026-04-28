@@ -9,6 +9,7 @@ type CreateQueueRequest struct {
 	AllowPartyJoining *bool   `json:"allow_party_joining" validate:"omitempty"`
 	MaxPartySize      *int    `json:"max_party_size" validate:"omitempty,min=1,max=100"`
 	RecoveryEmail     *string `json:"recovery_email" validate:"omitempty,email"`
+	CollectEmails     *bool   `json:"collect_emails" validate:"omitempty"`
 }
 
 type UpdateQueueRequest struct {
@@ -19,6 +20,7 @@ type UpdateQueueRequest struct {
 	AllowPartyJoining *bool   `json:"allow_party_joining" validate:"omitempty"`
 	MaxPartySize      *int    `json:"max_party_size" validate:"omitempty,min=1,max=100"`
 	StrictQueueMode   *bool   `json:"strict_queue_mode" validate:"omitempty"`
+	CollectEmails     *bool   `json:"collect_emails" validate:"omitempty"`
 	Notes             *string `json:"notes" validate:"omitempty,max=5000"`
 }
 

@@ -6,20 +6,20 @@ pre-commit:
   commands:
     # 1. Clean dependencies (vital for Go repos)
     tidy:
-      run: export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin" && go mod tidy && git add go.mod go.sum
+      run: go mod tidy && git add go.mod go.sum
     
     # 2. Comprehensive linting (applies --fix automatically)
     lint:
       glob: "*.go"
-      run: export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin" && golangci-lint run --fix && git add {staged_files}
+      run: golangci-lint run --fix && git add {staged_files}
     
     # 3. Quick test (excludes long-running or race-detectable tests)
     test:
       glob: "*.go"
-      run: export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin" && go test -v ./...
+      run: go test -v ./...
 
 pre-push:
   commands:
-    # 4. Rigorous pre-push check (runs full suite with race detector)
-    check-race:
-      run: export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin" && go test -v -race ./...
+    # 4. Rigorous pre-push check (runs full suite with race detector and coverage)
+    test-coverage:
+      run: go test -v -race -coverpkg=./internal/... -coverprofile=coverage.out -covermode=atomic ./...

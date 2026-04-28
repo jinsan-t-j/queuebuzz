@@ -66,8 +66,8 @@ func NewHandler(
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /entry/{id} [get]
 func (h *Handler) Leave(c fiber.Ctx) error {
-	entryID := c.Locals("entry_id").(string)
-	queueID := c.Locals("queue_id").(string)
+	entryID, _ := c.Locals("entry_id").(string)
+	queueID, _ := c.Locals("queue_id").(string)
 
 	if err := h.customerService.Leave(c.Context(), entryID); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to leave queue")
@@ -158,8 +158,8 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 // @Failure 500 {object} map[string]string "Internal server error"
 // @Router /entry/update [post]
 func (h *Handler) UpdateEntry(c fiber.Ctx) error {
-	entryID := c.Locals("entry_id").(string)
-	queueID := c.Locals("queue_id").(string)
+	entryID, _ := c.Locals("entry_id").(string)
+	queueID, _ := c.Locals("queue_id").(string)
 
 	var req customerdto.UpdateEntryRequest
 	if err := c.Bind().JSON(&req); err != nil {
@@ -236,13 +236,18 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 		return err
 	}
 
-	h.issueGuestToken(c, result.Entry.QueueID, result.Entry.ID)
+	h.issueGuestToken(c, result.QueueID, result.ID)
 
 	entryRecord := queuedto.ToEntryResponse(result.Entry, result.Position)
-	h.hostNotifierJob.DispatchUserJoined(result.Entry.QueueID, entryRecord)
-	h.posJob.Dispatch(result.Entry.QueueID)
+	h.hostNotifierJob.DispatchUserJoined(result.QueueID, entryRecord)
+	h.posJob.Dispatch(result.QueueID)
 
-	return helpers.NewSuccessResponse("Successfully joined the queue", entryRecord).OK(c)
+	// Mask PII for the public response
+	maskedRecord := entryRecord
+	maskedRecord.Email = helpers.MaskEmail(entryRecord.Email)
+	maskedRecord.Phone = helpers.MaskPhone(entryRecord.Phone)
+
+	return helpers.NewSuccessResponse("Successfully joined the queue", maskedRecord).Created(c)
 }
 
 // JoinByCode godoc

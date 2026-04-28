@@ -53,6 +53,7 @@ type CreateQueueParams struct {
 	AllowPartyJoining *bool
 	MaxPartySize      *int
 	RecoveryEmail     *string
+	CollectEmails     *bool
 }
 
 type JoinQueueParams struct {
@@ -98,6 +99,11 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 	}
 
 	now := time.Now()
+	allowParty := params.AllowPartyJoining != nil && *params.AllowPartyJoining
+	maxParty := 0
+	if params.MaxPartySize != nil {
+		maxParty = *params.MaxPartySize
+	}
 	queue := domain.Queue{
 		ID:                uuid.New().String(),
 		HostID:            params.HostID,
@@ -105,8 +111,9 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		Name:              params.Name,
 		Slug:              params.Slug,
 		AvgServiceMins:    params.AvgServiceMins,
-		AllowPartyJoining: *params.AllowPartyJoining,
-		MaxPartySize:      *params.MaxPartySize,
+		AllowPartyJoining: allowParty,
+		MaxPartySize:      maxParty,
+		CollectEmails:     params.CollectEmails != nil && *params.CollectEmails,
 		Status:            constants.QueueStatusActive,
 		CreatedAt:         now,
 		UpdatedAt:         now,
@@ -553,11 +560,11 @@ func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostPublicID s
 				bson.M{"$skip": (page - 1) * limit},
 				bson.M{"$limit": limit},
 				bson.M{"$lookup": bson.M{
-					"from": "entries",
+					"from": "queue_entries",
 					"let":  bson.M{"queue_id": "$_id"},
 					"pipeline": bson.A{
 						bson.M{"$match": bson.M{
-							"$expr":  bson.M{"$eq": []string{"$queue_id", "$$queue_id"}},
+							"$expr":  bson.M{"$eq": bson.A{"$queue_id", "$$queue_id"}},
 							"status": constants.EntryStatusServed,
 						}},
 					},
@@ -567,8 +574,14 @@ func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostPublicID s
 					"total_served": bson.M{"$size": "$served_entries"},
 					"avg_wait_ms": bson.M{
 						"$cond": bson.A{
-							bson.M{"$gt": []interface{}{bson.M{"$size": "$served_entries"}, 0}},
-							bson.M{"$avg": bson.M{"$subtract": []string{"$served_entries.served_at", "$served_entries.created_at"}}},
+							bson.M{"$gt": bson.A{bson.M{"$size": "$served_entries"}, 0}},
+							bson.M{"$avg": bson.M{
+								"$map": bson.M{
+									"input": "$served_entries",
+									"as":    "e",
+									"in":    bson.M{"$subtract": bson.A{"$$e.served_at", "$$e.created_at"}},
+								},
+							}},
 							0,
 						},
 					},
@@ -624,11 +637,11 @@ func (s *Service) GetHostHistorySummary(ctx context.Context, hostPublicID string
 		}}},
 		// 2. Lookup served entries
 		{{Key: "$lookup", Value: bson.M{
-			"from": "entries",
+			"from": "queue_entries",
 			"let":  bson.M{"queue_id": "$_id"},
 			"pipeline": bson.A{
 				bson.M{"$match": bson.M{
-					"$expr":  bson.M{"$eq": []string{"$queue_id", "$$queue_id"}},
+					"$expr":  bson.M{"$eq": bson.A{"$queue_id", "$$queue_id"}},
 					"status": constants.EntryStatusServed,
 				}},
 			},
@@ -644,7 +657,7 @@ func (s *Service) GetHostHistorySummary(ctx context.Context, hostPublicID string
 					"$map": bson.M{
 						"input": "$served_entries",
 						"as":    "e",
-						"in":    bson.M{"$subtract": []string{"$$e.served_at", "$$e.created_at"}},
+						"in":    bson.M{"$subtract": bson.A{"$$e.served_at", "$$e.created_at"}},
 					},
 				},
 			}},
@@ -816,6 +829,42 @@ func (s *Service) UnregisterHostFCM(ctx context.Context, queueID string) error {
 	return err
 }
 
+func (s *Service) ClearHostHistory(ctx context.Context, hostPublicID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// 1. Get all queue IDs for this host
+	cursor, err := s.queueCol.Find(ctx, bson.M{"host_public_id": hostPublicID})
+	if err != nil {
+		return err
+	}
+	defer cursor.Close(ctx)
+
+	var queueIDs []string
+	for cursor.Next(ctx) {
+		var q struct {
+			ID string `bson:"_id"`
+		}
+		if err := cursor.Decode(&q); err == nil {
+			queueIDs = append(queueIDs, q.ID)
+		}
+	}
+
+	// 2. Delete all entries for these queues
+	if len(queueIDs) > 0 {
+		_, _ = s.entryCol.DeleteMany(ctx, bson.M{"queue_id": bson.M{"$in": queueIDs}})
+	}
+
+	// 3. Delete all queues for this host
+	_, err = s.queueCol.DeleteMany(ctx, bson.M{"host_public_id": hostPublicID})
+	if err == nil {
+		// Invalidate cache
+		_ = s.redisRepo.InvalidateHistorySummary(ctx, hostPublicID)
+	}
+
+	return err
+}
+
 /**
  * RE-HYDRATION LOGIC
  * These methods recover Redis state from MongoDB in case of a Redis restart/wipe.
@@ -846,7 +895,7 @@ func (s *Service) ensureTicketCounter(ctx context.Context, queueID string) error
 	}
 
 	// Sync Redis with DB last known ticket
-	log.Info().Str("queue_id", queueID).Int64("last_num", lastNum).Msg("Redis: re-hydrated ticket counter from MongoDB")
+	log.Debug().Str("queue_id", queueID).Int64("last_num", lastNum).Msg("Redis: re-hydrated ticket counter from MongoDB")
 	return s.redisRepo.SetTicketCounter(ctx, queueID, lastNum)
 }
 

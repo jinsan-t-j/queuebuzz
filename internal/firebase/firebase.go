@@ -24,8 +24,8 @@ type Sender struct {
 	client *messaging.Client
 }
 
-// NewSender creates a singleton Sender initializing the Admin SDK.
-func NewSender(credentialsBase64 string) *Sender {
+// NewSender initializes the Firebase Admin SDK.
+func NewSender(credentialsBase64 string) NotificationSender {
 	credsJSON, err := base64.StdEncoding.DecodeString(credentialsBase64)
 	if err != nil {
 		log.Fatal().Err(err).Msg("FCM: failed to decode credentials from base64")

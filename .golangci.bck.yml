@@ -1,0 +1,24 @@
+run:
+  timeout: 5m
+  go: "1.25"
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - goimports
+    - ineffassign
+    - misspell
+    - nakedret
+    - revive
+    - staticcheck
+    - unconvert
+    - unused
+    - typecheck
+
+issues:
+  exclude-dirs:
+    - third_party
+    - builtin
+    - examples
+  exclude-use-default: true

@@ -73,6 +73,17 @@ func NewHandler(
 	}
 }
 
+func (h *Handler) toQueueResponse(ctx context.Context, queue domain.Queue) dto.QueueRecord {
+	var profileImg, bannerImg string
+	if queue.HostID != nil {
+		if host, err := h.hostService.FindByID(ctx, *queue.HostID); err == nil && host != nil {
+			profileImg = helpers.DerefString(host.ProfileImageURL)
+			bannerImg = helpers.DerefString(host.BannerImageURL)
+		}
+	}
+	return dto.ToQueueResponse(queue, profileImg, bannerImg)
+}
+
 // Create godoc
 // @Summary Create a new queue
 // @Description Creates a new queue for BOTH authenticated and anonymous host.
@@ -138,6 +149,7 @@ func (h *Handler) Create(c fiber.Ctx) error {
 			AllowPartyJoining: req.AllowPartyJoining,
 			MaxPartySize:      req.MaxPartySize,
 			RecoveryEmail:     req.RecoveryEmail,
+			CollectEmails:     req.CollectEmails,
 		})
 
 		if err == nil {
@@ -159,7 +171,7 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create queue: "+err.Error())
 	}
 
-	response := dto.ToQueueResponse(*queue)
+	response := h.toQueueResponse(c.Context(), *queue)
 
 	if hostID == "" {
 		token, err := h.authService.IssueAnonymousToken(c.Context(), queue.ID)
@@ -239,7 +251,7 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "live queue not found")
 	}
 
-	return helpers.NewSuccessResponse("Live queue fetched", dto.ToQueueResponse(*queue)).OK(c)
+	return helpers.NewSuccessResponse("Live queue fetched", h.toQueueResponse(c.Context(), *queue)).OK(c)
 }
 
 // GetLiveQueueByID godoc
@@ -269,7 +281,7 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden, "unauthorized access to this queue")
 	}
 
-	return helpers.NewSuccessResponse("Live queue fetched", dto.ToQueueResponse(*queue)).OK(c)
+	return helpers.NewSuccessResponse("Live queue fetched", h.toQueueResponse(c.Context(), *queue)).OK(c)
 }
 
 // Events godoc
@@ -286,7 +298,7 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /queue/{id}/events [get]
 func (h *Handler) StreamEvents(c fiber.Ctx) error {
-	queueID := c.Params("id")
+	queueID := strings.Clone(c.Params("id"))
 	if queueID == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "queue id is required")
 	}
@@ -340,7 +352,7 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /queue/{id}/events/public [get]
 func (h *Handler) PublicEvents(c fiber.Ctx) error {
-	queueID := c.Params("id")
+	queueID := strings.Clone(c.Params("id"))
 	if queueID == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "queue id is required")
 	}
@@ -421,6 +433,9 @@ func (h *Handler) Update(c fiber.Ctx) error {
 	if req.MaxPartySize != nil {
 		updates["max_party_size"] = *req.MaxPartySize
 	}
+	if req.CollectEmails != nil {
+		updates["collect_emails"] = *req.CollectEmails
+	}
 
 	if req.StrictQueueMode != nil {
 		updates["strict_queue_mode"] = *req.StrictQueueMode
@@ -439,7 +454,7 @@ func (h *Handler) Update(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helpers.NewSuccessResponse("Queue updated", dto.ToQueueResponse(*queue)).OK(c)
+	return helpers.NewSuccessResponse("Queue updated", h.toQueueResponse(c.Context(), *queue)).OK(c)
 }
 
 // ResumeQueue godoc
@@ -517,10 +532,10 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 	}
 
 	queueID := c.Params("id")
-	createdBy := c.Locals("host_id").(string)
+	createdBy, _ := c.Locals("host_id").(string)
 	if createdBy == "" {
 		// Fallback to queue_id for anonymous hosts so it's not empty
-		createdBy = c.Locals("queue_id").(string)
+		createdBy, _ = c.Locals("queue_id").(string)
 	}
 
 	entry := domain.Entry{
@@ -541,10 +556,15 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 	}
 
 	entryRecord := dto.ToEntryResponse(result.Entry, result.Position)
-	h.hostNotifierJob.DispatchUserJoined(result.Entry.QueueID, entryRecord)
-	h.posJob.Dispatch(result.Entry.QueueID)
+	h.hostNotifierJob.DispatchUserJoined(result.QueueID, entryRecord)
+	h.posJob.Dispatch(result.QueueID)
 
-	return helpers.NewSuccessResponse("Entry added", entryRecord).OK(c)
+	// Mask PII for the public response
+	maskedRecord := entryRecord
+	maskedRecord.Email = helpers.MaskEmail(entryRecord.Email)
+	maskedRecord.Phone = helpers.MaskPhone(entryRecord.Phone)
+
+	return helpers.NewSuccessResponse("Successfully joined the queue", maskedRecord).Created(c)
 }
 
 // CallEntry godoc
@@ -774,6 +794,19 @@ func (h *Handler) UnregisterHostFCM(c fiber.Ctx) error {
 	}
 
 	return helpers.NewSuccessResponse("Host FCM token unregistered", nil).OK(c)
+}
+
+func (h *Handler) ClearHistory(c fiber.Ctx) error {
+	hostPublicID, _ := c.Locals("host_public_id").(string)
+	if hostPublicID == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "host session not found")
+	}
+
+	if err := h.queueService.ClearHostHistory(c.Context(), hostPublicID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to clear history")
+	}
+
+	return helpers.NewSuccessResponse("History cleared successfully", nil).OK(c)
 }
 
 // GetDashboard godoc

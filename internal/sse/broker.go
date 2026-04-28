@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,7 +12,10 @@ import (
 )
 
 const (
-	subscriberBufSize = 8
+	// subscriberBufSize defines the per-subscriber channel capacity.
+	// A larger buffer (e.g. 64) prevents events from being dropped during bursts
+	// or when a client is slow to consume the stream (backpressure).
+	subscriberBufSize = 64
 	keepaliveInterval = 25 * time.Second
 )
 
@@ -74,13 +77,30 @@ func (b *Broker) Subscribe(topic string) (ch chan []byte, unsubscribe func()) {
 	return ch, unsubscribe
 }
 
+// Shutdown closes all active subscriber channels to force-terminate SSE streams.
+func (b *Broker) Shutdown() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for topic, chs := range b.subs {
+		for _, ch := range chs {
+			// Check if channel is already closed to avoid panic
+			select {
+			case <-ch:
+				// already closed or has data
+			default:
+				close(ch)
+			}
+		}
+		delete(b.subs, topic)
+	}
+}
+
 func (b *Broker) Publish(topic string, event []byte) {
 	frame, ok := b.buildFrame(event)
 	if !ok {
 		return
 	}
-
-	fmt.Println("Publishing to topic:", topic)
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -128,6 +148,11 @@ func (b *Broker) ServeHTTP(c fiber.Ctx, topic string, snapshot func() ([][]byte,
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
 	c.Set("X-Accel-Buffering", "no")
+
+	// Fiber strings (c.Params, c.Query) are reused after handler returns.
+	// We must clone the topic because it's used as a map key in Subscribe
+	// and accessed in the background by SendStreamWriter.
+	topic = strings.Clone(topic)
 
 	ch, unsub := b.Subscribe(topic)
 	done := c.Context().Done()

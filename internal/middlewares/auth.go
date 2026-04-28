@@ -1,21 +1,10 @@
 package middlewares
 
 import (
-	"queuebuzz/internal/log"
 	authservice "queuebuzz/internal/modules/auth/service"
 
 	"github.com/gofiber/fiber/v3"
 )
-
-var (
-	authService     *authservice.AuthService
-	authInitialized bool
-)
-
-func InitAuthMiddleware(svc *authservice.AuthService) {
-	authService = svc
-	authInitialized = true
-}
 
 func setAuthLocals(c fiber.Ctx, claims *authservice.QueueBuzzClaims, token string) {
 	c.Locals("claims", claims)
@@ -27,13 +16,8 @@ func setAuthLocals(c fiber.Ctx, claims *authservice.QueueBuzzClaims, token strin
 	c.Locals("raw_access_token", token)
 }
 
-func AuthMiddleware() fiber.Handler {
+func AuthMiddleware(authService *authservice.AuthService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		if !authInitialized {
-			log.Error().Msg("Auth middleware not initialized")
-			return c.SendStatus(fiber.StatusInternalServerError)
-		}
-
 		token := c.Cookies("access_token")
 		if token == "" {
 			token = c.Cookies("queuebuzz_host_token")
@@ -54,13 +38,8 @@ func AuthMiddleware() fiber.Handler {
 	}
 }
 
-func CustomerAuthMiddleware() fiber.Handler {
+func CustomerAuthMiddleware(authService *authservice.AuthService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		if !authInitialized {
-			log.Error().Msg("Auth middleware not initialized")
-			return c.SendStatus(fiber.StatusInternalServerError)
-		}
-
 		token := c.Cookies("guest_entry_token")
 		if token == "" {
 			return c.SendStatus(fiber.StatusUnauthorized)
@@ -77,12 +56,8 @@ func CustomerAuthMiddleware() fiber.Handler {
 	}
 }
 
-func OptionalCustomerAuthMiddleware() fiber.Handler {
+func OptionalCustomerAuthMiddleware(authService *authservice.AuthService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		if !authInitialized {
-			return c.Next()
-		}
-
 		token := c.Cookies("guest_entry_token")
 		if token == "" {
 			return c.Next()
@@ -99,12 +74,8 @@ func OptionalCustomerAuthMiddleware() fiber.Handler {
 	}
 }
 
-func OptionalAuthMiddleware() fiber.Handler {
+func OptionalAuthMiddleware(authService *authservice.AuthService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		if !authInitialized {
-			return c.Next()
-		}
-
 		token := c.Cookies("access_token")
 		if token == "" {
 			return c.Next()
@@ -121,12 +92,8 @@ func OptionalAuthMiddleware() fiber.Handler {
 	}
 }
 
-func HostAuthMiddleware() fiber.Handler {
+func HostAuthMiddleware(authService *authservice.AuthService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		if !authInitialized {
-			return c.Next()
-		}
-
 		token := c.Cookies("access_token")
 		if token == "" {
 			token = c.Cookies("queuebuzz_host_token")

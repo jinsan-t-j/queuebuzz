@@ -9,7 +9,11 @@ import (
 	hostservice "queuebuzz/internal/modules/host/service"
 	queueservice "queuebuzz/internal/modules/queue/service"
 	legacyservices "queuebuzz/internal/services"
+	"queuebuzz/internal/services/storage"
+	"strings"
 	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -20,15 +24,24 @@ type Handler struct {
 	redisService *legacyservices.RedisService
 	hostService  *hostservice.Service
 	queueService *queueservice.Service
+	r2Service    *storage.R2Service
 }
 
-func NewHandler(cfg *config.Config, authSvc *authservice.AuthService, redisSvc *legacyservices.RedisService, hostSvc *hostservice.Service, queueSvc *queueservice.Service) *Handler {
+func NewHandler(
+	cfg *config.Config,
+	authSvc *authservice.AuthService,
+	redisSvc *legacyservices.RedisService,
+	hostSvc *hostservice.Service,
+	queueSvc *queueservice.Service,
+	r2Svc *storage.R2Service,
+) *Handler {
 	return &Handler{
 		cfg:          cfg,
 		authService:  authSvc,
 		redisService: redisSvc,
 		hostService:  hostSvc,
 		queueService: queueSvc,
+		r2Service:    r2Svc,
 	}
 }
 
@@ -99,6 +112,7 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 	if hostID == "" {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
+
 	host, err := h.hostService.FindByID(c.Context(), hostID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound)
@@ -111,11 +125,126 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 	name := host.Name
 
 	return helpers.NewSuccessResponse("", dto.GetMeResponse{
-		ID:       host.ID,
-		PublicID: host.PublicID,
-		Name:     name,
-		Email:    email,
-		Tier:     host.Tier,
-		Avatar:   "",
+		ID:              host.ID,
+		PublicID:        host.PublicID,
+		Name:            name,
+		Email:           email,
+		Tier:            host.Tier,
+		Avatar:          "",
+		ProfileImageURL: helpers.DerefString(host.ProfileImageURL),
+		BannerImageURL:  helpers.DerefString(host.BannerImageURL),
 	}).OK(c)
+}
+
+func (h *Handler) UpdateMe(c fiber.Ctx) error {
+	hostID, _ := c.Locals("host_id").(string)
+	if hostID == "" {
+		return c.SendStatus(fiber.StatusUnauthorized)
+	}
+
+	var updates bson.M
+	if err := c.Bind().JSON(&updates); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+
+	// Filter out sensitive/internal fields from updates if necessary
+	delete(updates, "_id")
+	delete(updates, "id")
+	delete(updates, "public_id")
+	delete(updates, "created_at")
+
+	const maxImageBytes = 1024 * 1024 // 1MB
+	ctx := c.Context()
+
+	// Handle Profile Image
+	if v, ok := updates["profile_image_url"]; ok {
+		val, _ := v.(string)
+		if val == "" {
+			updates["profile_image_url"] = nil
+		} else if strings.HasPrefix(val, "data:") {
+			if err := validateImageDataURL(val, maxImageBytes); err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "profile image: "+err.Error())
+			}
+			data, contentType, err := ParseImageDataURL(val)
+			if err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "failed to parse profile image")
+			}
+			ext := ".png"
+			if strings.Contains(contentType, "jpeg") {
+				ext = ".jpg"
+			} else if strings.Contains(contentType, "webp") {
+				ext = ".webp"
+			} else if strings.Contains(contentType, "gif") {
+				ext = ".gif"
+			}
+			key := h.r2Service.GenerateKey(hostID, "profile", ext)
+			url, err := h.r2Service.Upload(ctx, key, data, contentType)
+			if err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "failed to upload profile image")
+			}
+			updates["profile_image_url"] = url
+		}
+	}
+
+	// Handle Banner Image
+	if v, ok := updates["banner_image_url"]; ok {
+		val, _ := v.(string)
+		if val == "" {
+			updates["banner_image_url"] = nil
+		} else if strings.HasPrefix(val, "data:") {
+			if err := validateImageDataURL(val, maxImageBytes); err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "banner image: "+err.Error())
+			}
+			data, contentType, err := ParseImageDataURL(val)
+			if err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "failed to parse banner image")
+			}
+			ext := ".png"
+			if strings.Contains(contentType, "jpeg") {
+				ext = ".jpg"
+			} else if strings.Contains(contentType, "webp") {
+				ext = ".webp"
+			} else if strings.Contains(contentType, "gif") {
+				ext = ".gif"
+			}
+			key := h.r2Service.GenerateKey(hostID, "banner", ext)
+			url, err := h.r2Service.Upload(ctx, key, data, contentType)
+			if err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "failed to upload banner image")
+			}
+			updates["banner_image_url"] = url
+		}
+	}
+
+	if err := h.hostService.UpdateHost(ctx, hostID, updates); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to update profile")
+	}
+
+	return helpers.NewSuccessResponse("Profile updated successfully", nil).OK(c)
+}
+
+func (h *Handler) DeleteMe(c fiber.Ctx) error {
+	hostID, _ := c.Locals("host_id").(string)
+	if hostID == "" {
+		return c.SendStatus(fiber.StatusUnauthorized)
+	}
+
+	if err := h.hostService.DeleteHost(c.Context(), hostID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to delete account")
+	}
+
+	for _, name := range []string{"access_token", "refresh_token"} {
+		c.Cookie(&fiber.Cookie{
+			Name:     name,
+			Value:    "",
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+			HTTPOnly: true,
+			Secure:   h.cfg.IsProduction(),
+			SameSite: "Lax",
+			Path:     "/",
+		})
+	}
+
+	return helpers.NewSuccessResponse("Account deleted successfully", nil).OK(c)
 }

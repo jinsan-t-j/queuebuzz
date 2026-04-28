@@ -170,6 +170,15 @@ func (n *QueueNotifier) absoluteURL(path string) string {
 }
 
 func (n *QueueNotifier) notifyHost(queueID, title, body string, data map[string]string) {
+	// Fiber v3 strings are reused; must clone before goroutine
+	queueID = strings.Clone(queueID)
+	title = strings.Clone(title)
+	body = strings.Clone(body)
+	safeData := make(map[string]string, len(data))
+	for k, v := range data {
+		safeData[strings.Clone(k)] = strings.Clone(v)
+	}
+
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -195,7 +204,7 @@ func (n *QueueNotifier) notifyHost(queueID, title, body string, data map[string]
 			"body":  body,
 			"link":  n.absoluteURL(hostLink),
 		}
-		for key, value := range data {
+		for key, value := range safeData {
 			payload[key] = value
 		}
 
@@ -215,6 +224,15 @@ func (n *QueueNotifier) notifyHost(queueID, title, body string, data map[string]
 }
 
 func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string]string) {
+	// Fiber v3 strings are reused; must clone before goroutine
+	entryID = strings.Clone(entryID)
+	title = strings.Clone(title)
+	body = strings.Clone(body)
+	safeData := make(map[string]string, len(data))
+	for k, v := range data {
+		safeData[strings.Clone(k)] = strings.Clone(v)
+	}
+
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -234,7 +252,7 @@ func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string
 			"title": title,
 			"body":  body,
 		}
-		for key, value := range data {
+		for key, value := range safeData {
 			payload[key] = value
 		}
 

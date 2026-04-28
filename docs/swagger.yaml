@@ -1,5 +1,14 @@
 basePath: /api
 definitions:
+  dto.ActiveQueueStats:
+    properties:
+      isActive:
+        type: boolean
+      queueName:
+        type: string
+      startedAt:
+        type: string
+    type: object
   dto.AddEntryRequest:
     properties:
       email:
@@ -17,6 +26,29 @@ definitions:
     required:
     - name
     type: object
+  dto.ChartDataPoint:
+    properties:
+      avgWait:
+        description: in seconds
+        type: integer
+      day:
+        type: string
+      isFuture:
+        type: boolean
+      isToday:
+        type: boolean
+      value:
+        type: integer
+    type: object
+  dto.CheckMethodRequest:
+    properties:
+      claim_queue_id:
+        type: string
+      email:
+        type: string
+    required:
+    - email
+    type: object
   dto.CheckSlugResponse:
     properties:
       is_available:
@@ -30,6 +62,8 @@ definitions:
         maximum: 60
         minimum: 1
         type: integer
+      collect_emails:
+        type: boolean
       max_party_size:
         maximum: 100
         minimum: 1
@@ -46,6 +80,46 @@ definitions:
         type: string
     required:
     - name
+    type: object
+  dto.DashboardData:
+    properties:
+      activeQueue:
+        $ref: '#/definitions/dto.ActiveQueueStats'
+      droppedSkipped:
+        items:
+          $ref: '#/definitions/dto.HeatmapPoint'
+        type: array
+      greeting:
+        $ref: '#/definitions/dto.GreetingData'
+      peakHours:
+        items:
+          $ref: '#/definitions/dto.PeakHourPoint'
+        type: array
+      quickSetup:
+        $ref: '#/definitions/dto.QuickSetupData'
+      recentSessions:
+        items:
+          $ref: '#/definitions/dto.RecentSession'
+        type: array
+      returnRate:
+        $ref: '#/definitions/dto.ReturnRateStats'
+      stats:
+        $ref: '#/definitions/dto.DashboardStats'
+      weekChart:
+        items:
+          $ref: '#/definitions/dto.ChartDataPoint'
+        type: array
+    type: object
+  dto.DashboardStats:
+    properties:
+      avgWait:
+        type: string
+      peakWait:
+        type: integer
+      servedToday:
+        type: integer
+      skipped:
+        type: integer
     type: object
   dto.EntryRecord:
     properties:
@@ -84,16 +158,41 @@ definitions:
     properties:
       avatar:
         type: string
+      banner_image_url:
+        type: string
       email:
         type: string
       id:
         type: string
       name:
         type: string
+      profile_image_url:
+        type: string
       public_id:
         type: string
       tier:
         type: string
+    type: object
+  dto.GreetingData:
+    properties:
+      name:
+        type: string
+    type: object
+  dto.HeatmapPoint:
+    properties:
+      day:
+        type: integer
+      hour:
+        type: integer
+      value:
+        type: integer
+    type: object
+  dto.PeakHourPoint:
+    properties:
+      hour:
+        type: string
+      value:
+        type: integer
     type: object
   dto.QueueRecord:
     properties:
@@ -101,9 +200,15 @@ definitions:
         type: boolean
       avg_service_mins:
         type: integer
+      collect_emails:
+        type: boolean
       created_at:
         type: string
       expires_at:
+        type: string
+      host_banner_image_url:
+        type: string
+      host_profile_image_url:
         type: string
       id:
         type: string
@@ -113,6 +218,8 @@ definitions:
         type: integer
       name:
         type: string
+      notes:
+        type: string
       recovery_email:
         type: string
       slug:
@@ -121,10 +228,74 @@ definitions:
         type: string
       strict_queue_mode:
         type: boolean
+      updated_at:
+        type: string
+    type: object
+  dto.QuickSetupData:
+    properties:
+      show:
+        type: boolean
+      steps:
+        items:
+          $ref: '#/definitions/dto.QuickSetupStep'
+        type: array
+    type: object
+  dto.QuickSetupStep:
+    properties:
+      isDone:
+        type: boolean
+      label:
+        type: string
+      sub:
+        type: string
+    type: object
+  dto.RecentSession:
+    properties:
+      date:
+        type: string
+      duration:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      served:
+        type: integer
+    type: object
+  dto.ReturnRatePoint:
+    properties:
+      day:
+        type: string
+      rate:
+        type: number
+    type: object
+  dto.ReturnRateQueue:
+    properties:
+      label:
+        type: string
+      rate:
+        type: number
+    type: object
+  dto.ReturnRateStats:
+    properties:
+      byQueue:
+        items:
+          $ref: '#/definitions/dto.ReturnRateQueue'
+        type: array
+      chartData:
+        items:
+          $ref: '#/definitions/dto.ReturnRatePoint'
+        type: array
+      hasData:
+        type: boolean
+      returningCount:
+        type: integer
     type: object
   dto.UpdateEntryRequest:
     properties:
       email:
+        type: string
+      fcm_token:
         type: string
       name:
         minLength: 2
@@ -142,6 +313,8 @@ definitions:
         maximum: 60
         minimum: 1
         type: integer
+      collect_emails:
+        type: boolean
       max_party_size:
         maximum: 100
         minimum: 1
@@ -149,6 +322,9 @@ definitions:
       name:
         maxLength: 50
         minLength: 3
+        type: string
+      notes:
+        maxLength: 5000
         type: string
       recovery_email:
         type: string
@@ -163,13 +339,6 @@ definitions:
     properties:
       data: {}
       message:
-        type: string
-    type: object
-  queuebuzz_internal_modules_auth_dto.RegisterRequest:
-    properties:
-      email:
-        type: string
-      phone:
         type: string
     type: object
   sse.Message:
@@ -190,6 +359,39 @@ info:
   title: QueueBuzz API
   version: "1.0"
 paths:
+  /api/v1/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Handles authentication entry point. If the email is social-linked,
+        redirects to provider. If not, sends a magic link.
+      parameters:
+      - description: Authentication request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CheckMethodRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Magic link sent
+          schema:
+            $ref: '#/definitions/helpers.SuccessResponse'
+        "302":
+          description: Redirect to social provider
+          schema:
+            type: string
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Login or Register via email
+      tags:
+      - Auth
   /api/v1/auth/logout:
     post:
       description: Clears host auth cookies and revokes the refresh token if present
@@ -221,40 +423,6 @@ paths:
               type: string
             type: object
       summary: Refresh access token
-      tags:
-      - Auth
-  /api/v1/auth/register:
-    post:
-      consumes:
-      - application/json
-      description: Triggers Magic Link (email) or OTP (phone) for host registration
-      parameters:
-      - description: Register host request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/queuebuzz_internal_modules_auth_dto.RegisterRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Magic link sent. Check your email.
-          schema:
-            $ref: '#/definitions/helpers.SuccessResponse'
-        "400":
-          description: Invalid request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal server error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Register a Host
       tags:
       - Auth
   /auth/social/{provider}/callback:
@@ -442,6 +610,95 @@ paths:
       summary: Stream events for an entry
       tags:
       - Entry
+  /entry/confirm:
+    post:
+      description: Transition from IDLE back to WAITING status when customer confirms
+        presence.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Confirm still here (Recovery)
+      tags:
+      - Entry
+  /entry/confirm-arrived:
+    post:
+      description: Confirms arrival for the currently authenticated entry.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully confirmed arrival
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Confirm arrived
+      tags:
+      - Entry
+  /entry/finish:
+    post:
+      description: Marks the currently authenticated entry as served and clears the
+        session.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully finished service
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Finish service (Guest self-serve)
+      tags:
+      - Entry
   /entry/join-by-code/{code}:
     get:
       description: Joins the queue using a 6-character code.
@@ -502,6 +759,31 @@ paths:
               type: string
             type: object
       summary: Join queue by ID
+      tags:
+      - Entry
+  /entry/recover-session:
+    get:
+      description: Recovers the session for the currently authenticated entry.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Session recovered
+          schema:
+            $ref: '#/definitions/dto.EntryRecord'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Recover session
       tags:
       - Entry
   /entry/update:
@@ -918,6 +1200,50 @@ paths:
       summary: Pause a queue
       tags:
       - Queue
+  /queue/{id}/register-fcm:
+    post:
+      description: Registers the host's FCM token for push notifications.
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: FCM Token
+        in: body
+        name: token
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: FCM token registered
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register host FCM token
+      tags:
+      - Queue
   /queue/{id}/resume:
     post:
       description: Resumes the live queue for the authenticated host.
@@ -998,6 +1324,44 @@ paths:
       summary: Serve a new entry to the queue
       tags:
       - Queue
+  /queue/{id}/unregister-fcm:
+    post:
+      description: Unregisters the host's FCM token for push notifications.
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: FCM token unregistered
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Unregister host FCM token
+      tags:
+      - Queue
   /queue/create:
     post:
       description: Creates a new queue for BOTH authenticated and anonymous host.
@@ -1046,6 +1410,36 @@ paths:
       summary: Create a new queue
       tags:
       - Queue
+  /queue/dashboard:
+    get:
+      description: Gets real-time and historical metrics for the host dashboard.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  $ref: '#/definitions/dto.DashboardData'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get dashboard metrics
+      tags:
+      - Dashboard
   /queue/live:
     get:
       description: Gets the live queue for the authenticated host.

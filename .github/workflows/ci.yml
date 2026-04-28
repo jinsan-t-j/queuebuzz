@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_call:
@@ -14,15 +16,38 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  quality-gates:
-    name: Lint · Test · Build
+  lint:
+    name: Lint
     if: github.event_name == 'workflow_call' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ inputs.go-version-file || 'go.mod' }}
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+  test:
+    name: Test
+    if: github.event_name == 'workflow_call' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
@@ -34,25 +59,50 @@ jobs:
         run: go mod verify
 
       - name: Check for untidy modules
-        # Ensures go.mod and go.sum are fully tidied and match what's committed
         run: |
           go mod tidy
-          git diff --exit-code go.mod go.sum
+          if [ -n "$(git status --porcelain go.mod go.sum)" ]; then
+            echo "❌ Go modules are untidy."
+            echo "👉 Please run 'go mod tidy' locally and commit the changes in 'go.mod' and 'go.sum'."
+            git diff go.mod go.sum
+            exit 1
+          fi
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          install-mode: goinstall
+      - name: Run all tests
+        run: |
+          go install gotest.tools/gotestsum@latest
+          $(go env GOPATH)/bin/gotestsum --format pkgname-and-test-fails -- -v -race -timeout 15m -coverpkg=./internal/... -coverprofile=coverage.out -covermode=atomic ./...
+        env:
+          APP_ENV: test
 
-      - name: Test
-        run: go test -v -race -coverprofile=coverage.out ./...
-
-      - name: Build check
-        run: go build -o /dev/null ./main.go
+      - name: Verify Swagger docs
+        run: |
+          go install github.com/swaggo/swag/cmd/swag@latest
+          swag init -g main.go -o docs --parseDependency --parseInternal
+          if [ -n "$(git status --porcelain docs/)" ]; then
+            echo "❌ Swagger documentation is out of sync with the code."
+            echo "👉 Please run 'swag init -g main.go -o docs --parseDependency --parseInternal' locally and commit the changes in the 'docs/' directory."
+            git diff docs/
+            exit 1
+          fi
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
           name: coverage
           path: coverage.out
+
+  build:
+    name: Build Check
+    if: github.event_name == 'workflow_call' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ inputs.go-version-file || 'go.mod' }}
+          cache: true
+
+      - name: Build binary
+        run: go build -v -o /dev/null ./main.go

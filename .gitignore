@@ -6,6 +6,9 @@
 
 .env
 .env.*
+!test.env
 
 main
 workflows/build-queuebuzz-backend.md
+coverage.out
+*.code-workspace

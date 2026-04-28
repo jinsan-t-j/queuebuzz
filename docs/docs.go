@@ -22,6 +22,55 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/auth/login": {
+            "post": {
+                "description": "Handles authentication entry point. If the email is social-linked, redirects to provider. If not, sends a magic link.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Login or Register via email",
+                "parameters": [
+                    {
+                        "description": "Authentication request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.CheckMethodRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Magic link sent",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.SuccessResponse"
+                        }
+                    },
+                    "302": {
+                        "description": "Redirect to social provider",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/logout": {
             "post": {
                 "description": "Clears host auth cookies and revokes the refresh token if present",
@@ -61,58 +110,6 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/auth/register": {
-            "post": {
-                "description": "Triggers Magic Link (email) or OTP (phone) for host registration",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Auth"
-                ],
-                "summary": "Register a Host",
-                "parameters": [
-                    {
-                        "description": "Register host request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/queuebuzz_internal_modules_auth_dto.RegisterRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Magic link sent. Check your email.",
-                        "schema": {
-                            "$ref": "#/definitions/helpers.SuccessResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -305,6 +302,138 @@ const docTemplate = `{
                 }
             }
         },
+        "/entry/confirm": {
+            "post": {
+                "description": "Transition from IDLE back to WAITING status when customer confirms presence.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Entry"
+                ],
+                "summary": "Confirm still here (Recovery)",
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/entry/confirm-arrived": {
+            "post": {
+                "description": "Confirms arrival for the currently authenticated entry.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Entry"
+                ],
+                "summary": "Confirm arrived",
+                "responses": {
+                    "200": {
+                        "description": "Successfully confirmed arrival",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/entry/finish": {
+            "post": {
+                "description": "Marks the currently authenticated entry as served and clears the session.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Entry"
+                ],
+                "summary": "Finish service (Guest self-serve)",
+                "responses": {
+                    "200": {
+                        "description": "Successfully finished service",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/entry/join-by-code/{code}": {
             "get": {
                 "description": "Joins the queue using a 6-character code.",
@@ -389,6 +518,44 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/entry/recover-session": {
+            "get": {
+                "description": "Recovers the session for the currently authenticated entry.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Entry"
+                ],
+                "summary": "Recover session",
+                "responses": {
+                    "200": {
+                        "description": "Session recovered",
+                        "schema": {
+                            "$ref": "#/definitions/dto.EntryRecord"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -692,6 +859,56 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/queue/dashboard": {
+            "get": {
+                "description": "Gets real-time and historical metrics for the host dashboard.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "Get dashboard metrics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/helpers.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "Data": {
+                                            "$ref": "#/definitions/dto.DashboardData"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1328,6 +1545,72 @@ const docTemplate = `{
                 }
             }
         },
+        "/queue/{id}/register-fcm": {
+            "post": {
+                "description": "Registers the host's FCM token for push notifications.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Register host FCM token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "FCM Token",
+                        "name": "token",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "FCM token registered",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/queue/{id}/resume": {
             "post": {
                 "description": "Resumes the live queue for the authenticated host.",
@@ -1447,9 +1730,80 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/queue/{id}/unregister-fcm": {
+            "post": {
+                "description": "Unregisters the host's FCM token for push notifications.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Unregister host FCM token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "FCM token unregistered",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "dto.ActiveQueueStats": {
+            "type": "object",
+            "properties": {
+                "isActive": {
+                    "type": "boolean"
+                },
+                "queueName": {
+                    "type": "string"
+                },
+                "startedAt": {
+                    "type": "string"
+                }
+            }
+        },
         "dto.AddEntryRequest": {
             "type": "object",
             "required": [
@@ -1470,6 +1824,41 @@ const docTemplate = `{
                     "minimum": 1
                 },
                 "phone": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.ChartDataPoint": {
+            "type": "object",
+            "properties": {
+                "avgWait": {
+                    "description": "in seconds",
+                    "type": "integer"
+                },
+                "day": {
+                    "type": "string"
+                },
+                "isFuture": {
+                    "type": "boolean"
+                },
+                "isToday": {
+                    "type": "boolean"
+                },
+                "value": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dto.CheckMethodRequest": {
+            "type": "object",
+            "required": [
+                "email"
+            ],
+            "properties": {
+                "claim_queue_id": {
+                    "type": "string"
+                },
+                "email": {
                     "type": "string"
                 }
             }
@@ -1496,6 +1885,9 @@ const docTemplate = `{
                     "maximum": 60,
                     "minimum": 1
                 },
+                "collect_emails": {
+                    "type": "boolean"
+                },
                 "max_party_size": {
                     "type": "integer",
                     "maximum": 100,
@@ -1513,6 +1905,67 @@ const docTemplate = `{
                     "type": "string",
                     "maxLength": 20,
                     "minLength": 3
+                }
+            }
+        },
+        "dto.DashboardData": {
+            "type": "object",
+            "properties": {
+                "activeQueue": {
+                    "$ref": "#/definitions/dto.ActiveQueueStats"
+                },
+                "droppedSkipped": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.HeatmapPoint"
+                    }
+                },
+                "greeting": {
+                    "$ref": "#/definitions/dto.GreetingData"
+                },
+                "peakHours": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.PeakHourPoint"
+                    }
+                },
+                "quickSetup": {
+                    "$ref": "#/definitions/dto.QuickSetupData"
+                },
+                "recentSessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.RecentSession"
+                    }
+                },
+                "returnRate": {
+                    "$ref": "#/definitions/dto.ReturnRateStats"
+                },
+                "stats": {
+                    "$ref": "#/definitions/dto.DashboardStats"
+                },
+                "weekChart": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.ChartDataPoint"
+                    }
+                }
+            }
+        },
+        "dto.DashboardStats": {
+            "type": "object",
+            "properties": {
+                "avgWait": {
+                    "type": "string"
+                },
+                "peakWait": {
+                    "type": "integer"
+                },
+                "servedToday": {
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "integer"
                 }
             }
         },
@@ -1572,6 +2025,9 @@ const docTemplate = `{
                 "avatar": {
                     "type": "string"
                 },
+                "banner_image_url": {
+                    "type": "string"
+                },
                 "email": {
                     "type": "string"
                 },
@@ -1581,11 +2037,47 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "profile_image_url": {
+                    "type": "string"
+                },
                 "public_id": {
                     "type": "string"
                 },
                 "tier": {
                     "type": "string"
+                }
+            }
+        },
+        "dto.GreetingData": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.HeatmapPoint": {
+            "type": "object",
+            "properties": {
+                "day": {
+                    "type": "integer"
+                },
+                "hour": {
+                    "type": "integer"
+                },
+                "value": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dto.PeakHourPoint": {
+            "type": "object",
+            "properties": {
+                "hour": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "integer"
                 }
             }
         },
@@ -1598,10 +2090,19 @@ const docTemplate = `{
                 "avg_service_mins": {
                     "type": "integer"
                 },
+                "collect_emails": {
+                    "type": "boolean"
+                },
                 "created_at": {
                     "type": "string"
                 },
                 "expires_at": {
+                    "type": "string"
+                },
+                "host_banner_image_url": {
+                    "type": "string"
+                },
+                "host_profile_image_url": {
                     "type": "string"
                 },
                 "id": {
@@ -1616,6 +2117,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "notes": {
+                    "type": "string"
+                },
                 "recovery_email": {
                     "type": "string"
                 },
@@ -1627,6 +2131,102 @@ const docTemplate = `{
                 },
                 "strict_queue_mode": {
                     "type": "boolean"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.QuickSetupData": {
+            "type": "object",
+            "properties": {
+                "show": {
+                    "type": "boolean"
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.QuickSetupStep"
+                    }
+                }
+            }
+        },
+        "dto.QuickSetupStep": {
+            "type": "object",
+            "properties": {
+                "isDone": {
+                    "type": "boolean"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "sub": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.RecentSession": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "duration": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "served": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dto.ReturnRatePoint": {
+            "type": "object",
+            "properties": {
+                "day": {
+                    "type": "string"
+                },
+                "rate": {
+                    "type": "number"
+                }
+            }
+        },
+        "dto.ReturnRateQueue": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "rate": {
+                    "type": "number"
+                }
+            }
+        },
+        "dto.ReturnRateStats": {
+            "type": "object",
+            "properties": {
+                "byQueue": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.ReturnRateQueue"
+                    }
+                },
+                "chartData": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.ReturnRatePoint"
+                    }
+                },
+                "hasData": {
+                    "type": "boolean"
+                },
+                "returningCount": {
+                    "type": "integer"
                 }
             }
         },
@@ -1634,6 +2234,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "email": {
+                    "type": "string"
+                },
+                "fcm_token": {
                     "type": "string"
                 },
                 "name": {
@@ -1658,6 +2261,9 @@ const docTemplate = `{
                     "maximum": 60,
                     "minimum": 1
                 },
+                "collect_emails": {
+                    "type": "boolean"
+                },
                 "max_party_size": {
                     "type": "integer",
                     "maximum": 100,
@@ -1667,6 +2273,10 @@ const docTemplate = `{
                     "type": "string",
                     "maxLength": 50,
                     "minLength": 3
+                },
+                "notes": {
+                    "type": "string",
+                    "maxLength": 5000
                 },
                 "recovery_email": {
                     "type": "string"
@@ -1686,17 +2296,6 @@ const docTemplate = `{
             "properties": {
                 "data": {},
                 "message": {
-                    "type": "string"
-                }
-            }
-        },
-        "queuebuzz_internal_modules_auth_dto.RegisterRequest": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "phone": {
                     "type": "string"
                 }
             }

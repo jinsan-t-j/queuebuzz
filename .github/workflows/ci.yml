@@ -22,7 +22,6 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  NODE_TLS_REJECT_UNAUTHORIZED: 0
 
 jobs:
   lint:
@@ -30,13 +29,6 @@ jobs:
     if: github.event_name == 'workflow_call' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      - name: Set Go environment for act
-        if: env.ACT == 'true'
-        run: |
-          echo "GOPROXY=direct" >> $GITHUB_ENV
-          echo "GOSUMDB=off" >> $GITHUB_ENV
-          echo "GOINSECURE=proxy.golang.org,github.com,cel.dev" >> $GITHUB_ENV
-
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
@@ -45,24 +37,15 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        if: env.ACT != 'true' # Skip in act due to TLS schema download issues
         uses: golangci/golangci-lint-action@v9
         with:
           version: latest
-          args: --skip-config-verify
 
   test:
     name: Test
     if: github.event_name == 'workflow_call' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      - name: Set Go environment for act
-        if: env.ACT == 'true'
-        run: |
-          echo "GOPROXY=direct" >> $GITHUB_ENV
-          echo "GOSUMDB=off" >> $GITHUB_ENV
-          echo "GOINSECURE=proxy.golang.org,github.com,cel.dev" >> $GITHUB_ENV
-
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
@@ -71,30 +54,25 @@ jobs:
           cache: true
 
       - name: Verify dependencies
-        if: env.ACT != 'true' # Skip in act due to TLS proxy issues
         run: go mod verify
 
       - name: Check for untidy modules
-        if: env.ACT != 'true'
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
 
       - name: Run all tests
-        if: env.ACT != 'true'
         run: go test -v -race -timeout 15m -coverpkg=./internal/... -coverprofile=coverage.out -covermode=atomic ./...
         env:
           APP_ENV: test
 
       - name: Verify Swagger docs
-        if: env.ACT != 'true'
         run: |
           go install github.com/swaggo/swag/cmd/swag@latest
           swag init -g main.go -o docs --parseDependency --parseInternal
           git diff --exit-code docs/
 
       - name: Upload coverage report
-        if: env.ACT != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage
@@ -105,13 +83,6 @@ jobs:
     if: github.event_name == 'workflow_call' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      - name: Set Go environment for act
-        if: env.ACT == 'true'
-        run: |
-          echo "GOPROXY=direct" >> $GITHUB_ENV
-          echo "GOSUMDB=off" >> $GITHUB_ENV
-          echo "GOINSECURE=proxy.golang.org,github.com,cel.dev" >> $GITHUB_ENV
-
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
@@ -120,5 +91,4 @@ jobs:
           cache: true
 
       - name: Build binary
-        if: env.ACT != 'true'
         run: go build -v -o /dev/null ./main.go

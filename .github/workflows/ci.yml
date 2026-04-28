@@ -47,13 +47,13 @@ jobs:
     runs-on: ubuntu-latest
     services:
       minio:
-        image: minio/minio
+        image: bitnami/minio:latest
         ports:
           - 9000:9000
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
-        options: --entrypoint sh -c "minio server /data"
+          MINIO_DEFAULT_BUCKETS: queuebuzz-test
 
     steps:
       - uses: actions/checkout@v4

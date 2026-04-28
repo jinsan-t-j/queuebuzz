@@ -76,7 +76,6 @@ func (s *R2Service) GenerateKey(hostID, purpose, ext string) string {
 	// Format: hosts/<host_id>/<purpose>.<ext>
 	// Using a fixed name per purpose ensures that re-uploads overwrite the same key,
 	// but we'll use cache busting in the URL if needed, or rely on CDN invalidation.
-	// Actually, the user said "invalidate on update".
 	return fmt.Sprintf("hosts/%s/%s%s", hostID, purpose, ext)
 }
 

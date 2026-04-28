@@ -1,7 +1,6 @@
 package http
 
 import (
-	"fmt"
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
@@ -178,7 +177,7 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 			} else if strings.Contains(contentType, "gif") {
 				ext = ".gif"
 			}
-			key := h.r2Service.GenerateKey(hostID, fmt.Sprintf("profile_%d", time.Now().Unix()), ext)
+			key := h.r2Service.GenerateKey(hostID, "profile", ext)
 			url, err := h.r2Service.Upload(ctx, key, data, contentType)
 			if err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "failed to upload profile image")
@@ -208,7 +207,7 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 			} else if strings.Contains(contentType, "gif") {
 				ext = ".gif"
 			}
-			key := h.r2Service.GenerateKey(hostID, fmt.Sprintf("banner_%d", time.Now().Unix()), ext)
+			key := h.r2Service.GenerateKey(hostID, "banner", ext)
 			url, err := h.r2Service.Upload(ctx, key, data, contentType)
 			if err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "failed to upload banner image")

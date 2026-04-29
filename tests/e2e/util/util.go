@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"queuebuzz/tests/e2e/setup"
 	"strings"
 	"testing"
@@ -185,6 +187,48 @@ func PATCH(s *setup.TestSuite, path string, body any, cookies ...*http.Cookie) (
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequest(http.MethodPatch, s.BaseURL+path, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	return s.Do(req)
+}
+
+// toFormData converts fields and files into a multipart buffer and returns the content type.
+func toFormData(fields map[string]string, files map[string][]byte) (*bytes.Buffer, string, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	for k, v := range fields {
+		_ = writer.WriteField(k, v)
+	}
+
+	for k, v := range files {
+		h := make(textproto.MIMEHeader)
+		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s.png"`, k, k))
+		h.Set("Content-Type", "image/png")
+		part, err := writer.CreatePart(h)
+		if err != nil {
+			return nil, "", err
+		}
+		_, _ = part.Write(v)
+	}
+
+	_ = writer.Close()
+	return body, writer.FormDataContentType(), nil
+}
+
+// PATCHForm sends a multipart/form-data PATCH request.
+func PATCHForm(s *setup.TestSuite, path string, fields map[string]string, files map[string][]byte, cookies ...*http.Cookie) (*http.Response, error) {
+	body, contentType, err := toFormData(fields, files)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, s.BaseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", contentType)
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}

@@ -305,6 +305,16 @@ definitions:
         minimum: 1
         type: integer
     type: object
+  dto.UpdateMeRequest:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      settings:
+        additionalProperties: true
+        type: object
+    type: object
   dto.UpdateQueueRequest:
     properties:
       allow_party_joining:
@@ -869,6 +879,44 @@ paths:
               type: string
             type: object
       summary: Get authenticated host
+      tags:
+      - Host
+    patch:
+      description: Updates the authenticated host profile.
+      parameters:
+      - description: Host profile updates
+        in: body
+        name: host
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateMeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated Host profile
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update authenticated host
       tags:
       - Host
   /queue/{id}:

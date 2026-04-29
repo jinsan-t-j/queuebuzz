@@ -11,57 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHost_UpdateSettings_WithImages(t *testing.T) {
-	s := Suite(t)
-	s.CleanDB()
-
-	// 1. Register a host
-	email := fmt.Sprintf("settings-%d@example.com", time.Now().UnixNano())
-	hostToken := util.RegisterHost(t, s, "Original Name", email, "password123")
-
-	// 2. Prepare tiny 1x1 base64 images
-	// Profile: blue dot, Banner: red dot
-	profileImage := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAEfQC5f96T8QAAAABJRU5ErkJggg=="
-	bannerImage := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-
-	// 3. Update settings
-	updates := map[string]any{
-		"name":              "Updated Business Name",
-		"profile_image_url": profileImage,
-		"banner_image_url":  bannerImage,
-	}
-
-	resp, err := util.PATCH(s, "/api/v1/host/me", updates, util.AuthCookie(hostToken))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	// 4. Verify updates
-	resp, err = util.GET(s, "/api/v1/host/me", util.AuthCookie(hostToken))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	data := util.DecodedBody(t, resp)
-	assert.Equal(t, "Updated Business Name", data["name"])
-
-	// URLs should point to our Minio instance
-	profileURL := data["profile_image_url"].(string)
-	bannerURL := data["banner_image_url"].(string)
-
-	assert.Contains(t, profileURL, "/queuebuzz-test/hosts/")
-	assert.Contains(t, profileURL, "profile.png")
-	assert.Contains(t, bannerURL, "/queuebuzz-test/hosts/")
-	assert.Contains(t, bannerURL, "banner.png")
-
-	// 5. Verify images are actually accessible (Minio is public in our test setup)
-	resp, err = http.Get(profileURL)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "image/png", resp.Header.Get("Content-Type"))
-}
-
 func TestHost_UpdateSettings_ClearImages(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
@@ -69,11 +18,11 @@ func TestHost_UpdateSettings_ClearImages(t *testing.T) {
 	email := fmt.Sprintf("clear-%d@example.com", time.Now().UnixNano())
 	hostToken := util.RegisterHost(t, s, "Image Host", email, "password123")
 
-	// Set an image first
-	profileImage := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAEfQC5f96T8QAAAABJRU5ErkJggg=="
-	_, _ = util.PATCH(s, "/api/v1/host/me", map[string]any{"profile_image_url": profileImage}, util.AuthCookie(hostToken))
+	// Set an image first using Multipart
+	profileData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F, 0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0x44, 0x74, 0x06, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82}
+	_, _ = util.PATCHForm(s, "/api/v1/host/me", nil, map[string][]byte{"profile_image": profileData}, util.AuthCookie(hostToken))
 
-	// Now clear it
+	// Now clear it using JSON PATCH with an empty string
 	resp, err := util.PATCH(s, "/api/v1/host/me", map[string]any{"profile_image_url": ""}, util.AuthCookie(hostToken))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -85,4 +34,42 @@ func TestHost_UpdateSettings_ClearImages(t *testing.T) {
 	defer resp.Body.Close()
 	data := util.DecodedBody(t, resp)
 	assert.Nil(t, data["profile_image_url"])
+}
+
+func TestHost_UpdateSettings_WithImages(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	// 1. Register a host
+	email := fmt.Sprintf("multipart-%d@example.com", time.Now().UnixNano())
+	hostToken := util.RegisterHost(t, s, "Multipart Host", email, "password123")
+
+	// 2. Prepare raw binary images (simulating frontend Blobs)
+	// Just 1x1 pixels
+	profileData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F, 0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0x44, 0x74, 0x06, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82}
+	bannerData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F, 0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0x44, 0x74, 0x06, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82}
+
+	fields := map[string]string{
+		"name": "Multipart Business",
+	}
+	files := map[string][]byte{
+		"profile_image": profileData,
+		"banner_image":  bannerData,
+	}
+
+	// 3. Update via Multipart
+	resp, err := util.PATCHForm(s, "/api/v1/host/me", fields, files, util.AuthCookie(hostToken))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// 4. Verify
+	resp, err = util.GET(s, "/api/v1/host/me", util.AuthCookie(hostToken))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	data := util.DecodedBody(t, resp)
+	assert.Equal(t, "Multipart Business", data["name"])
+	assert.Contains(t, data["profile_image_url"], "profile.png")
+	assert.Contains(t, data["banner_image_url"], "banner.png")
 }

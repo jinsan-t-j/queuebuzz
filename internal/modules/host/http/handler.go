@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
@@ -136,18 +137,52 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 	}).OK(c)
 }
 
+// UpdateMe godoc
+// @Summary Update authenticated host
+// @Description Updates the authenticated host profile.
+// @Tags Host
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Updated Host profile"
+// @Param host body dto.UpdateMeRequest true "Host profile updates"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /host/me [patch]
 func (h *Handler) UpdateMe(c fiber.Ctx) error {
 	hostID, _ := c.Locals("host_id").(string)
 	if hostID == "" {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
-	var updates bson.M
-	if err := c.Bind().JSON(&updates); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	var updates = make(bson.M)
+	contentType := c.Get("Content-Type")
+
+	// 1. Parse Primary Payload
+	if strings.Contains(contentType, fiber.MIMEApplicationJSON) {
+		if err := c.Bind().JSON(&updates); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+		}
+	} else if strings.Contains(contentType, fiber.MIMEMultipartForm) {
+		// Handle multipart form fields
+		form, err := c.MultipartForm()
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "failed to parse form data")
+		}
+		for k, v := range form.Value {
+			if len(v) > 0 {
+				if k == "settings" {
+					var settings bson.M
+					if err := json.Unmarshal([]byte(v[0]), &settings); err == nil {
+						updates["settings"] = settings
+					}
+				} else {
+					updates[k] = v[0]
+				}
+			}
+		}
 	}
 
-	// Filter out sensitive/internal fields from updates if necessary
+	// Filter internal fields
 	delete(updates, "_id")
 	delete(updates, "id")
 	delete(updates, "public_id")
@@ -156,63 +191,52 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 	const maxImageBytes = 1024 * 1024 // 1MB
 	ctx := c.Context()
 
-	// Handle Profile Image
-	if v, ok := updates["profile_image_url"]; ok {
-		val, _ := v.(string)
-		if val == "" {
-			updates["profile_image_url"] = nil
-		} else if strings.HasPrefix(val, "data:") {
-			if err := validateImageDataURL(val, maxImageBytes); err != nil {
-				return fiber.NewError(fiber.StatusBadRequest, "profile image: "+err.Error())
-			}
-			data, contentType, err := ParseImageDataURL(val)
-			if err != nil {
-				return fiber.NewError(fiber.StatusBadRequest, "failed to parse profile image")
-			}
-			ext := ".png"
-			if strings.Contains(contentType, "jpeg") {
-				ext = ".jpg"
-			} else if strings.Contains(contentType, "webp") {
-				ext = ".webp"
-			} else if strings.Contains(contentType, "gif") {
-				ext = ".gif"
-			}
-			key := h.r2Service.GenerateKey(hostID, "profile", ext)
-			url, err := h.r2Service.Upload(ctx, key, data, contentType)
-			if err != nil {
-				return fiber.NewError(fiber.StatusInternalServerError, "failed to upload profile image")
-			}
-			updates["profile_image_url"] = url
-		}
+	// 2. Process Images (Multipart Files take priority over Base64)
+	imageFields := []struct {
+		formName  string
+		dbField   string
+		typeLabel string
+	}{
+		{"profile_image", "profile_image_url", "profile"},
+		{"banner_image", "banner_image_url", "banner"},
 	}
 
-	// Handle Banner Image
-	if v, ok := updates["banner_image_url"]; ok {
-		val, _ := v.(string)
-		if val == "" {
-			updates["banner_image_url"] = nil
-		} else if strings.HasPrefix(val, "data:") {
-			if err := validateImageDataURL(val, maxImageBytes); err != nil {
-				return fiber.NewError(fiber.StatusBadRequest, "banner image: "+err.Error())
+	for _, field := range imageFields {
+		// 1. Check for multipart file upload
+		fh, err := c.FormFile(field.formName)
+		if err == nil {
+			if err := validateImageFile(fh, maxImageBytes); err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, field.formName+": "+err.Error())
 			}
-			data, contentType, err := ParseImageDataURL(val)
+			f, err := fh.Open()
 			if err != nil {
-				return fiber.NewError(fiber.StatusBadRequest, "failed to parse banner image")
+				return fiber.NewError(fiber.StatusInternalServerError, "failed to open "+field.formName)
 			}
-			ext := ".png"
-			if strings.Contains(contentType, "jpeg") {
-				ext = ".jpg"
-			} else if strings.Contains(contentType, "webp") {
-				ext = ".webp"
-			} else if strings.Contains(contentType, "gif") {
-				ext = ".gif"
+			data := make([]byte, fh.Size)
+			if _, err := f.Read(data); err != nil {
+				f.Close()
+				return fiber.NewError(fiber.StatusInternalServerError, "failed to read "+field.formName)
 			}
-			key := h.r2Service.GenerateKey(hostID, "banner", ext)
-			url, err := h.r2Service.Upload(ctx, key, data, contentType)
+			f.Close()
+
+			mime := fh.Header.Get("Content-Type")
+			ext := GetExtensionFromMIME(mime)
+			key := h.r2Service.GenerateKey(hostID, field.typeLabel, ext)
+			url, err := h.r2Service.Upload(ctx, key, data, mime)
 			if err != nil {
-				return fiber.NewError(fiber.StatusInternalServerError, "failed to upload banner image")
+				return fiber.NewError(fiber.StatusInternalServerError, "failed to upload "+field.formName)
 			}
-			updates["banner_image_url"] = url
+			updates[field.dbField] = url
+		} else if v, ok := updates[field.dbField]; ok {
+			// 2. Check for image clearing (empty string)
+			val, _ := v.(string)
+			if val == "" {
+				updates[field.dbField] = nil
+			} else {
+				// We no longer support updating images via JSON/Base64 strings.
+				// If a URL is passed but no file is provided, we ignore the field.
+				delete(updates, field.dbField)
+			}
 		}
 	}
 

@@ -1,0 +1,34 @@
+name: Email Blocklist Watcher
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Run daily
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  check-and-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for differences
+        id: check_diff
+        run: |
+          # Download latest to a temp file
+          curl -L https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/refs/heads/main/disposable_email_blocklist.conf -o latest_blocklist.conf
+          
+          # Compare with the repo version
+          if ! diff -q latest_blocklist.conf internal/services/email/disposable_blocklist.conf > /dev/null; then
+            echo "DIFF_FOUND=true" >> $GITHUB_OUTPUT
+            echo "Changes detected in the remote blocklist."
+          else
+            echo "DIFF_FOUND=false" >> $GITHUB_OUTPUT
+            echo "No changes detected."
+          fi
+
+      - name: Call Refresh API
+        if: steps.check_diff.outputs.DIFF_FOUND == 'true'
+        run: |
+          curl -X POST "${{ secrets.APP_URL }}/api/v1/system/email/refresh-blocklist" \
+          -H "Authorization: Bearer ${{ secrets.SYSTEM_API_SECRET }}" \
+          -H "Content-Type: application/json"

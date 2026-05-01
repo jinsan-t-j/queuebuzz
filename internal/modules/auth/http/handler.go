@@ -285,6 +285,10 @@ func (h *Handler) Authenticate(c fiber.Ctx) error {
 		return err
 	}
 
+	if err := h.emailService.ValidateEmail(req.Email); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
 	method, provider, err := h.hostService.CheckAuthMethod(c.Context(), req.Email)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
@@ -317,4 +321,27 @@ func (h *Handler) Authenticate(c fiber.Ctx) error {
 func (h *Handler) setAuthCookies(c fiber.Ctx, accessToken, refreshToken string, accessExp, refreshExp time.Time) {
 	c.Cookie(&fiber.Cookie{Name: "access_token", Value: accessToken, Expires: accessExp, HTTPOnly: true, Secure: h.cfg.IsProduction(), SameSite: "Lax", Path: "/"})
 	c.Cookie(&fiber.Cookie{Name: "refresh_token", Value: refreshToken, Expires: refreshExp, HTTPOnly: true, Secure: h.cfg.IsProduction(), SameSite: "Lax", Path: "/"})
+}
+
+// RefreshEmailBlocklist godoc
+// @Summary Manually refresh the disposable email blocklist
+// @Description Fetches the latest disposable email domains from the source GitHub repository and updates the in-memory map.
+// @Tags System
+// @Success 200 {object} map[string]string "Refresh successful"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /system/email/refresh-blocklist [post]
+func (h *Handler) RefreshEmailBlocklist(c fiber.Ctx) error {
+	// Simple Bearer token check
+	authHeader := c.Get("Authorization")
+	expectedToken := "Bearer " + h.cfg.SystemAPISecret
+
+	// If secret is not set in config, we allow it in dev, but require it in production
+	if h.cfg.IsProduction() && (h.cfg.SystemAPISecret == "" || authHeader != expectedToken) {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized system access")
+	}
+
+	if err := h.emailService.RefreshBlocklist(); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to refresh blocklist: "+err.Error())
+	}
+	return c.JSON(fiber.Map{"message": "email blocklist refreshed successfully"})
 }

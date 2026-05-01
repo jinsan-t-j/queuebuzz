@@ -222,7 +222,8 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 			mime := fh.Header.Get("Content-Type")
 			ext := GetExtensionFromMIME(mime)
 			key := h.r2Service.GenerateKey(hostID, field.typeLabel, ext)
-			url, err := h.r2Service.Upload(ctx, key, data, mime)
+			url := ""
+			url, err = h.r2Service.Upload(ctx, key, data, mime)
 			if err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "failed to upload "+field.formName)
 			}

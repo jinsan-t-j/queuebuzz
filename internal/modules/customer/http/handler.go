@@ -31,6 +31,7 @@ type Handler struct {
 	broker          *sse.Broker
 	posJob          *queueresource.PositionJob
 	hostNotifierJob *queueresource.HostNotifierJob
+	emailService    *legacyservices.EmailService
 }
 
 func NewHandler(
@@ -42,6 +43,7 @@ func NewHandler(
 	broker *sse.Broker,
 	posJob *queueresource.PositionJob,
 	hostNotifierJob *queueresource.HostNotifierJob,
+	emailSvc *legacyservices.EmailService,
 ) *Handler {
 	return &Handler{
 		cfg:             cfg,
@@ -52,6 +54,7 @@ func NewHandler(
 		broker:          broker,
 		posJob:          posJob,
 		hostNotifierJob: hostNotifierJob,
+		emailService:    emailSvc,
 	}
 }
 
@@ -176,6 +179,9 @@ func (h *Handler) UpdateEntry(c fiber.Ctx) error {
 		updates["name"] = *req.Name
 	}
 	if req.Email != nil {
+		if err := h.emailService.ValidateEmail(*req.Email); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
 		updates["email"] = *req.Email
 	}
 	if req.PartySize != nil {
@@ -212,6 +218,12 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 	var req queuedto.JoinRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return err
+	}
+
+	if req.Email != nil && *req.Email != "" {
+		if err := h.emailService.ValidateEmail(*req.Email); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
 	}
 
 	if req.Metadata == nil {

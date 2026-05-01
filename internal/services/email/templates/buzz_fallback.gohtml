@@ -1,0 +1,13 @@
+{{define "title"}}It's your turn!{{end}}
+
+{{define "content"}}
+<h1 style="font-size: 32px; text-align: center; margin-top: 0;">You're up! 🎉</h1>
+<p style="line-height: 1.6; margin: 16px 0; text-align: center; font-size: 18px;">Your ticket <strong>{{.TicketNo}}</strong> has been called.</p>
+<p style="line-height: 1.6; margin: 16px 0; text-align: center;">{{.QueueName}}</p>
+<p style="line-height: 1.6; margin: 16px 0; text-align: center;">Please head to the counter now. Our team is ready to serve you.</p>
+<div style="text-align: center; margin-top: 32px;">
+    <a href="{{.Link}}" style="display: inline-block; background-color: #00E5A0; color: #1A0A2E !important; padding: 12px 32px; border-radius: 100px; text-decoration: none; font-weight: bold; margin: 24px 0;">View Live Status</a>
+</div>
+{{end}}
+
+{{template "layout" .}}

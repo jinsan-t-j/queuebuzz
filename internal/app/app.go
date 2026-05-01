@@ -11,7 +11,7 @@ import (
 	"queuebuzz/internal/firebase"
 	"queuebuzz/internal/log"
 	"queuebuzz/internal/middlewares"
-	"queuebuzz/internal/providers/validator"
+	"queuebuzz/internal/validator"
 
 	swagger "github.com/gofiber/contrib/v3/swaggerui"
 	"github.com/gofiber/fiber/v3"

@@ -15,6 +15,7 @@ import (
 	"queuebuzz/internal/modules/queue/domain"
 	"queuebuzz/internal/modules/queue/dto"
 	"queuebuzz/internal/modules/queue/events"
+	"queuebuzz/internal/services"
 	"queuebuzz/internal/sse"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -25,6 +26,7 @@ import (
 type QueueNotifier struct {
 	broker   *sse.Broker
 	fb       firebase.NotificationSender
+	emailSvc *services.EmailService
 	queueCol *mongodriver.Collection
 	entryCol *mongodriver.Collection
 	appURL   string
@@ -34,12 +36,14 @@ func NewQueueNotifier(
 	cfg *config.Config,
 	broker *sse.Broker,
 	fb firebase.NotificationSender,
+	emailSvc *services.EmailService,
 	queueCol *mongodriver.Collection,
 	entryCol *mongodriver.Collection,
 ) *QueueNotifier {
 	return &QueueNotifier{
 		broker:   broker,
 		fb:       fb,
+		emailSvc: emailSvc,
 		queueCol: queueCol,
 		entryCol: entryCol,
 		appURL:   strings.TrimRight(cfg.AppURL, "/"),
@@ -64,6 +68,9 @@ func (n *QueueNotifier) PublishEntryUpdate(queueID string, entry dto.EntryRecord
 	})
 }
 
+// PublishQueueStatus broadcasts a general queue state change to the Host and Public viewers.
+// Use this for broad state changes (ACTIVE, PAUSED, CLOSED).
+// It updates the Host Dashboard and the Public Join page.
 func (n *QueueNotifier) PublishQueueStatus(queueID, status string) {
 	msg := events.Wrap(sse.NewMessage(events.EventQueueStatusChanged, events.QueueStatusData{Status: status}))
 	n.publish(queueID, msg)
@@ -142,6 +149,16 @@ func (n *QueueNotifier) PublishEntryStatusChanged(entryID, status string) {
 
 func (n *QueueNotifier) PublishWaitingCount(queueID string, count int64) {
 	n.publish(pubTopic(queueID), events.Wrap(sse.NewMessage("waiting_count_updated", map[string]interface{}{"count": count})))
+}
+
+// NotifyQueueEnded provides a targeted teardown for an individual unserved guest.
+// It triggers Push/Email alerts. The UI redirection is handled by the global
+// PublishQueueStatus signal received via the public SSE stream.
+func (n *QueueNotifier) NotifyQueueEnded(entryID, queueName string) {
+	// 1. Send External Notifications (Push/Email) - pocket buzz is still needed!
+	n.notifyEntry(entryID, "Queue Ended", fmt.Sprintf("The host has closed the session for %s. We've skipped your entry.", queueName), map[string]string{
+		"event": events.EventQueueEnded,
+	})
 }
 
 func (n *QueueNotifier) publish(topic string, msg sse.Message) {
@@ -243,7 +260,24 @@ func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string
 			return
 		}
 
-		if e.FCMToken == nil || *e.FCMToken == "" {
+		// Dispatch Email Fallback if enabled and guest has an email
+		// We do this for "User Called" (Buzz) and "Queue Ended" events
+		event := safeData["event"]
+		isBuzz := event == events.EventUserCalled
+		isEnd := event == events.EventQueueEnded
+		hasEmail := e.Email != nil && *e.Email != ""
+
+		fcmToken := ""
+		if e.FCMToken != nil {
+			fcmToken = *e.FCMToken
+		}
+
+		if fcmToken == "" {
+			if isBuzz && hasEmail {
+				_ = n.emailSvc.SendBuzzFallback(*e.Email, e.TicketNo, "Your Queue", e.QueueID)
+			} else if isEnd && hasEmail {
+				_ = n.emailSvc.SendQueueEnded(*e.Email, safeData["queue_name"])
+			}
 			log.Debug().Str("entry_id", entryID).Msg("FCM: skipping guest notification, no entry token registered")
 			return
 		}
@@ -260,7 +294,13 @@ func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string
 			payload["link"] = n.absoluteURL(fmt.Sprintf("/q/%s/waiting", queueID))
 		}
 
-		if err := n.fb.SendToUser(ctx, *e.FCMToken, title, body, payload); err != nil {
+		if err := n.fb.SendToUser(ctx, fcmToken, title, body, payload); err != nil {
+			if isBuzz && hasEmail {
+				_ = n.emailSvc.SendBuzzFallback(*e.Email, e.TicketNo, "Your Queue", e.QueueID)
+			} else if isEnd && hasEmail {
+				_ = n.emailSvc.SendQueueEnded(*e.Email, safeData["queue_name"])
+			}
+
 			if firebase.IsTokenInvalid(err) {
 				_, _ = n.entryCol.UpdateOne(ctx, bson.M{"_id": entryID}, bson.M{
 					"$unset": bson.M{

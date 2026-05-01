@@ -1,0 +1,15 @@
+{{define "title"}}Sign in to QueueBuzz{{end}}
+
+{{define "content"}}
+<h1 style="font-size: 24px; margin-top: 0;">Verify your account</h1>
+<p style="line-height: 1.6; margin: 16px 0;">Hello,</p>
+<p style="line-height: 1.6; margin: 16px 0;">Click the button below to sign in to your QueueBuzz account. This link will expire in 15 minutes.</p>
+<div style="text-align: center;">
+    <a href="{{.Link}}" style="display: inline-block; background-color: #00E5A0; color: #1A0A2E !important; padding: 12px 32px; border-radius: 100px; text-decoration: none; font-weight: bold; margin: 24px 0;">Sign In to Dashboard</a>
+</div>
+<p style="line-height: 1.6; margin: 16px 0;">Or copy and paste this link into your browser:</p>
+<p style="line-height: 1.6; margin: 16px 0; word-break: break-all; font-size: 14px; color: #7B6B95;">{{.Link}}</p>
+<p style="line-height: 1.6; margin: 16px 0;">If you didn't request this email, you can safely ignore it.</p>
+{{end}}
+
+{{template "layout" .}}

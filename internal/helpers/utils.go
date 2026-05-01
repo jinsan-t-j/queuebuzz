@@ -7,17 +7,6 @@ import (
 	"strings"
 )
 
-// ToPascalCase converts a snake_case string to PascalCase.
-func ToPascalCase(s string) string {
-	words := strings.Split(s, "_")
-	for i, w := range words {
-		if len(w) > 0 {
-			words[i] = strings.ToUpper(w[:1]) + strings.ToLower(w[1:])
-		}
-	}
-	return strings.Join(words, " ")
-}
-
 func DerefString(s *string) string {
 	if s == nil {
 		return ""

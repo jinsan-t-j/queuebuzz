@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
@@ -9,8 +10,10 @@ import (
 
 	"queuebuzz/internal/app"
 	"queuebuzz/internal/config"
+	"queuebuzz/internal/database/seed"
 	"queuebuzz/internal/firebase"
 	"queuebuzz/internal/log"
+	"queuebuzz/internal/mongo"
 
 	_ "queuebuzz/docs"
 )
@@ -77,6 +80,10 @@ func main() {
 	}
 
 	log.Info().Msg("Building application container...")
+
+	_, db := mongo.Connect(cfg.DBUri, cfg.DBName)
+	seed.Run(context.Background(), db)
+
 	sender := firebase.NewSender(cfg.FirebaseCredentials)
 	application := app.New(cfg, sender)
 

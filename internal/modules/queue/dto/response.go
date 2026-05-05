@@ -6,23 +6,22 @@ import (
 )
 
 type QueueRecord struct {
-	ID                  string  `json:"id"`
-	Name                string  `json:"name"`
-	JoinCode            string  `json:"join_code"`
-	Slug                string  `json:"slug"`
-	Status              string  `json:"status"`
-	AvgServiceMins      int     `json:"avg_service_mins"`
-	AllowPartyJoining   bool    `json:"allow_party_joining"`
-	MaxPartySize        int     `json:"max_party_size"`
-	StrictQueueMode     bool    `json:"strict_queue_mode"`
-	CollectEmails       bool    `json:"collect_emails"`
-	RecoveryEmail       *string `json:"recovery_email,omitempty"`
-	Notes               string  `json:"notes,omitempty"`
-	HostProfileImageURL string  `json:"host_profile_image_url,omitempty"`
-	HostBannerImageURL  string  `json:"host_banner_image_url,omitempty"`
-	CreatedAt           string  `json:"created_at"`
-	UpdatedAt           string  `json:"updated_at"`
-	ExpiresAt           string  `json:"expires_at"`
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	JoinCode            string `json:"join_code"`
+	Slug                string `json:"slug"`
+	Status              string `json:"status"`
+	AvgServiceMins      int    `json:"avg_service_mins"`
+	AllowPartyJoining   bool   `json:"allow_party_joining"`
+	MaxPartySize        int    `json:"max_party_size"`
+	StrictQueueMode     bool   `json:"strict_queue_mode"`
+	CollectEmails       bool   `json:"collect_emails"`
+	Notes               string `json:"notes,omitempty"`
+	HostProfileImageURL string `json:"host_profile_image_url,omitempty"`
+	HostBannerImageURL  string `json:"host_banner_image_url,omitempty"`
+	CreatedAt           string `json:"created_at"`
+	UpdatedAt           string `json:"updated_at"`
+	ExpiresAt           string `json:"expires_at"`
 }
 
 type QueueStatus struct {
@@ -95,11 +94,13 @@ type TimelineSubEvent struct {
 }
 
 type HistoryEntry struct {
-	TicketNo    string `json:"ticket_no"`
-	DisplayName string `json:"display_name"`
-	Status      string `json:"status"`
-	WaitTimeMin int    `json:"wait_time_min"`
-	ServedAt    string `json:"served_at,omitempty"`
+	TicketNo    string  `json:"ticket_no"`
+	DisplayName string  `json:"display_name"`
+	Email       *string `json:"email,omitempty"`
+	Phone       *string `json:"phone,omitempty"`
+	Status      string  `json:"status"`
+	WaitTimeMin int     `json:"wait_time_min"`
+	ServedAt    string  `json:"served_at,omitempty"`
 }
 
 type HistoryListResponse struct {
@@ -181,7 +182,6 @@ func ToQueueResponse(queue domain.Queue, profileImg, bannerImg string) QueueReco
 		MaxPartySize:        queue.MaxPartySize,
 		StrictQueueMode:     queue.StrictQueueMode,
 		CollectEmails:       queue.CollectEmails,
-		RecoveryEmail:       queue.RecoveryEmail,
 		Notes:               queue.Notes,
 		HostProfileImageURL: profileImg,
 		HostBannerImageURL:  bannerImg,

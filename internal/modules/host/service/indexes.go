@@ -1,9 +1,8 @@
-package repository
+package service
 
 import (
 	"context"
 	"errors"
-
 	"queuebuzz/internal/log"
 
 	"go.mongodb.org/mongo-driver/v2/bson"

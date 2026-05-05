@@ -1,4 +1,9 @@
-.PHONY: dev build test vet lint swagger clean docker hooks lint-fix
+.PHONY: dev build test vet lint swagger clean docker hooks lint-fix sonar-audit
+
+# SonarQube audit
+sonar-audit:
+	./scripts/sonar-audit.sh
+
 
 # Install/update git hooks (Husky equivalent for Go)
 hooks:

@@ -31,7 +31,9 @@ type Config struct {
 	FirebaseCredentials string `env:"FIREBASE_CREDENTIALS" env-required:"true"`
 
 	// Email
-	ResendAPIKey    string `env:"RESEND_API_KEY" env-default:""`
+	BrevoAPIKey     string `env:"BREVO_API_KEY" env-default:""`
+	DodoAPIKey      string `env:"DODO_API_KEY"`
+	DodoWebhookKey  string `env:"DODO_WEBHOOK_KEY"`
 	EmailFrom       string `env:"EMAIL_FROM" env-default:"noreply@queuebuzz.com"`
 	EmailReplyTo    string `env:"EMAIL_REPLY_TO" env-default:""`
 	MailpitSMTPHost string `env:"MAILPIT_SMTP_HOST" env-default:"localhost"`
@@ -42,6 +44,7 @@ type Config struct {
 
 	// FRONTEND
 	AuthCallbackURL string `env:"AUTH_CALLBACK_URL" env-required:"true"`
+	FrontendURL     string `env:"FRONTEND_URL" env-default:"https://queuebuzz.com"`
 
 	// Social Auth
 	GoogleOAuthClientID     string `env:"GOOGLE_OAUTH_CLIENT_ID"`
@@ -57,6 +60,10 @@ type Config struct {
 	R2BucketName      string `env:"R2_BUCKET_NAME" env-required:"true"`
 	R2Endpoint        string `env:"R2_ENDPOINT" env-required:"true"`
 	R2PublicURL       string `env:"R2_PUBLIC_URL" env-required:"true"`
+
+	// Security
+	SystemAPISecret string `env:"SYSTEM_API_SECRET" env-required:"true"`
+	SupportEmail    string `env:"SUPPORT_EMAIL" env-default:"support@queuebuzz.app"`
 
 	// Testing
 	DisableRateLimit bool `env:"DISABLE_RATE_LIMIT" env-default:"false"`

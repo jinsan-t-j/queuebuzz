@@ -68,17 +68,29 @@ func NewRedisRepository(rdb *redis.Client) *RedisRepository {
 // GenerateJoinCode creates a cryptographically random 6-character join code
 // from the safe charset, checks Redis for collisions, and stores the mapping.
 // Returns the code or an error if all attempts fail.
-func (r *RedisRepository) GenerateJoinCode(ctx context.Context, queueID string) (string, error) {
+func (r *RedisRepository) ReleaseJoinCode(ctx context.Context, code string) error {
+	key := fmt.Sprintf("joincode:%s", code)
+	return r.rdb.Del(ctx, key).Err()
+}
+
+func (r *RedisRepository) GenerateJoinCode(ctx context.Context, queueID string, length int, maxAttempts int, ttl time.Duration) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	charset := constants.JoinCodeCharset
-	codeLen := constants.JoinCodeLength
-	maxAttempts := constants.MaxJoinCodeAttempts
-	ttl := time.Duration(constants.DefaultQueueExpiryH+constants.JoinCodeTTLExtraH) * time.Hour
+	if length <= 0 {
+		length = constants.JoinCodeLength
+	}
+	if maxAttempts <= 0 {
+		maxAttempts = constants.MaxJoinCodeAttempts
+	}
+
+	if ttl <= 0 {
+		ttl = time.Duration(constants.DefaultQueueExpiryH+constants.JoinCodeTTLExtraH) * time.Hour
+	}
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		code, err := generateRandomCode(charset, codeLen)
+		code, err := generateRandomCode(charset, length)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate random code: %w", err)
 		}
@@ -119,20 +131,28 @@ func generateRandomCode(charset string, length int) (string, error) {
 	return string(code), nil
 }
 
-func (r *RedisRepository) AddToQueue(ctx context.Context, queueID, entryID string, score float64) error {
+func (r *RedisRepository) AddToQueue(ctx context.Context, queueID, entryID string, score float64, ttl time.Duration) error {
 	key := internalredis.QueuePositionsKey(queueID)
 	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
-		return r.rdb.ZAdd(tCtx, key, redis.Z{Score: score, Member: entryID}).Err()
+		err := r.rdb.ZAdd(tCtx, key, redis.Z{Score: score, Member: entryID}).Err()
+		if err == nil && ttl > 0 {
+			r.rdb.Expire(tCtx, key, ttl)
+		}
+		return err
 	})
 }
 
-func (r *RedisRepository) AddToQueueBulk(ctx context.Context, queueID string, members []redis.Z) error {
+func (r *RedisRepository) AddToQueueBulk(ctx context.Context, queueID string, members []redis.Z, ttl time.Duration) error {
 	if len(members) == 0 {
 		return nil
 	}
 	key := internalredis.QueuePositionsKey(queueID)
 	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
-		return r.rdb.ZAdd(tCtx, key, members...).Err()
+		err := r.rdb.ZAdd(tCtx, key, members...).Err()
+		if err == nil && ttl > 0 {
+			r.rdb.Expire(tCtx, key, ttl)
+		}
+		return err
 	})
 }
 
@@ -172,11 +192,14 @@ func (r *RedisRepository) GetQueueEntryIDsRange(ctx context.Context, queueID str
 	})
 }
 
-func (r *RedisRepository) NextTicket(ctx context.Context, queueID string) (string, error) {
+func (r *RedisRepository) NextTicket(ctx context.Context, queueID string, ttl time.Duration) (string, error) {
 	key := internalredis.TicketCounterKey(queueID)
 	num, err := r.rdb.Incr(ctx, key).Result()
 	if err != nil {
 		return "", fmt.Errorf("failed to increment ticket counter: %w", err)
+	}
+	if ttl > 0 {
+		r.rdb.Expire(ctx, key, ttl)
 	}
 	return fmt.Sprintf("Q-%04d", num), nil
 }
@@ -187,9 +210,9 @@ func (r *RedisRepository) HasTicketCounter(ctx context.Context, queueID string) 
 	return val > 0, err
 }
 
-func (r *RedisRepository) SetTicketCounter(ctx context.Context, queueID string, value int64) error {
+func (r *RedisRepository) SetTicketCounter(ctx context.Context, queueID string, value int64, ttl time.Duration) error {
 	key := internalredis.TicketCounterKey(queueID)
-	return r.rdb.Set(ctx, key, value, 0).Err()
+	return r.rdb.Set(ctx, key, value, ttl).Err()
 }
 
 func (r *RedisRepository) MoveToBack(ctx context.Context, queueID, entryID string) error {

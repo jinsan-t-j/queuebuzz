@@ -9,7 +9,7 @@ import (
 	"queuebuzz/internal/helpers"
 	authdomain "queuebuzz/internal/modules/auth/domain"
 	hostdomain "queuebuzz/internal/modules/host/domain"
-	"queuebuzz/internal/modules/host/repository"
+	"queuebuzz/internal/services"
 
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -17,14 +17,20 @@ import (
 )
 
 type Service struct {
-	repo *repository.MongoRepository
+	hostCol  *mongodriver.Collection
+	queueCol *mongodriver.Collection
+	emailSvc *services.EmailService
 }
 
-func New(repo *repository.MongoRepository) *Service {
-	return &Service{repo: repo}
+func New(hostCol, queueCol *mongodriver.Collection, emailSvc *services.EmailService) *Service {
+	return &Service{
+		hostCol:  hostCol,
+		queueCol: queueCol,
+		emailSvc: emailSvc,
+	}
 }
 
-func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*hostdomain.Host, error) {
+func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*hostdomain.Host, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -35,14 +41,15 @@ func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*h
 		filter["phone"] = phone
 	}
 
-	host, err := s.repo.FindOneByFilter(ctx, filter)
+	var host hostdomain.Host
+	err := s.hostCol.FindOne(ctx, filter).Decode(&host)
 	if err == nil {
-		_ = s.repo.UpdateLastSeen(ctx, host.ID, time.Now())
-		return host, nil
+		_, _ = s.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, bson.M{"$set": bson.M{"last_seen": time.Now()}})
+		return &host, false, nil
 	}
 
 	now := time.Now()
-	host = &hostdomain.Host{
+	host = hostdomain.Host{
 		ID:        generateHostID(),
 		PublicID:  helpers.GenerateSlug(),
 		Tier:      constants.TierFree,
@@ -56,24 +63,30 @@ func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*h
 		host.Phone = &phone
 	}
 
-	if err := s.repo.Insert(ctx, *host); err != nil {
-		return nil, err
+	if _, err := s.hostCol.InsertOne(ctx, host); err != nil {
+		return nil, false, err
 	}
-	return host, nil
+
+	if s.emailSvc != nil && email != "" {
+		_ = s.emailSvc.SendWelcomeEmail(email, "there")
+	}
+
+	return &host, true, nil
 }
 
-func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdomain.SocialIdentity) (*hostdomain.Host, error) {
+func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdomain.SocialIdentity) (*hostdomain.Host, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	providerField := fmt.Sprintf("social_auth.%s.provider_user_id", identity.Provider)
-	host, err := s.repo.FindOneByFilter(ctx, bson.M{providerField: identity.ProviderUserID})
+	var host hostdomain.Host
+	err := s.hostCol.FindOne(ctx, bson.M{providerField: identity.ProviderUserID}).Decode(&host)
 	if err == nil {
-		_ = s.repo.UpdateLastSeen(ctx, host.ID, time.Now())
-		return host, nil
+		_, _ = s.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, bson.M{"$set": bson.M{"last_seen": time.Now()}})
+		return &host, false, nil
 	}
 	if err != mongodriver.ErrNoDocuments {
-		return nil, err
+		return nil, false, err
 	}
 
 	now := time.Now()
@@ -87,25 +100,30 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 	}
 
 	if identity.EmailVerified && identity.Email != "" {
-		host, err = s.repo.FindOneByFilter(ctx, bson.M{"email": identity.Email})
+		err = s.hostCol.FindOne(ctx, bson.M{"email": identity.Email}).Decode(&host)
 		if err == nil {
-			existing := providerAuthForHost(host, identity.Provider)
+			existing := providerAuthForHost(&host, identity.Provider)
 			if existing != nil && existing.ProviderUserID != identity.ProviderUserID {
-				return nil, fmt.Errorf("account already linked with a different %s identity", identity.Provider)
+				return nil, false, fmt.Errorf("account already linked with a different %s identity", identity.Provider)
 			}
-			if err := s.repo.UpdateSocialLink(ctx, host.ID, identity.Provider, providerAuth, time.Now()); err != nil {
-				return nil, err
+			_, err := s.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, bson.M{"$set": bson.M{
+				"last_seen":                        now,
+				"social_auth." + identity.Provider: providerAuth,
+				"social_auth." + identity.Provider + ".last_login_at": now,
+			}})
+			if err != nil {
+				return nil, false, err
 			}
-			applyProviderAuth(host, identity.Provider, providerAuth)
+			applyProviderAuth(&host, identity.Provider, providerAuth)
 			host.LastSeen = time.Now()
-			return host, nil
+			return &host, false, nil
 		}
 		if err != mongodriver.ErrNoDocuments {
-			return nil, err
+			return nil, false, err
 		}
 	}
 
-	host = &hostdomain.Host{
+	host = hostdomain.Host{
 		ID:         generateHostID(),
 		PublicID:   helpers.GenerateSlug(),
 		Tier:       constants.TierFree,
@@ -116,39 +134,66 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 	if identity.EmailVerified && identity.Email != "" {
 		host.Email = &identity.Email
 	}
-	applyProviderAuth(host, identity.Provider, providerAuth)
+	applyProviderAuth(&host, identity.Provider, providerAuth)
 
-	if err := s.repo.Insert(ctx, *host); err != nil {
-		return nil, err
+	if _, err := s.hostCol.InsertOne(ctx, host); err != nil {
+		return nil, false, err
 	}
-	return host, nil
+	return &host, true, nil
 }
 
 func (s *Service) FindByID(ctx context.Context, id string) (*hostdomain.Host, error) {
-	return s.repo.FindByID(ctx, id)
+	var host hostdomain.Host
+	if err := s.hostCol.FindOne(ctx, bson.M{"_id": id}).Decode(&host); err != nil {
+		return nil, err
+	}
+	return &host, nil
 }
 
 func (s *Service) FindByPublicID(ctx context.Context, publicID string) (*hostdomain.Host, error) {
-	return s.repo.FindByPublicID(ctx, publicID)
+	var host hostdomain.Host
+	if err := s.hostCol.FindOne(ctx, bson.M{"public_id": publicID}).Decode(&host); err != nil {
+		return nil, err
+	}
+	return &host, nil
 }
 
 func (s *Service) ClaimQueue(ctx context.Context, queueID, hostID, publicID string) error {
-	return s.repo.ClaimQueue(ctx, queueID, hostID, publicID)
+	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{"$set": bson.M{
+		"host_id":        hostID,
+		"host_public_id": publicID,
+	}})
+	return err
 }
 
 func (s *Service) UpdateHost(ctx context.Context, id string, updates bson.M) error {
-	return s.repo.UpdateHost(ctx, id, updates)
+	_, err := s.hostCol.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": updates})
+	return err
 }
 
 func (s *Service) DeleteHost(ctx context.Context, id string) error {
-	return s.repo.DeleteHost(ctx, id)
+	var host hostdomain.Host
+	if err := s.hostCol.FindOne(ctx, bson.M{"_id": id}).Decode(&host); err == nil {
+		if s.emailSvc != nil && host.Email != nil {
+			hostName := "there"
+			if host.Name != "" {
+				hostName = host.Name
+			}
+			_ = s.emailSvc.SendAccountDeletionEmail(*host.Email, hostName)
+		}
+	}
+
+	_, _ = s.queueCol.DeleteMany(ctx, bson.M{"host_id": id})
+	_, err := s.hostCol.DeleteOne(ctx, bson.M{"_id": id})
+	return err
 }
 
 func (s *Service) CheckAuthMethod(ctx context.Context, email string) (method string, provider string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	host, err := s.repo.FindOneByFilter(ctx, bson.M{"email": email})
+	var host hostdomain.Host
+	err = s.hostCol.FindOne(ctx, bson.M{"email": email}).Decode(&host)
 	if err != nil {
 		if err == mongodriver.ErrNoDocuments {
 			return "magic-link", "", nil

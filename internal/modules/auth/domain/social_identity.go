@@ -7,4 +7,5 @@ type SocialIdentity struct {
 	EmailVerified  bool
 	Name           string
 	ClaimQueueID   string
+	RedirectURL    string
 }

@@ -18,6 +18,9 @@ func TestAuth_AnonymousHost_HappyPath(t *testing.T) {
 	assert.NotEmpty(t, queueID)
 	assert.NotEmpty(t, hostToken)
 
+	// Upgrade to premium to access history
+	util.UpgradeToPremium(t, s, queueID)
+
 	// 2. Verify management access (protected by HostOwnerMiddleware)
 	resp, err := util.GET(s, "/api/v1/queue/manage/"+queueID+"/history", util.HostCookie(hostToken))
 	require.NoError(t, err)

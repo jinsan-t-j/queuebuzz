@@ -10,35 +10,44 @@ import (
 	"queuebuzz/internal/modules/queue/domain"
 	"queuebuzz/internal/modules/queue/repository"
 
+	billingservice "queuebuzz/internal/modules/billing/service"
+	systemservice "queuebuzz/internal/modules/system/service"
+
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
+	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // ExpiryService manages Redis keyspace notifications and queue expiry cleanup.
 // It lives in the queue module because it directly mutates queue/entry state.
 type ExpiryService struct {
-	rdb       *redis.Client
-	queueCol  *mongo.Collection
-	entryCol  *mongo.Collection
-	redisRepo *repository.RedisRepository
-	notifier  *QueueNotifier
+	rdb        *redis.Client
+	queueCol   *mongodriver.Collection
+	entryCol   *mongodriver.Collection
+	redisRepo  *repository.RedisRepository
+	notifier   *QueueNotifier
+	billingSvc *billingservice.BillingService
+	systemSvc  *systemservice.SystemService
 }
 
 func NewExpiryService(
 	rdb *redis.Client,
-	queueCol *mongo.Collection,
-	entryCol *mongo.Collection,
+	queueCol *mongodriver.Collection,
+	entryCol *mongodriver.Collection,
 	redisRepo *repository.RedisRepository,
 	notifier *QueueNotifier,
+	billingSvc *billingservice.BillingService,
+	systemSvc *systemservice.SystemService,
 ) *ExpiryService {
 	return &ExpiryService{
-		rdb:       rdb,
-		queueCol:  queueCol,
-		entryCol:  entryCol,
-		redisRepo: redisRepo,
-		notifier:  notifier,
+		rdb:        rdb,
+		queueCol:   queueCol,
+		entryCol:   entryCol,
+		redisRepo:  redisRepo,
+		notifier:   notifier,
+		billingSvc: billingSvc,
+		systemSvc:  systemSvc,
 	}
 }
 
@@ -79,18 +88,31 @@ func (s *ExpiryService) handleIdleTimerExpiry(ctx context.Context, key string) {
 		return
 	}
 
-	// Move user back by the fair repositioning offset (e.g. 3 spots)
-	_ = s.redisRepo.RepositionEntry(opCtx, queueID, token, int64(constants.DefaultRepositionOffset))
+	// Settings for repositioning and grace timer
+	repositionOffset := int64(constants.DefaultRepositionOffset)
+	graceTimerSec := constants.DefaultGraceTimerSec
+	settings, _ := s.systemSvc.GetSettings(opCtx)
+	if settings != nil {
+		if settings.DefaultQueueEntryRepositionOffset > 0 {
+			repositionOffset = int64(settings.DefaultQueueEntryRepositionOffset)
+		}
+		if settings.DefaultQueueEntryGraceTimerSec > 0 {
+			graceTimerSec = settings.DefaultQueueEntryGraceTimerSec
+		}
+	}
 
-	// Set grace timer (5 min)
+	// Move user back by the fair repositioning offset (e.g. 3 spots)
+	_ = s.redisRepo.RepositionEntry(opCtx, queueID, token, repositionOffset)
+
+	// Set grace timer (e.g. 5 min)
 	_ = s.redisRepo.SetGraceTimer(opCtx, queueID, token,
-		time.Duration(constants.DefaultGraceTimerSec)*time.Second)
+		time.Duration(graceTimerSec)*time.Second)
 
 	// Publish status change via SSE
 	s.notifier.PublishUserStatus(queueID, token, constants.EntryStatusIdle)
 
 	// Refresh positions (only for the affected first few rank shifted guests)
-	s.BroadcastPositionsForQueue(ctx, queueID, int64(constants.DefaultRepositionOffset+1))
+	s.BroadcastPositionsForQueue(ctx, queueID, repositionOffset+1)
 
 	log.Info().Str("queue_id", queueID).Str("token_prefix", tokenPrefix(token)).Msg("User moved to IDLE")
 }
@@ -124,7 +146,12 @@ func (s *ExpiryService) handleGraceTimerExpiry(ctx context.Context, key string) 
 
 	// Refresh position ONLY for this specific user who reclaim waiting
 	// Actually we can do a full refresh for small counts or target rank 4.
-	s.BroadcastPositionsForQueue(ctx, queueID, int64(constants.DefaultRepositionOffset+1))
+	repositionOffset := int64(constants.DefaultRepositionOffset)
+	settings, _ := s.systemSvc.GetSettings(opCtx)
+	if settings != nil && settings.DefaultQueueEntryRepositionOffset > 0 {
+		repositionOffset = int64(settings.DefaultQueueEntryRepositionOffset)
+	}
+	s.BroadcastPositionsForQueue(ctx, queueID, repositionOffset+1)
 
 	log.Info().Str("queue_id", queueID).Str("token_prefix", tokenPrefix(token)).Msg("User repositioned to WAITING after grace period")
 }
@@ -144,8 +171,9 @@ func (s *ExpiryService) SweepExpiredQueues(ctx context.Context) {
 	}
 
 	type queueDoc struct {
-		ID       string `bson:"_id"`
-		JoinCode string `bson:"join_code"`
+		ID       string  `bson:"_id"`
+		JoinCode string  `bson:"join_code"`
+		HostID   *string `bson:"host_id"`
 	}
 
 	var expired []queueDoc
@@ -155,7 +183,11 @@ func (s *ExpiryService) SweepExpiredQueues(ctx context.Context) {
 	}
 
 	for _, q := range expired {
-		s.expireQueue(ctx, q.ID, q.JoinCode)
+		hostID := ""
+		if q.HostID != nil {
+			hostID = *q.HostID
+		}
+		s.expireQueue(ctx, q.ID, q.JoinCode, hostID)
 	}
 
 	if len(expired) > 0 {
@@ -214,11 +246,40 @@ func (s *ExpiryService) BroadcastPositionsForQueue(ctx context.Context, queueID 
 	}
 }
 
-func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode string) {
+func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode, hostID string) {
 	opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// 1. Update queue status to EXPIRED
+	// 1. Find unserved entries before we close the queue and clean up Redis
+	filter := bson.M{
+		"queue_id": queueID,
+		"status": bson.M{"$in": []string{
+			constants.EntryStatusWaiting,
+			constants.EntryStatusCalled,
+			constants.EntryStatusIdle,
+			constants.EntryStatusArrived,
+		}},
+	}
+	cursor, _ := s.entryCol.Find(opCtx, filter)
+	var unserved []domain.Entry
+	if cursor != nil {
+		_ = cursor.All(opCtx, &unserved)
+	}
+
+	// 2. Get Queue for name
+	var q domain.Queue
+	_ = s.queueCol.FindOne(opCtx, bson.M{"_id": queueID}).Decode(&q)
+	queueName := q.Name
+	if queueName == "" {
+		queueName = "Your Queue"
+	}
+
+	// 3. Notify unserved guests
+	for _, entry := range unserved {
+		s.notifier.NotifyQueueEnded(entry.ID, queueName)
+	}
+
+	// 4. Update queue status to EXPIRED
 	now := time.Now()
 	_, _ = s.queueCol.UpdateOne(opCtx,
 		bson.M{"_id": queueID},
@@ -239,9 +300,7 @@ func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode strin
 	)
 
 	// 2. Delete join code from Redis
-	delCtx, delCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer delCancel()
-	_ = s.rdb.Del(delCtx, "joincode:"+joinCode).Err()
+	_ = s.redisRepo.ReleaseJoinCode(ctx, joinCode)
 
 	// 3. Publish queue expired event via SSE
 	s.notifier.PublishQueueStatus(queueID, constants.QueueStatusExpired)
@@ -249,11 +308,34 @@ func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode strin
 	// 4. Clean up all Redis keys for this queue
 	_ = s.redisRepo.DeleteQueueKeys(opCtx, queueID)
 
-	// 5. Clear email fields from entries (privacy cleanup)
-	_, _ = s.entryCol.UpdateMany(opCtx,
-		bson.M{"queue_id": queueID},
-		bson.M{"$unset": bson.M{"email": ""}},
-	)
+	// 5. Plan-based Entry Cleanup
+	// Free tier / Anonymous: Delete all entries entirely
+	// Premium: Keep entries but unset PII (emails) for privacy after expiry
+	plan, _ := s.billingSvc.GetHostPlan(opCtx, hostID)
+	if plan == nil || plan.IsFree {
+		_, _ = s.entryCol.DeleteMany(opCtx, bson.M{"queue_id": queueID})
+		log.Info().Str("queue_id", queueID).Msg("Free tier queue entries deleted on expiry")
+	} else {
+		_, _ = s.entryCol.UpdateMany(opCtx,
+			bson.M{
+				"queue_id": queueID,
+				"status": bson.M{"$in": []string{
+					constants.EntryStatusWaiting,
+					constants.EntryStatusCalled,
+					constants.EntryStatusIdle,
+					constants.EntryStatusArrived,
+				}},
+			},
+			bson.M{
+				"$set": bson.M{
+					"status":      constants.EntryStatusSkipped,
+					"finished_at": now,
+				},
+				"$unset": bson.M{"email": "", "phone": ""},
+			},
+		)
+		log.Info().Str("queue_id", queueID).Msg("Premium queue entries marked as SKIPPED and PII cleared on expiry")
+	}
 
 	log.Info().Str("queue_id", queueID).Msg("Queue expired and cleaned up")
 }

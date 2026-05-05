@@ -52,9 +52,9 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 
 	// Public / Guest Facing
 	public := queue.Group("/p")
-	public.Post("/create", middlewares.OptionalAuthMiddleware(m.authService), m.QueueHandler.Create)
+	public.Post("/create", middlewares.OptionalAuthMiddleware(m.authService), queuehttp.CreateQueueGuard(m.QueueHandler.BillingSvc, m.QueueHandler.Service), m.QueueHandler.Create)
 	public.Get("/:id/live", m.QueueHandler.GetLiveQueueByID)
-	public.Post("/:id/join", m.QueueHandler.AddEntry)
+	public.Post("/:id/join", queuehttp.GuestCapacityGuard(m.QueueHandler.BillingSvc, m.QueueHandler.Service), m.QueueHandler.AddEntry)
 	public.Get("/:id/events", m.QueueHandler.PublicEvents)
 
 	// Host Management (Per-Queue)
@@ -66,10 +66,10 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 	manage.Post("/pause", m.QueueHandler.PauseQueue)
 	manage.Post("/resume", m.QueueHandler.ResumeQueue)
 	manage.Post("/terminate", m.QueueHandler.TerminateQueue)
-	manage.Post("/add-entry", m.QueueHandler.AddEntry)
+	manage.Post("/add-entry", queuehttp.GuestCapacityGuard(m.QueueHandler.BillingSvc, m.QueueHandler.Service), m.QueueHandler.AddEntry)
 
 	// Queue-specific history and broadcast
-	manage.Get("/history", m.QueueHandler.GetHistory)
+	manage.Get("/history", queuehttp.HistoryAccessGuard(m.QueueHandler.BillingSvc), m.QueueHandler.GetHistory)
 	manage.Post("/broadcast", m.NotificationHandler.BroadcastToQueue)
 
 	// FCM and settings
@@ -80,7 +80,7 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 	host := queue.Group("/", middlewares.AuthMiddleware(m.authService))
 	host.Get("/dashboard", m.QueueHandler.GetDashboard)
 	host.Get("/slug-check", m.QueueHandler.CheckSlug)
-	host.Get("/history", m.QueueHandler.GetHistoryList)
+	host.Get("/history", queuehttp.HistoryAccessGuard(m.QueueHandler.BillingSvc), m.QueueHandler.GetHistoryList)
 	host.Delete("/history", m.QueueHandler.ClearHistory)
 	host.Get("/live", m.QueueHandler.GetLiveQueue)
 }

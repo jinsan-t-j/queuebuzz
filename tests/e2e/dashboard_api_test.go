@@ -92,6 +92,9 @@ func TestHistory_List_And_Summary(t *testing.T) {
 	// 1. Create a host and a historical queue
 	email := fmt.Sprintf("history-%d@example.com", time.Now().UnixNano())
 	hostToken := util.RegisterHost(t, s, "History Host", email, "password123")
+	hostID := "host-" + email
+	util.UpgradeToPremium(t, s, hostID)
+
 	queueID := util.CreateAuthenticatedQueue(t, s, "Historical Queue", hostToken)
 
 	util.JoinQueue(t, s, queueID, "Guest")
@@ -125,6 +128,8 @@ func TestHistory_Pagination_And_Filtering(t *testing.T) {
 
 	email := fmt.Sprintf("multi-%d@example.com", time.Now().UnixNano())
 	hostToken := util.RegisterHost(t, s, "Multi Host", email, "password123")
+	hostID := "host-" + email
+	util.UpgradeToPremium(t, s, hostID)
 
 	// Create 3 historical queues
 	queues := []string{"Queue Alpha", "Queue Beta", "Queue Gamma"}

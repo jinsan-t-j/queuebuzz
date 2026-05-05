@@ -1,0 +1,12 @@
+{{define "title"}}Queue Session Ended{{end}}
+
+{{define "content"}}
+<h1 style="font-size: 32px; text-align: center; margin-top: 0;">Queue Session Ended 🏁</h1>
+<p style="line-height: 1.6; margin: 16px 0; text-align: center; font-size: 18px;">The host has closed the queue session for <strong>{{.QueueName}}</strong>.</p>
+<p style="line-height: 1.6; margin: 16px 0; text-align: center;">Unfortunately, this session has concluded and all remaining entries have been cleared. We hope to see you again during our next session!</p>
+<div style="text-align: center; margin-top: 32px;">
+    <p style="font-size: 14px; color: #7B6B95;">Thank you for using QueueBuzz</p>
+</div>
+{{end}}
+
+{{template "layout" .}}

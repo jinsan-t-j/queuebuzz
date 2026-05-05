@@ -1,15 +1,6 @@
-// Package exceptions provides domain-level error types for QueueBuzz.
-//
-// All custom errors implement the standard error interface and are designed
-// to be matched with errors.Is / errors.As in the global error handler.
-// Services return these errors; handlers simply bubble them up.
 package exceptions
 
 import "fmt"
-
-// ---------------------------------------------------------------------------
-// Sentinel errors – use errors.Is(err, exceptions.ErrNotFound) etc.
-// ---------------------------------------------------------------------------
 
 var (
 	ErrNotFound     = NewAppException(404, "Resource not found")
@@ -21,12 +12,6 @@ var (
 	ErrInternal     = NewAppException(500, "Internal server error")
 )
 
-// ---------------------------------------------------------------------------
-// AppException – generic HTTP-aware application error.
-// ---------------------------------------------------------------------------
-
-// AppException carries an HTTP status code and a human-readable message.
-// It is the base for all custom errors in the application.
 type AppException struct {
 	Code    int    `json:"-"`
 	Message string `json:"message"`
@@ -34,20 +19,10 @@ type AppException struct {
 
 func (e *AppException) Error() string { return e.Message }
 
-// NewAppException creates a generic application error.
 func NewAppException(code int, message string) *AppException {
 	return &AppException{Code: code, Message: message}
 }
 
-// ---------------------------------------------------------------------------
-// FieldException – single-field validation / business-rule error.
-// ---------------------------------------------------------------------------
-
-// FieldException represents a validation or business-rule error that is
-// scoped to a specific request field (e.g. "email", "phone").
-// The global error handler formats it as:
-//
-//	{ "message": "Validation Failed", "error": { "<Field>": "<Message>" } }
 type FieldException struct {
 	Code    int
 	Field   string
@@ -63,16 +38,6 @@ func NewFieldException(code int, field, message string) *FieldException {
 	return &FieldException{Code: code, Field: field, Message: message}
 }
 
-// ---------------------------------------------------------------------------
-// Convenience constructors for common scenarios.
-// ---------------------------------------------------------------------------
-
-// Duplicate returns a 429 FieldException indicating a duplicate value.
 func Duplicate(field, message string) *FieldException {
 	return NewFieldException(429, field, message)
-}
-
-// BadField returns a 400 FieldException for a malformed or invalid field.
-func BadField(field, message string) *FieldException {
-	return NewFieldException(400, field, message)
 }

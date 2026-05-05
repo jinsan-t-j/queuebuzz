@@ -1,0 +1,22 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{template "title" .}}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F7F3EE; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1A0A2E;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+        <div style="font-size: 24px; font-weight: bold; color: #1A0A2E; margin-bottom: 32px; text-align: center;">QueueBuzz</div>
+        <div style="background-color: #FFFFFF; border-radius: 24px; padding: 40px; box-shadow: 0 4px 24px rgba(26, 10, 46, 0.08);">
+            {{template "content" .}}
+        </div>
+        <div style="text-align: center; font-size: 12px; color: #7B6B95; margin-top: 32px;">
+            &copy; {{.Year}} QueueBuzz. All rights reserved.<br>
+            Do not reply to this email.
+        </div>
+    </div>
+</body>
+</html>
+{{end}}

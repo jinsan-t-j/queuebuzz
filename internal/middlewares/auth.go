@@ -56,24 +56,6 @@ func CustomerAuthMiddleware(authService *authservice.AuthService) fiber.Handler 
 	}
 }
 
-func OptionalCustomerAuthMiddleware(authService *authservice.AuthService) fiber.Handler {
-	return func(c fiber.Ctx) error {
-		token := c.Cookies("guest_entry_token")
-		if token == "" {
-			return c.Next()
-		}
-
-		claims, err := authService.VerifyToken(token)
-		if err != nil {
-			return c.SendStatus(fiber.StatusUnauthorized)
-		}
-
-		setAuthLocals(c, claims, token)
-
-		return c.Next()
-	}
-}
-
 func OptionalAuthMiddleware(authService *authservice.AuthService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		token := c.Cookies("access_token")

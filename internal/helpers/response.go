@@ -35,13 +35,6 @@ type ErrorResponse struct {
 	Error   any    `json:"error,omitempty"`
 }
 
-func NewErrorResponse(message string, err any) *ErrorResponse {
-	return &ErrorResponse{
-		Message: message,
-		Error:   err,
-	}
-}
-
 func (e ErrorResponse) JSON(c fiber.Ctx, status int) error {
 	return c.Status(status).JSON(fiber.Map{
 		"message": e.Message,

@@ -18,4 +18,5 @@ type SocialAuthRequest struct {
 type CheckMethodRequest struct {
 	Email        string `json:"email" validate:"required,email"`
 	ClaimQueueID string `json:"claim_queue_id"`
+	RedirectURL  string `json:"redirect_url"`
 }

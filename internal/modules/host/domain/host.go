@@ -23,16 +23,20 @@ type HostSettings struct {
 }
 
 type Host struct {
-	ID              string          `bson:"_id" json:"id"`
-	PublicID        string          `bson:"public_id" json:"public_id"`
-	Name            string          `bson:"name" json:"name"`
-	Email           *string         `bson:"email,omitempty" json:"-"`
-	Phone           *string         `bson:"phone,omitempty" json:"-"`
-	SocialAuth      *HostSocialAuth `bson:"social_auth,omitempty" json:"-"`
-	Tier            string          `bson:"tier" json:"tier"`
-	Settings        *HostSettings   `bson:"settings,omitempty" json:"settings,omitempty"`
-	ProfileImageURL *string         `bson:"profile_image_url,omitempty" json:"profile_image_url,omitempty"`
-	BannerImageURL  *string         `bson:"banner_image_url,omitempty" json:"banner_image_url,omitempty"`
-	CreatedAt       time.Time       `bson:"created_at" json:"created_at"`
-	LastSeen        time.Time       `bson:"last_seen" json:"last_seen"`
+	ID                  string          `bson:"_id" json:"id"`
+	PublicID            string          `bson:"public_id" json:"public_id"`
+	Name                string          `bson:"name" json:"name"`
+	Email               *string         `bson:"email,omitempty" json:"-"`
+	Phone               *string         `bson:"phone,omitempty" json:"-"`
+	SocialAuth          *HostSocialAuth `bson:"social_auth,omitempty" json:"-"`
+	Tier                string          `bson:"tier" json:"tier"`
+	MonthlyQueueCount   int             `bson:"monthly_queue_count" json:"monthly_queue_count"`
+	TotalQueueCount     int             `bson:"total_queue_count" json:"total_queue_count"`
+	TotalServedCount    int             `bson:"total_served_count" json:"total_served_count"`
+	MonthlyLimitResetAt time.Time       `bson:"monthly_limit_reset_at" json:"monthly_limit_reset_at"`
+	Settings            *HostSettings   `bson:"settings,omitempty" json:"settings,omitempty"`
+	ProfileImageURL     *string         `bson:"profile_image_url,omitempty" json:"profile_image_url,omitempty"`
+	BannerImageURL      *string         `bson:"banner_image_url,omitempty" json:"banner_image_url,omitempty"`
+	CreatedAt           time.Time       `bson:"created_at" json:"created_at"`
+	LastSeen            time.Time       `bson:"last_seen" json:"last_seen"`
 }

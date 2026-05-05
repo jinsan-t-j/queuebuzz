@@ -28,7 +28,10 @@ func Connect(uri, dbName string) (*mongodriver.Client, *mongodriver.Database) {
 	opts := options.Client().
 		ApplyURI(uri).
 		SetMaxPoolSize(10).
-		SetMinPoolSize(2)
+		SetMinPoolSize(2).
+		SetBSONOptions(&options.BSONOptions{
+			ObjectIDAsHexString: true,
+		})
 
 	client, err := mongodriver.Connect(opts)
 	if err != nil {

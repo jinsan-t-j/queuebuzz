@@ -19,7 +19,6 @@ import (
 var (
 	mongoURI   string
 	redisURI   string
-	r2Endpoint string
 	toxiClient *toxiproxy.Client
 )
 
@@ -29,16 +28,20 @@ func TestMain(m *testing.M) {
 	// Start MongoDB
 	mongoC, err := mongodb.Run(ctx, "mongo:6.0")
 	if err != nil {
-		panic(err)
+		mongoURI = "mongodb://localhost:27017"
+	} else {
+		mongoURI, _ = mongoC.ConnectionString(ctx)
+		defer mongoC.Terminate(ctx)
 	}
-	mongoURI, _ = mongoC.ConnectionString(ctx)
 
 	// Start Redis
 	redisC, err := redis.Run(ctx, "redis:7-alpine")
 	if err != nil {
-		panic(err)
+		redisURI = "redis://localhost:6379"
+	} else {
+		redisURI, _ = redisC.ConnectionString(ctx)
+		defer redisC.Terminate(ctx)
 	}
-	redisURI, _ = redisC.ConnectionString(ctx)
 
 	// Start Minio (S3 compatible)
 	minioC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -54,12 +57,33 @@ func TestMain(m *testing.M) {
 		},
 		Started: true,
 	})
-	if err != nil {
-		panic(err)
+
+	var r2Endpoint string
+	if err == nil {
+		defer minioC.Terminate(ctx)
+		minioHost, _ := minioC.Host(ctx)
+		minioPort, _ := minioC.MappedPort(ctx, "9000")
+		r2Endpoint = "http://" + minioHost + ":" + minioPort.Port()
 	}
-	minioHost, _ := minioC.Host(ctx)
-	minioPort, _ := minioC.MappedPort(ctx, "9000")
-	r2Endpoint = "http://" + minioHost + ":" + minioPort.Port()
+
+	// Start Mailpit
+	mailpitC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:        "axllent/mailpit",
+			ExposedPorts: []string{"1025/tcp", "8025/tcp"},
+			WaitingFor:   wait.ForHTTP("/").WithPort("8025/tcp"),
+		},
+		Started: true,
+	})
+	if err == nil {
+		defer mailpitC.Terminate(ctx)
+		mailHost, _ := mailpitC.Host(ctx)
+		mailPort, _ := mailpitC.MappedPort(ctx, "1025")
+		mailAPIPort, _ := mailpitC.MappedPort(ctx, "8025")
+		os.Setenv("MAILPIT_SMTP_HOST", mailHost)
+		os.Setenv("MAILPIT_SMTP_PORT", mailPort.Port())
+		os.Setenv("MAILPIT_API_URL", "http://"+mailHost+":"+mailAPIPort.Port())
+	}
 
 	// Set R2 env vars for the app to pick up
 	os.Setenv("R2_ACCESS_KEY_ID", "minioadmin")
@@ -103,10 +127,6 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	setup.TeardownSharedSuite()
-	_ = mongoC.Terminate(ctx)
-	_ = redisC.Terminate(ctx)
-	_ = minioC.Terminate(ctx)
-
 	os.Exit(code)
 }
 

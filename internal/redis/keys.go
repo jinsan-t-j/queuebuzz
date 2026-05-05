@@ -26,3 +26,9 @@ func GraceTimerKey(queueID, entryID string) string {
 func ActionLockKey(queueID, action string) string {
 	return fmt.Sprintf("lock:%s:%s", action, queueID)
 }
+func BillingPlansKey(country string) string {
+	return fmt.Sprintf("billing_plans:%s", country)
+}
+func SystemSettingsKey() string {
+	return "system_settings:global"
+}

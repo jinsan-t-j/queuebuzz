@@ -59,7 +59,8 @@ func NewHandler(
 // @Router /auth/social/{provider}/start [get]
 func (h *Handler) SocialLogin(c fiber.Ctx) error {
 	claimQueueID := c.Query("claim_queue_id")
-	url, err := h.socialAuthService.StartAuth(c.Params("provider"), "", claimQueueID)
+	redirectURL := c.Query("redirect")
+	url, err := h.socialAuthService.StartAuth(c.Params("provider"), "", claimQueueID, redirectURL)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -122,9 +123,13 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, err.Error())
 	}
-	host, err := h.hostService.FindOrCreateHostBySocial(c.Context(), identity)
+	host, created, err := h.hostService.FindOrCreateHostBySocial(c.Context(), identity)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	if created && host.Email != nil {
+		go h.emailService.SendWelcomeEmail(*host.Email, host.Name)
 	}
 	accessToken, refreshToken, accessExp, refreshExp, err := h.authService.IssueTokenPair(c.Context(), host.ID, host.PublicID)
 	if err != nil {
@@ -133,10 +138,15 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 	h.setAuthCookies(c, accessToken, refreshToken, accessExp, refreshExp)
 
 	targetURL := h.cfg.AuthCallbackURL
-	if identity.ClaimQueueID != "" {
+	if identity.ClaimQueueID != "" || identity.RedirectURL != "" {
 		u, _ := url.Parse(targetURL)
 		q := u.Query()
-		q.Set("claim_queue_id", identity.ClaimQueueID)
+		if identity.ClaimQueueID != "" {
+			q.Set("claim_queue_id", identity.ClaimQueueID)
+		}
+		if identity.RedirectURL != "" {
+			q.Set("redirect", identity.RedirectURL)
+		}
 		u.RawQuery = q.Encode()
 		targetURL = u.String()
 	}
@@ -160,6 +170,7 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 	var email string
 	var phone string
 	var claimQueueID string
+	var redirectURL string
 	token := c.Query("token")
 	reqPhone := c.Query("phone")
 	otp := c.Query("otp")
@@ -179,6 +190,7 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 		}
 		email = payload.Email
 		claimQueueID = payload.ClaimQueueID
+		redirectURL = payload.RedirectURL
 	} else if reqPhone != "" && otp != "" {
 		if err := h.otpService.VerifyOTP(c.Context(), reqPhone, otp); err != nil {
 			u, _ := url.Parse(h.cfg.AuthCallbackURL)
@@ -196,9 +208,13 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "provide token or phone+otp")
 	}
 
-	host, err := h.hostService.FindOrCreateHost(c.Context(), email, phone)
+	host, created, err := h.hostService.FindOrCreateHost(c.Context(), email, phone)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	if created && host.Email != nil {
+		go h.emailService.SendWelcomeEmail(*host.Email, host.Name)
 	}
 	accessToken, refreshToken, accessExp, refreshExp, err := h.authService.IssueTokenPair(c.Context(), host.ID, host.PublicID)
 	if err != nil {
@@ -207,10 +223,15 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 	h.setAuthCookies(c, accessToken, refreshToken, accessExp, refreshExp)
 
 	targetURL := h.cfg.AuthCallbackURL
-	if claimQueueID != "" {
+	if claimQueueID != "" || redirectURL != "" {
 		u, _ := url.Parse(targetURL)
 		q := u.Query()
-		q.Set("claim_queue_id", claimQueueID)
+		if claimQueueID != "" {
+			q.Set("claim_queue_id", claimQueueID)
+		}
+		if redirectURL != "" {
+			q.Set("redirect", redirectURL)
+		}
 		u.RawQuery = q.Encode()
 		targetURL = u.String()
 	}
@@ -285,13 +306,17 @@ func (h *Handler) Authenticate(c fiber.Ctx) error {
 		return err
 	}
 
+	if err := h.emailService.ValidateEmail(req.Email); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
 	method, provider, err := h.hostService.CheckAuthMethod(c.Context(), req.Email)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
 	if method == "social" && provider != "" {
-		url, err := h.socialAuthService.StartAuth(provider, req.Email, req.ClaimQueueID)
+		url, err := h.socialAuthService.StartAuth(provider, req.Email, req.ClaimQueueID, req.RedirectURL)
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
@@ -303,7 +328,7 @@ func (h *Handler) Authenticate(c fiber.Ctx) error {
 	}
 
 	// For any other case (magic-link or no account), initiate magic link dispatching
-	token, err := h.magicLinkService.GenerateAndStoreMagicLink(c.Context(), req.Email, req.ClaimQueueID)
+	token, err := h.magicLinkService.GenerateAndStoreMagicLink(c.Context(), req.Email, req.ClaimQueueID, req.RedirectURL)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -317,4 +342,27 @@ func (h *Handler) Authenticate(c fiber.Ctx) error {
 func (h *Handler) setAuthCookies(c fiber.Ctx, accessToken, refreshToken string, accessExp, refreshExp time.Time) {
 	c.Cookie(&fiber.Cookie{Name: "access_token", Value: accessToken, Expires: accessExp, HTTPOnly: true, Secure: h.cfg.IsProduction(), SameSite: "Lax", Path: "/"})
 	c.Cookie(&fiber.Cookie{Name: "refresh_token", Value: refreshToken, Expires: refreshExp, HTTPOnly: true, Secure: h.cfg.IsProduction(), SameSite: "Lax", Path: "/"})
+}
+
+// RefreshEmailBlocklist godoc
+// @Summary Manually refresh the disposable email blocklist
+// @Description Fetches the latest disposable email domains from the source GitHub repository and updates the in-memory map.
+// @Tags System
+// @Success 200 {object} map[string]string "Refresh successful"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /system/email/refresh-blocklist [post]
+func (h *Handler) RefreshEmailBlocklist(c fiber.Ctx) error {
+	// Simple Bearer token check
+	authHeader := c.Get("Authorization")
+	expectedToken := "Bearer " + h.cfg.SystemAPISecret
+
+	// If secret is not set in config, we allow it in dev, but require it in production
+	if h.cfg.IsProduction() && (h.cfg.SystemAPISecret == "" || authHeader != expectedToken) {
+		return fiber.NewError(fiber.StatusUnauthorized, "unauthorized system access")
+	}
+
+	if err := h.emailService.RefreshBlocklist(); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to refresh blocklist: "+err.Error())
+	}
+	return c.JSON(fiber.Map{"message": "email blocklist refreshed successfully"})
 }

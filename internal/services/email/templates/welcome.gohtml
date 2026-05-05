@@ -1,0 +1,14 @@
+{{define "title"}}Welcome to QueueBuzz!{{end}}
+
+{{define "content"}}
+<h1 style="font-size: 24px; margin-top: 0;">Welcome aboard, {{.HostName}}!</h1>
+<p style="line-height: 1.6; margin: 16px 0;">We're thrilled to have you with us. QueueBuzz is here to help you manage your virtual queues and give your customers a better waiting experience.</p>
+<p style="line-height: 1.6; margin: 16px 0;">You can now start creating your first queue and inviting customers to join.</p>
+<div style="text-align: center;">
+    <a href="{{.DashboardLink}}" style="display: inline-block; background-color: #00E5A0; color: #1A0A2E !important; padding: 12px 32px; border-radius: 100px; text-decoration: none; font-weight: bold; margin: 24px 0;">Go to Dashboard</a>
+</div>
+<p style="line-height: 1.6; margin: 16px 0;">If you have any questions, just reply to this email. We're always here to help.</p>
+<p style="line-height: 1.6; margin: 16px 0;">Happy queuing!</p>
+{{end}}
+
+{{template "layout" .}}

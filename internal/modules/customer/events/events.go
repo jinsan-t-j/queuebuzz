@@ -10,6 +10,7 @@ const (
 	EventEntryStatusChanged = "entry_status_changed"
 	EventEntryInit          = "entry_init"
 	EventPushTokenRefresh   = "push_token_refresh_required"
+	EventQueueEnded         = "queue_ended"
 )
 
 // PositionUpdateData is the payload for EventPositionUpdate (entry-scoped topic).

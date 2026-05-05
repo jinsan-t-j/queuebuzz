@@ -1,8 +1,8 @@
 /vendor
 /tmp
-/.agent
 /logs
 /bin
+.DS_Store
 
 .env
 .env.*
@@ -12,3 +12,9 @@ main
 workflows/build-queuebuzz-backend.md
 coverage.out
 *.code-workspace
+.scannerwork
+
+.gitnexus
+.claude
+.agent
+.gemini

@@ -26,6 +26,7 @@ type Handler struct {
 	hostService  *hostservice.Service
 	queueService *queueservice.Service
 	r2Service    *storage.R2Service
+	emailService *legacyservices.EmailService
 }
 
 func NewHandler(
@@ -35,6 +36,7 @@ func NewHandler(
 	hostSvc *hostservice.Service,
 	queueSvc *queueservice.Service,
 	r2Svc *storage.R2Service,
+	emailSvc *legacyservices.EmailService,
 ) *Handler {
 	return &Handler{
 		cfg:          cfg,
@@ -43,6 +45,7 @@ func NewHandler(
 		hostService:  hostSvc,
 		queueService: queueSvc,
 		r2Service:    r2Svc,
+		emailService: emailSvc,
 	}
 }
 
@@ -222,7 +225,8 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 			mime := fh.Header.Get("Content-Type")
 			ext := GetExtensionFromMIME(mime)
 			key := h.r2Service.GenerateKey(hostID, field.typeLabel, ext)
-			url, err := h.r2Service.Upload(ctx, key, data, mime)
+			url := ""
+			url, err = h.r2Service.Upload(ctx, key, data, mime)
 			if err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "failed to upload "+field.formName)
 			}
@@ -253,8 +257,14 @@ func (h *Handler) DeleteMe(c fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
+	host, _ := h.hostService.FindByID(c.Context(), hostID)
+
 	if err := h.hostService.DeleteHost(c.Context(), hostID); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to delete account")
+	}
+
+	if host != nil && host.Email != nil {
+		go h.emailService.SendAccountDeletionEmail(*host.Email, host.Name)
 	}
 
 	for _, name := range []string{"access_token", "refresh_token"} {

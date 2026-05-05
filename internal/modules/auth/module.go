@@ -27,4 +27,5 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 	router.Post("/api/v1/auth/refresh/token", m.Handler.Refresh)
 	router.Post("/api/v1/auth/login", limiters.Register, m.Handler.Authenticate)
 	router.Post("/api/v1/auth/logout", middlewares.AuthMiddleware(m.Service), m.Handler.Logout)
+	router.Post("/api/v1/system/email/refresh-blocklist", m.Handler.RefreshEmailBlocklist)
 }

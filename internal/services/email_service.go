@@ -4,14 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	_ "embed"
+	"embed"
 	"fmt"
 	"html/template"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +37,9 @@ const blocklistURL = "https://raw.githubusercontent.com/disposable-email-domains
 //go:embed email/disposable_blocklist.conf
 var disposableBlocklistRaw string
 
+//go:embed email/templates/*.gohtml
+var templateFS embed.FS
+
 func NewEmailService(cfg *config.Config, provider email.Provider, sys *systemservice.SystemService) *EmailService {
 	s := &EmailService{
 		cfg:           cfg,
@@ -50,6 +51,8 @@ func NewEmailService(cfg *config.Config, provider email.Provider, sys *systemser
 		supportEmail:  cfg.SupportEmail,
 	}
 
+	s.job = email.NewJob(s)
+
 	// Initial load from embedded file (fast & reliable)
 	scanner := bufio.NewScanner(strings.NewReader(disposableBlocklistRaw))
 	for scanner.Scan() {
@@ -59,15 +62,10 @@ func NewEmailService(cfg *config.Config, provider email.Provider, sys *systemser
 		}
 	}
 
-	// Load templates
-	_, b, _, _ := runtime.Caller(0)
-	basepath := filepath.Dir(b)
-	templatesDir := filepath.Join(basepath, "email/templates")
-	layoutPath := filepath.Join(templatesDir, "layout.gohtml")
-
-	files, err := os.ReadDir(templatesDir)
+	// Load templates from embedded filesystem
+	files, err := templateFS.ReadDir("email/templates")
 	if err != nil {
-		log.Error().Err(err).Str("path", templatesDir).Msg("Failed to read templates directory")
+		log.Error().Err(err).Msg("Failed to read embedded templates directory")
 		return s
 	}
 
@@ -77,19 +75,15 @@ func NewEmailService(cfg *config.Config, provider email.Provider, sys *systemser
 		}
 
 		name := f.Name()
-		fullPath := filepath.Join(templatesDir, name)
-
 		tmpl := template.New(name)
-		tmpl, err = tmpl.ParseFiles(layoutPath, fullPath)
+		// Parse both the layout and the specific template from the embedded FS
+		tmpl, err = tmpl.ParseFS(templateFS, "email/templates/layout.gohtml", "email/templates/"+name)
 		if err != nil {
 			log.Error().Err(err).Str("file", name).Msg("Failed to parse email template")
 			continue
 		}
 		s.templates[name] = tmpl
 	}
-
-	// Initialize job
-	s.job = email.NewJob(s)
 
 	return s
 }

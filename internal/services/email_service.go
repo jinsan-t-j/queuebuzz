@@ -114,6 +114,39 @@ func (s *EmailService) SendMagicLink(toEmail, token string) error {
 	return nil
 }
 
+// SendWelcomeEmail sends a welcome email to a new host.
+func (s *EmailService) SendWelcomeEmail(toEmail, hostName string) error {
+	data := map[string]interface{}{
+		"HostName":      hostName,
+		"DashboardLink": fmt.Sprintf("%s/dashboard", s.cfg.FrontendURL),
+		"Year":          time.Now().Year(),
+	}
+
+	html, err := s.renderTemplate("welcome.gohtml", data)
+	if err != nil {
+		return err
+	}
+
+	s.job.Dispatch(toEmail, "Welcome to QueueBuzz! 🚀", html)
+	return nil
+}
+
+// SendAccountDeletionEmail sends a confirmation email when an account is deleted.
+func (s *EmailService) SendAccountDeletionEmail(toEmail, hostName string) error {
+	data := map[string]interface{}{
+		"HostName": hostName,
+		"Year":     time.Now().Year(),
+	}
+
+	html, err := s.renderTemplate("account_deletion.gohtml", data)
+	if err != nil {
+		return err
+	}
+
+	s.job.Dispatch(toEmail, "Account Deleted — We're sorry to see you go", html)
+	return nil
+}
+
 // SendBuzzFallback sends an email notification when FCM delivery fails.
 func (s *EmailService) SendBuzzFallback(toEmail, ticketNo, queueName, queueID string) error {
 	data := map[string]interface{}{
@@ -145,6 +178,156 @@ func (s *EmailService) SendQueueEnded(toEmail, queueName string) error {
 	}
 
 	s.job.Dispatch(toEmail, fmt.Sprintf("Queue Ended: %s", queueName), html)
+	return nil
+}
+
+// SendPurchaseConfirmation sends a confirmation email after a successful subscription purchase.
+func (s *EmailService) SendPurchaseConfirmation(toEmail, planName, billingCycle string, amount int, currency string) error {
+	// Format amount (stored as minor units, e.g. 49900 → ₹499.00)
+	symbol := "₹"
+	if currency == "USD" {
+		symbol = "$"
+	}
+	formattedAmount := fmt.Sprintf("%s%.2f", symbol, float64(amount)/100.0)
+
+	// Capitalize billing cycle for display
+	displayCycle := "Monthly"
+	if billingCycle == "yearly" {
+		displayCycle = "Yearly"
+	}
+
+	data := map[string]interface{}{
+		"PlanName":        planName,
+		"BillingCycle":    displayCycle,
+		"FormattedAmount": formattedAmount,
+		"DashboardLink":   fmt.Sprintf("%s/dashboard", s.cfg.FrontendURL),
+		"Year":            time.Now().Year(),
+	}
+
+	html, err := s.renderTemplate("purchase_confirmation.gohtml", data)
+	if err != nil {
+		return err
+	}
+
+	s.job.Dispatch(toEmail, "Payment Confirmed — QueueBuzz", html)
+	return nil
+}
+
+// SendSubscriptionPending notifies the host that their payment is being processed.
+func (s *EmailService) SendSubscriptionPending(toEmail, planName string) error {
+	data := map[string]interface{}{
+		"PlanName":      planName,
+		"DashboardLink": fmt.Sprintf("%s/dashboard", s.cfg.FrontendURL),
+		"Year":          time.Now().Year(),
+	}
+
+	html, err := s.renderTemplate("subscription_pending.gohtml", data)
+	if err != nil {
+		return err
+	}
+
+	s.job.Dispatch(toEmail, "Payment Processing — QueueBuzz", html)
+	return nil
+}
+
+// SendSubscriptionRenewed notifies the host that their subscription was successfully renewed.
+func (s *EmailService) SendSubscriptionRenewed(toEmail, planName, billingCycle string, amount int, currency string) error {
+	symbol := "₹"
+	if currency == "USD" {
+		symbol = "$"
+	}
+	formattedAmount := fmt.Sprintf("%s%.2f", symbol, float64(amount)/100.0)
+
+	displayCycle := "Monthly"
+	if billingCycle == "yearly" {
+		displayCycle = "Yearly"
+	}
+
+	data := map[string]interface{}{
+		"PlanName":        planName,
+		"BillingCycle":    displayCycle,
+		"FormattedAmount": formattedAmount,
+		"DashboardLink":   fmt.Sprintf("%s/dashboard", s.cfg.FrontendURL),
+		"Year":            time.Now().Year(),
+	}
+
+	html, err := s.renderTemplate("subscription_renewed.gohtml", data)
+	if err != nil {
+		return err
+	}
+
+	s.job.Dispatch(toEmail, "Subscription Renewed — QueueBuzz", html)
+	return nil
+}
+
+// SendPaymentFailed notifies the host that a recurring payment failed.
+func (s *EmailService) SendPaymentFailed(toEmail, planName, billingCycle string) error {
+	displayCycle := "Monthly"
+	if billingCycle == "yearly" {
+		displayCycle = "Yearly"
+	}
+
+	data := map[string]interface{}{
+		"PlanName":      planName,
+		"BillingCycle":  displayCycle,
+		"DashboardLink": fmt.Sprintf("%s/dashboard", s.cfg.FrontendURL),
+		"Year":          time.Now().Year(),
+	}
+
+	html, err := s.renderTemplate("payment_failed.gohtml", data)
+	if err != nil {
+		return err
+	}
+
+	s.job.Dispatch(toEmail, "Payment Failed — Action Required", html)
+	return nil
+}
+
+// SendSubscriptionCancelled notifies the host that their subscription was cancelled.
+func (s *EmailService) SendSubscriptionCancelled(toEmail, planName string) error {
+	data := map[string]interface{}{
+		"PlanName":    planName,
+		"PricingLink": fmt.Sprintf("%s/pricing", s.cfg.AppURL),
+		"Year":        time.Now().Year(),
+	}
+
+	html, err := s.renderTemplate("subscription_cancelled.gohtml", data)
+	if err != nil {
+		return err
+	}
+
+	s.job.Dispatch(toEmail, "Subscription Cancelled — QueueBuzz", html)
+	return nil
+}
+
+// SendRenewalReminder notifies hosts 2-4 days before their subscription renews.
+func (s *EmailService) SendRenewalReminder(toEmail, planName string, renewalDate time.Time, amount int, currency string) error {
+	symbol := "₹"
+	if currency == "USD" {
+		symbol = "$"
+	}
+	formattedAmount := fmt.Sprintf("%s%.2f", symbol, float64(amount)/100.0)
+
+	daysUntil := int(time.Until(renewalDate).Hours() / 24)
+	if daysUntil < 1 {
+		daysUntil = 1
+	}
+
+	data := map[string]interface{}{
+		"PlanName":        planName,
+		"FormattedAmount": formattedAmount,
+		"RenewalDate":     renewalDate.Format("January 2, 2006"),
+		"DaysUntil":       daysUntil,
+		"DashboardLink":   fmt.Sprintf("%s/dashboard", s.cfg.FrontendURL),
+		"Year":            time.Now().Year(),
+	}
+
+	html, err := s.renderTemplate("renewal_reminder.gohtml", data)
+	if err != nil {
+		return err
+	}
+
+	s.job.Dispatch(toEmail, fmt.Sprintf("Subscription renews in %d days — QueueBuzz", daysUntil), html)
 	return nil
 }
 

@@ -1,4 +1,4 @@
-package repository
+package service
 
 import (
 	"context"
@@ -25,6 +25,9 @@ func EnsureQueueIndexes(ctx context.Context, db *mongodriver.Database) error {
 		},
 		{
 			Keys: bson.D{{Key: "status", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "host_id", Value: 1}, {Key: "created_at", Value: -1}},
 		},
 	}
 	_, err := queueCol.Indexes().CreateMany(ctx, queueIndexes)

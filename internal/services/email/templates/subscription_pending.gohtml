@@ -1,0 +1,14 @@
+{{define "title"}}Subscription Pending{{end}}
+
+{{define "content"}}
+<h1 style="font-size: 24px; margin-top: 0;">Subscription status: Pending</h1>
+<p style="line-height: 1.6; margin: 16px 0;">Hello,</p>
+<p style="line-height: 1.6; margin: 16px 0;">Your subscription to the <strong>{{.PlanName}}</strong> plan is currently pending payment. This sometimes happens with certain payment methods or bank delays.</p>
+<p style="line-height: 1.6; margin: 16px 0;">We'll automatically upgrade your account once the payment is confirmed. You don't need to do anything right now.</p>
+<div style="text-align: center;">
+    <a href="{{.DashboardLink}}" style="display: inline-block; background-color: #00E5A0; color: #1A0A2E !important; padding: 12px 32px; border-radius: 100px; text-decoration: none; font-weight: bold; margin: 24px 0;">View Status in Dashboard</a>
+</div>
+<p style="line-height: 1.6; margin: 16px 0;">If you have any questions or if your subscription doesn't update within 24 hours, please contact our support.</p>
+{{end}}
+
+{{template "layout" .}}

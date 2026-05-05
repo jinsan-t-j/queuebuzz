@@ -15,6 +15,7 @@ func TestQueue_Management_Lifecycle(t *testing.T) {
 	s.CleanDB()
 
 	queueID, hostToken := util.CreateQueue(t, s, "Lifecycle Queue")
+	util.UpgradeToPremium(t, s, queueID)
 
 	// 1. Join some customers
 	util.JoinQueue(t, s, queueID, "Customer 1")

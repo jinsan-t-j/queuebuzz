@@ -9,12 +9,16 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"os"
 	"queuebuzz/tests/e2e/setup"
 	"strings"
 	"testing"
 	"time"
 
+	stdwebhook "github.com/standard-webhooks/standard-webhooks/libraries/go"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // SSEEvent represents a single Server-Sent Event.
@@ -173,6 +177,15 @@ func POST(s *setup.TestSuite, path string, body any, cookies ...*http.Cookie) (*
 	return s.Do(req)
 }
 
+// POSTAuth sends a JSON POST request with a host token.
+func POSTAuth(s *setup.TestSuite, path string, body any, token string) (*http.Response, error) {
+	payload, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, s.BaseURL+path, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(HostCookie(token))
+	return s.Do(req)
+}
+
 // GET sends a GET request.
 func GET(s *setup.TestSuite, path string, cookies ...*http.Cookie) (*http.Response, error) {
 	req, _ := http.NewRequest(http.MethodGet, s.BaseURL+path, nil)
@@ -300,4 +313,164 @@ func CreateAuthenticatedQueue(t *testing.T, s *setup.TestSuite, name string, acc
 
 	data := DecodedBody(t, resp)
 	return data["id"].(string)
+}
+
+// UpgradeToPremium gives a host history access by seeding plans and creating a subscription.
+func UpgradeToPremium(t *testing.T, s *setup.TestSuite, hostID string) {
+	t.Helper()
+	ctx := context.Background()
+
+	planID := "premium-global"
+	_, _ = s.DB.Collection("billing_plans").DeleteOne(ctx, bson.M{"_id": planID})
+	_, err := s.DB.Collection("billing_plans").InsertOne(ctx, map[string]any{
+		"_id":           planID,
+		"slug":          "premium-global",
+		"tier":          "pro",
+		"name":          "Premium Global",
+		"is_free":       false,
+		"country_code":  "GLOBAL",
+		"currency":      "USD",
+		"monthly_price": 1900,
+		"limits": map[string]any{
+			"max_queues_per_month":   10,
+			"max_guests_per_queue":   500,
+			"history_access":         true,
+			"custom_branding":        false,
+			"can_export":             true,
+			"queue_expiry_hours":     72,
+			"can_view_guest_data":    true,
+			"history_retention_days": 30,
+		},
+	})
+	require.NoError(t, err)
+
+	subID := "sub-" + hostID
+	_, _ = s.DB.Collection("billing_subscriptions").DeleteOne(ctx, bson.M{"host_id": hostID})
+	_, err = s.DB.Collection("billing_subscriptions").InsertOne(ctx, map[string]any{
+		"_id":        subID,
+		"host_id":    hostID,
+		"plan_id":    planID,
+		"status":     "active",
+		"updated_at": time.Now(),
+	})
+	require.NoError(t, err)
+}
+
+// UpgradeToProPlan assigns the host the seeded pro-in-v1 plan.
+func UpgradeToProPlan(t *testing.T, s *setup.TestSuite, hostID string) {
+	t.Helper()
+	ctx := context.Background()
+	subID := "sub-" + hostID
+	_, _ = s.DB.Collection("billing_subscriptions").DeleteOne(ctx, bson.M{"host_id": hostID})
+	_, err := s.DB.Collection("billing_subscriptions").InsertOne(ctx, map[string]any{
+		"_id":        subID,
+		"host_id":    hostID,
+		"plan_id":    "pro-in-v1",
+		"status":     "active",
+		"updated_at": time.Now(),
+	})
+	require.NoError(t, err)
+	// Clear any cached plan
+	s.App.Container.Redis.Del(ctx, "billing:host_plan:"+hostID)
+}
+
+// DowngradeToFree removes the subscription and clears billing cache.
+func DowngradeToFree(t *testing.T, s *setup.TestSuite, hostID string) {
+	t.Helper()
+	ctx := context.Background()
+	_, _ = s.DB.Collection("billing_subscriptions").DeleteMany(ctx, bson.M{"host_id": hostID})
+	s.App.Container.Redis.Del(ctx, "billing:host_plan:"+hostID)
+}
+
+// SignWebhook signs a payload using standard-webhooks and returns headers.
+func SignWebhook(t *testing.T, key string, payload []byte) map[string]string {
+	t.Helper()
+	wh, err := stdwebhook.NewWebhook(key)
+	require.NoError(t, err)
+
+	webhookID := "wh_" + fmt.Sprintf("%d", time.Now().UnixNano())
+	timestamp := time.Now()
+
+	signature, err := wh.Sign(webhookID, timestamp, payload)
+	require.NoError(t, err)
+
+	return map[string]string{
+		"webhook-id":        webhookID,
+		"webhook-signature": signature,
+		"webhook-timestamp": fmt.Sprintf("%d", timestamp.Unix()),
+	}
+}
+
+// SendWebhook signs a payload with the test webhook key and POSTs it to the
+// billing webhook endpoint. Returns the HTTP response for assertion.
+func SendWebhook(t *testing.T, s *setup.TestSuite, payload []byte) *http.Response {
+	t.Helper()
+	const testWebhookKey = "whsec_dGVzdF93ZWJob29rX2tleV8xMjM0NTY3ODkwMTI="
+	headers := SignWebhook(t, testWebhookKey, payload)
+
+	req, _ := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/billing/webhook", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := s.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+// AssertEmailReceived queries the Mailpit API and asserts that at least one
+// email was delivered to `toEmail` whose subject contains `subjectFragment`.
+// Waits up to 3 seconds for async email delivery.
+func AssertEmailReceived(t *testing.T, toEmail, subjectFragment string) {
+	t.Helper()
+	mailpitURL := os.Getenv("MAILPIT_API_URL")
+	if mailpitURL == "" {
+		t.Log("MAILPIT_API_URL not set, skipping email assertion")
+		return
+	}
+
+	var found bool
+	for attempt := 0; attempt < 6; attempt++ {
+		time.Sleep(500 * time.Millisecond)
+
+		resp, err := http.Get(fmt.Sprintf("%s/api/v1/search?query=to:%s", mailpitURL, toEmail))
+		if err != nil || resp.StatusCode != http.StatusOK {
+			continue
+		}
+		defer resp.Body.Close()
+
+		var result struct {
+			Messages []struct {
+				Subject string `json:"Subject"`
+			} `json:"messages"`
+			Total int `json:"total"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			continue
+		}
+
+		for _, msg := range result.Messages {
+			if strings.Contains(strings.ToLower(msg.Subject), strings.ToLower(subjectFragment)) {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+
+	assert.True(t, found, "expected email to %s with subject containing %q", toEmail, subjectFragment)
+}
+
+// ClearMailpit deletes all messages from the Mailpit inbox.
+func ClearMailpit(t *testing.T) {
+	t.Helper()
+	mailpitURL := os.Getenv("MAILPIT_API_URL")
+	if mailpitURL == "" {
+		return
+	}
+	req, _ := http.NewRequest(http.MethodDelete, mailpitURL+"/api/v1/messages", nil)
+	http.DefaultClient.Do(req)
 }

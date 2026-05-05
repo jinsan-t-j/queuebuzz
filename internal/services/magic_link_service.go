@@ -17,6 +17,7 @@ type MagicLinkService struct {
 type MagicLinkPayload struct {
 	Email        string `json:"email"`
 	ClaimQueueID string `json:"claim_queue_id,omitempty"`
+	RedirectURL  string `json:"redirect_url,omitempty"`
 }
 
 func NewMagicLinkService(rdb *redis.Client) *MagicLinkService {
@@ -25,14 +26,14 @@ func NewMagicLinkService(rdb *redis.Client) *MagicLinkService {
 
 // GenerateAndStoreMagicLink creates a UUID magic link token, stores the
 // associated email and metadata in Redis with a 15-minute TTL.
-func (s *MagicLinkService) GenerateAndStoreMagicLink(ctx context.Context, email string, claimQueueID string) (string, error) {
+func (s *MagicLinkService) GenerateAndStoreMagicLink(ctx context.Context, email string, claimQueueID string, redirectURL string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	token := uuid.New().String()
 	key := fmt.Sprintf("magic:%s", token)
 
-	payload, err := json.Marshal(MagicLinkPayload{Email: email, ClaimQueueID: claimQueueID})
+	payload, err := json.Marshal(MagicLinkPayload{Email: email, ClaimQueueID: claimQueueID, RedirectURL: redirectURL})
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal magic link payload: %w", err)
 	}

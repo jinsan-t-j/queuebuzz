@@ -84,7 +84,7 @@ func NewSocialAuthService(cfg *config.Config, redisService *legacyservices.Redis
 	}
 }
 
-func (s *SocialAuthService) StartAuth(provider string, email string, claimQueueID string) (string, error) {
+func (s *SocialAuthService) StartAuth(provider string, email string, claimQueueID string, redirectURL string) (string, error) {
 	nonce, err := randomToken(32)
 	if err != nil {
 		return "", err
@@ -94,6 +94,7 @@ func (s *SocialAuthService) StartAuth(provider string, email string, claimQueueI
 		"prv": provider,
 		"nce": nonce,
 		"qid": claimQueueID,
+		"rdt": redirectURL,
 		"exp": time.Now().Add(oauthStateTTL).Unix(),
 	}
 
@@ -162,6 +163,7 @@ func (s *SocialAuthService) CompleteAuth(ctx context.Context, provider, code, st
 
 	nonce := stringClaim(claims, "nce")
 	claimQueueID := stringClaim(claims, "qid")
+	redirectURL := stringClaim(claims, "rdt")
 
 	switch provider {
 	case "google":
@@ -170,6 +172,7 @@ func (s *SocialAuthService) CompleteAuth(ctx context.Context, provider, code, st
 			return nil, err
 		}
 		identity.ClaimQueueID = claimQueueID
+		identity.RedirectURL = redirectURL
 		return identity, nil
 	case "apple":
 		identity, err := s.completeAppleAuth(ctx, code, nonce)
@@ -177,6 +180,7 @@ func (s *SocialAuthService) CompleteAuth(ctx context.Context, provider, code, st
 			return nil, err
 		}
 		identity.ClaimQueueID = claimQueueID
+		identity.RedirectURL = redirectURL
 		return identity, nil
 	default:
 		return nil, fmt.Errorf("unsupported provider")

@@ -10,6 +10,7 @@ type DashboardData struct {
 	PeakHours      []PeakHourPoint   `json:"peakHours"`
 	Greeting       GreetingData      `json:"greeting"`
 	QuickSetup     QuickSetupData    `json:"quickSetup"`
+	HasHistory     bool              `json:"hasHistory"`
 }
 
 type ActiveQueueStats struct {

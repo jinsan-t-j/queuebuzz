@@ -120,6 +120,382 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/billing/checkout": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Authenticated hosts can create a checkout session for a paid plan.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Create checkout session",
+                "parameters": [
+                    {
+                        "description": "Plan selection",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.CheckoutRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Contains 'url' field with redirect URL",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/helpers.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.CheckoutResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid plan, free plan, enterprise, missing product config",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Host not authenticated",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Duplicate checkout request within 30s window",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/current-plan": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the active billing plan with feature limits, current usage counters,",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Get current plan",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/helpers.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.PlanResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/plans": {
+            "get": {
+                "description": "Returns all available plans (Free, Pro, Elite) localized to the visitor's",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "List billing plans",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ISO 3166-1 alpha-2 country code (e.g. IN, US)",
+                        "name": "country",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "IANA timezone (e.g. Asia/Kolkata) for auto country detection",
+                        "name": "X-Browser-Timezone",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Cloudflare edge-resolved country code",
+                        "name": "CF-IPCountry",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Localized plan list",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/helpers.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.PlansResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Database or aggregation error",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/subscription": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the host's active subscription details including cancellation status.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Get subscription",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/helpers.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.SubscriptionResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/subscription/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Schedules the host's subscription for cancellation at the end of the current billing period.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Cancel subscription",
+                "parameters": [
+                    {
+                        "description": "Cancellation details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.CancelSubscriptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/subscription/update-payment-method": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a secure payment link where the host can update their payment method.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Update payment method",
+                "parameters": [
+                    {
+                        "description": "Return URL",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.UpdatePaymentMethodRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/webhook": {
+            "post": {
+                "description": "Endpoint for Dodo Payments to send subscription and payment events.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Billing Webhook",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Webhook ID",
+                        "name": "webhook-id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook Signature",
+                        "name": "webhook-signature",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Webhook Timestamp",
+                        "name": "webhook-timestamp",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Webhook payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.WebhookRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/social/{provider}/callback": {
             "get": {
                 "description": "Handles OAuth provider callbacks, creates or links a host account, sets auth cookies, and redirects to the dashboard.",
@@ -1844,9 +2220,114 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/system/email/refresh-blocklist": {
+            "post": {
+                "description": "Fetches the latest disposable email domains from the source GitHub repository and updates the in-memory map.",
+                "tags": [
+                    "System"
+                ],
+                "summary": "Manually refresh the disposable email blocklist",
+                "responses": {
+                    "200": {
+                        "description": "Refresh successful",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "domain.Plan": {
+            "type": "object",
+            "properties": {
+                "country_code": {
+                    "description": "e.g., \"IN\", \"US\", or \"GLOBAL\"",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "currency": {
+                    "description": "e.g., \"INR\", \"USD\"",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_free": {
+                    "type": "boolean"
+                },
+                "limits": {
+                    "$ref": "#/definitions/domain.PlanLimit"
+                },
+                "monthly_price": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "tier": {
+                    "description": "e.g., \"free\", \"pro\", \"elite\", \"enterprise\"",
+                    "type": "string"
+                },
+                "yearly_price": {
+                    "type": "integer"
+                }
+            }
+        },
+        "domain.PlanLimit": {
+            "type": "object",
+            "properties": {
+                "can_export": {
+                    "type": "boolean"
+                },
+                "can_view_guest_data": {
+                    "type": "boolean"
+                },
+                "custom_branding": {
+                    "type": "boolean"
+                },
+                "history_access": {
+                    "type": "boolean"
+                },
+                "history_retention_days": {
+                    "type": "integer"
+                },
+                "max_guests_per_queue": {
+                    "type": "integer"
+                },
+                "max_queues_per_month": {
+                    "type": "integer"
+                },
+                "queue_expiry_hours": {
+                    "type": "integer"
+                }
+            }
+        },
         "dto.ActiveQueueStats": {
             "type": "object",
             "properties": {
@@ -1885,6 +2366,17 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.CancelSubscriptionRequest": {
+            "type": "object",
+            "properties": {
+                "comment": {
+                    "type": "string"
+                },
+                "feedback": {
+                    "type": "string"
+                }
+            }
+        },
         "dto.ChartDataPoint": {
             "type": "object",
             "properties": {
@@ -1917,6 +2409,9 @@ const docTemplate = `{
                 },
                 "email": {
                     "type": "string"
+                },
+                "redirect_url": {
+                    "type": "string"
                 }
             }
         },
@@ -1925,6 +2420,32 @@ const docTemplate = `{
             "properties": {
                 "is_available": {
                     "type": "boolean"
+                }
+            }
+        },
+        "dto.CheckoutRequest": {
+            "type": "object",
+            "required": [
+                "plan_id"
+            ],
+            "properties": {
+                "billing_cycle": {
+                    "type": "string",
+                    "enum": [
+                        "monthly",
+                        "yearly"
+                    ]
+                },
+                "plan_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.CheckoutResponse": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string"
                 }
             }
         },
@@ -1955,9 +2476,6 @@ const docTemplate = `{
                     "maxLength": 50,
                     "minLength": 3
                 },
-                "recovery_email": {
-                    "type": "string"
-                },
                 "slug": {
                     "type": "string",
                     "maxLength": 20,
@@ -1979,6 +2497,9 @@ const docTemplate = `{
                 },
                 "greeting": {
                     "$ref": "#/definitions/dto.GreetingData"
+                },
+                "hasHistory": {
+                    "type": "boolean"
                 },
                 "peakHours": {
                     "type": "array",
@@ -2138,6 +2659,25 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.PlanResponse": {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "$ref": "#/definitions/domain.Plan"
+                }
+            }
+        },
+        "dto.PlansResponse": {
+            "type": "object",
+            "properties": {
+                "plans": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/domain.Plan"
+                    }
+                }
+            }
+        },
         "dto.QueueRecord": {
             "type": "object",
             "properties": {
@@ -2175,9 +2715,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "notes": {
-                    "type": "string"
-                },
-                "recovery_email": {
                     "type": "string"
                 },
                 "slug": {
@@ -2287,6 +2824,35 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.SubscriptionResponse": {
+            "type": "object",
+            "properties": {
+                "billing_cycle": {
+                    "type": "string"
+                },
+                "cancel_at_period_end": {
+                    "type": "boolean"
+                },
+                "card_last_4": {
+                    "type": "string"
+                },
+                "current_period_end": {
+                    "type": "string"
+                },
+                "plan_name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tier": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "dto.UpdateEntryRequest": {
             "type": "object",
             "properties": {
@@ -2322,6 +2888,14 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.UpdatePaymentMethodRequest": {
+            "type": "object",
+            "properties": {
+                "return_url": {
+                    "type": "string"
+                }
+            }
+        },
         "dto.UpdateQueueRequest": {
             "type": "object",
             "properties": {
@@ -2350,9 +2924,6 @@ const docTemplate = `{
                     "type": "string",
                     "maxLength": 5000
                 },
-                "recovery_email": {
-                    "type": "string"
-                },
                 "slug": {
                     "type": "string",
                     "maxLength": 20,
@@ -2360,6 +2931,28 @@ const docTemplate = `{
                 },
                 "strict_queue_mode": {
                     "type": "boolean"
+                }
+            }
+        },
+        "dto.WebhookRequest": {
+            "type": "object",
+            "required": [
+                "data",
+                "type"
+            ],
+            "properties": {
+                "data": {},
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "helpers.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {},
+                "message": {
+                    "type": "string"
                 }
             }
         },

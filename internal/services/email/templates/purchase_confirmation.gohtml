@@ -1,0 +1,29 @@
+{{define "title"}}Payment Confirmed — QueueBuzz{{end}}
+
+{{define "content"}}
+<h1 style="font-size: 24px; margin-top: 0;">Payment Confirmed 🎉</h1>
+<p style="line-height: 1.6; margin: 16px 0;">Thank you for upgrading your QueueBuzz plan!</p>
+<div style="background-color: #F7F3EE; border-radius: 16px; padding: 20px; margin: 24px 0;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr>
+            <td style="padding: 8px 0; color: #7B6B95;">Plan</td>
+            <td style="padding: 8px 0; font-weight: bold; text-align: right;">{{.PlanName}}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px 0; color: #7B6B95;">Billing</td>
+            <td style="padding: 8px 0; font-weight: bold; text-align: right;">{{.BillingCycle}}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px 0; color: #7B6B95;">Amount</td>
+            <td style="padding: 8px 0; font-weight: bold; text-align: right;">{{.FormattedAmount}}</td>
+        </tr>
+    </table>
+</div>
+<p style="line-height: 1.6; margin: 16px 0;">Your premium features are now active. Head to your dashboard to start using them.</p>
+<div style="text-align: center;">
+    <a href="{{.DashboardLink}}" style="display: inline-block; background-color: #00E5A0; color: #1A0A2E !important; padding: 12px 32px; border-radius: 100px; text-decoration: none; font-weight: bold; margin: 24px 0;">Go to Dashboard</a>
+</div>
+<p style="line-height: 1.6; margin: 16px 0; font-size: 13px; color: #7B6B95;">If you have any billing questions, reply to this email.</p>
+{{end}}
+
+{{template "layout" .}}

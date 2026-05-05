@@ -1,5 +1,56 @@
 basePath: /api
 definitions:
+  domain.Plan:
+    properties:
+      country_code:
+        description: e.g., "IN", "US", or "GLOBAL"
+        type: string
+      created_at:
+        type: string
+      currency:
+        description: e.g., "INR", "USD"
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      is_free:
+        type: boolean
+      limits:
+        $ref: '#/definitions/domain.PlanLimit'
+      monthly_price:
+        type: integer
+      name:
+        type: string
+      priority:
+        type: integer
+      slug:
+        type: string
+      tier:
+        description: e.g., "free", "pro", "elite", "enterprise"
+        type: string
+      yearly_price:
+        type: integer
+    type: object
+  domain.PlanLimit:
+    properties:
+      can_export:
+        type: boolean
+      can_view_guest_data:
+        type: boolean
+      custom_branding:
+        type: boolean
+      history_access:
+        type: boolean
+      history_retention_days:
+        type: integer
+      max_guests_per_queue:
+        type: integer
+      max_queues_per_month:
+        type: integer
+      queue_expiry_hours:
+        type: integer
+    type: object
   dto.ActiveQueueStats:
     properties:
       isActive:
@@ -26,6 +77,13 @@ definitions:
     required:
     - name
     type: object
+  dto.CancelSubscriptionRequest:
+    properties:
+      comment:
+        type: string
+      feedback:
+        type: string
+    type: object
   dto.ChartDataPoint:
     properties:
       avgWait:
@@ -46,6 +104,8 @@ definitions:
         type: string
       email:
         type: string
+      redirect_url:
+        type: string
     required:
     - email
     type: object
@@ -53,6 +113,23 @@ definitions:
     properties:
       is_available:
         type: boolean
+    type: object
+  dto.CheckoutRequest:
+    properties:
+      billing_cycle:
+        enum:
+        - monthly
+        - yearly
+        type: string
+      plan_id:
+        type: string
+    required:
+    - plan_id
+    type: object
+  dto.CheckoutResponse:
+    properties:
+      url:
+        type: string
     type: object
   dto.CreateQueueRequest:
     properties:
@@ -72,8 +149,6 @@ definitions:
         maxLength: 50
         minLength: 3
         type: string
-      recovery_email:
-        type: string
       slug:
         maxLength: 20
         minLength: 3
@@ -91,6 +166,8 @@ definitions:
         type: array
       greeting:
         $ref: '#/definitions/dto.GreetingData'
+      hasHistory:
+        type: boolean
       peakHours:
         items:
           $ref: '#/definitions/dto.PeakHourPoint'
@@ -194,6 +271,18 @@ definitions:
       value:
         type: integer
     type: object
+  dto.PlanResponse:
+    properties:
+      plan:
+        $ref: '#/definitions/domain.Plan'
+    type: object
+  dto.PlansResponse:
+    properties:
+      plans:
+        items:
+          $ref: '#/definitions/domain.Plan'
+        type: array
+    type: object
   dto.QueueRecord:
     properties:
       allow_party_joining:
@@ -219,8 +308,6 @@ definitions:
       name:
         type: string
       notes:
-        type: string
-      recovery_email:
         type: string
       slug:
         type: string
@@ -291,6 +378,25 @@ definitions:
       returningCount:
         type: integer
     type: object
+  dto.SubscriptionResponse:
+    properties:
+      billing_cycle:
+        type: string
+      cancel_at_period_end:
+        type: boolean
+      card_last_4:
+        type: string
+      current_period_end:
+        type: string
+      plan_name:
+        type: string
+      status:
+        type: string
+      tier:
+        type: string
+      updated_at:
+        type: string
+    type: object
   dto.UpdateEntryRequest:
     properties:
       email:
@@ -315,6 +421,11 @@ definitions:
         additionalProperties: true
         type: object
     type: object
+  dto.UpdatePaymentMethodRequest:
+    properties:
+      return_url:
+        type: string
+    type: object
   dto.UpdateQueueRequest:
     properties:
       allow_party_joining:
@@ -336,14 +447,27 @@ definitions:
       notes:
         maxLength: 5000
         type: string
-      recovery_email:
-        type: string
       slug:
         maxLength: 20
         minLength: 3
         type: string
       strict_queue_mode:
         type: boolean
+    type: object
+  dto.WebhookRequest:
+    properties:
+      data: {}
+      type:
+        type: string
+    required:
+    - data
+    - type
+    type: object
+  helpers.ErrorResponse:
+    properties:
+      error: {}
+      message:
+        type: string
     type: object
   helpers.SuccessResponse:
     properties:
@@ -435,6 +559,240 @@ paths:
       summary: Refresh access token
       tags:
       - Auth
+  /api/v1/billing/checkout:
+    post:
+      consumes:
+      - application/json
+      description: Authenticated hosts can create a checkout session for a paid plan.
+      parameters:
+      - description: Plan selection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CheckoutRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Contains 'url' field with redirect URL
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.CheckoutResponse'
+              type: object
+        "400":
+          description: Invalid plan, free plan, enterprise, missing product config
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+        "401":
+          description: Host not authenticated
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+        "429":
+          description: Duplicate checkout request within 30s window
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create checkout session
+      tags:
+      - Billing
+  /api/v1/billing/current-plan:
+    get:
+      description: Returns the active billing plan with feature limits, current usage
+        counters,
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.PlanResponse'
+              type: object
+      security:
+      - BearerAuth: []
+      summary: Get current plan
+      tags:
+      - Billing
+  /api/v1/billing/plans:
+    get:
+      description: Returns all available plans (Free, Pro, Elite) localized to the
+        visitor's
+      parameters:
+      - description: ISO 3166-1 alpha-2 country code (e.g. IN, US)
+        in: query
+        name: country
+        type: string
+      - description: IANA timezone (e.g. Asia/Kolkata) for auto country detection
+        in: header
+        name: X-Browser-Timezone
+        type: string
+      - description: Cloudflare edge-resolved country code
+        in: header
+        name: CF-IPCountry
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Localized plan list
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.PlansResponse'
+              type: object
+        "500":
+          description: Database or aggregation error
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+      summary: List billing plans
+      tags:
+      - Billing
+  /api/v1/billing/subscription:
+    get:
+      description: Returns the host's active subscription details including cancellation
+        status.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.SubscriptionResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get subscription
+      tags:
+      - Billing
+  /api/v1/billing/subscription/cancel:
+    post:
+      consumes:
+      - application/json
+      description: Schedules the host's subscription for cancellation at the end of
+        the current billing period.
+      parameters:
+      - description: Cancellation details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CancelSubscriptionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/helpers.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Cancel subscription
+      tags:
+      - Billing
+  /api/v1/billing/subscription/update-payment-method:
+    post:
+      consumes:
+      - application/json
+      description: Returns a secure payment link where the host can update their payment
+        method.
+      parameters:
+      - description: Return URL
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdatePaymentMethodRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/helpers.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update payment method
+      tags:
+      - Billing
+  /api/v1/billing/webhook:
+    post:
+      consumes:
+      - application/json
+      description: Endpoint for Dodo Payments to send subscription and payment events.
+      parameters:
+      - description: Webhook ID
+        in: header
+        name: webhook-id
+        required: true
+        type: string
+      - description: Webhook Signature
+        in: header
+        name: webhook-signature
+        required: true
+        type: string
+      - description: Webhook Timestamp
+        in: header
+        name: webhook-timestamp
+        required: true
+        type: string
+      - description: Webhook payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.WebhookRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+      summary: Billing Webhook
+      tags:
+      - Billing
   /auth/social/{provider}/callback:
     get:
       description: Handles OAuth provider callbacks, creates or links a host account,
@@ -1565,6 +1923,26 @@ paths:
       summary: Check if a slug is available
       tags:
       - Queue
+  /system/email/refresh-blocklist:
+    post:
+      description: Fetches the latest disposable email domains from the source GitHub
+        repository and updates the in-memory map.
+      responses:
+        "200":
+          description: Refresh successful
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Manually refresh the disposable email blocklist
+      tags:
+      - System
 securityDefinitions:
   BearerAuth:
     description: 'RS256 JWT — format: Bearer {token}'

@@ -15,6 +15,7 @@ func TestResilience_ReadYourWrites_Consistent(t *testing.T) {
 	s.CleanDB()
 
 	queueID, hostToken := util.CreateQueue(t, s, "Consistency Queue")
+	util.UpgradeToPremium(t, s, queueID)
 
 	// Write: Join
 	util.JoinQueue(t, s, queueID, "Resilient User")

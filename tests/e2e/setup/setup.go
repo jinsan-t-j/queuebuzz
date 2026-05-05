@@ -158,6 +158,87 @@ func (s *TestSuite) CleanDB() {
 			log.Error().Err(err).Msg("Failed to flush Redis during CleanDB")
 		}
 	}
+
+	s.SeedDefaults()
+}
+
+// SeedDefaults populates basic required data like plans and settings.
+func (s *TestSuite) SeedDefaults() {
+	ctx := context.Background()
+	_, _ = s.DB.Collection("billing_plans").InsertOne(ctx, map[string]any{
+		"_id":           "free-v1",
+		"slug":          "free-v1",
+		"tier":          "free",
+		"name":          "Free Forever",
+		"is_free":       true,
+		"country_code":  "",
+		"currency":      "INR",
+		"monthly_price": 0,
+		"yearly_price":  0,
+		"limits": map[string]any{
+			"max_queues_per_month":   1,
+			"max_guests_per_queue":   25,
+			"history_access":         false,
+			"custom_branding":        false,
+			"can_export":             false,
+			"queue_expiry_hours":     24,
+			"can_view_guest_data":    false,
+			"history_retention_days": 7,
+		},
+	})
+
+	_, _ = s.DB.Collection("billing_plans").InsertOne(ctx, map[string]any{
+		"_id":                         "pro-in-v1",
+		"slug":                        "pro-india",
+		"tier":                        "pro",
+		"name":                        "Pro",
+		"is_free":                     false,
+		"country_code":                "IN",
+		"currency":                    "INR",
+		"monthly_price":               49900,
+		"yearly_price":                549900,
+		"provider_monthly_product_id": "prod_pro_monthly",
+		"limits": map[string]any{
+			"max_queues_per_month":   25,
+			"max_guests_per_queue":   100,
+			"history_access":         true,
+			"custom_branding":        false,
+			"can_export":             true,
+			"queue_expiry_hours":     72,
+			"can_view_guest_data":    true,
+			"history_retention_days": 30,
+		},
+	})
+
+	_, _ = s.DB.Collection("billing_plans").InsertOne(ctx, map[string]any{
+		"_id":                         "pro-us-v1",
+		"slug":                        "pro-global",
+		"tier":                        "pro",
+		"name":                        "Pro",
+		"is_free":                     false,
+		"country_code":                "GLOBAL",
+		"currency":                    "USD",
+		"monthly_price":               900,
+		"yearly_price":                10900,
+		"provider_monthly_product_id": "prod_pro_monthly_us",
+		"limits": map[string]any{
+			"max_queues_per_month":   25,
+			"max_guests_per_queue":   100,
+			"history_access":         true,
+			"custom_branding":        false,
+			"can_export":             true,
+			"queue_expiry_hours":     72,
+			"can_view_guest_data":    true,
+			"history_retention_days": 30,
+		},
+	})
+
+	_, _ = s.DB.Collection("system_settings").InsertOne(ctx, map[string]any{
+		"_id":             "global",
+		"slug":            "global",
+		"default_plan_id": "free-v1",
+		"support_email":   "support@test.com",
+	})
 }
 
 // Shutdown gracefully stops the Fiber app.

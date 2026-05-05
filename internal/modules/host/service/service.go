@@ -9,6 +9,7 @@ import (
 	"queuebuzz/internal/helpers"
 	authdomain "queuebuzz/internal/modules/auth/domain"
 	hostdomain "queuebuzz/internal/modules/host/domain"
+	"queuebuzz/internal/services"
 
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -18,13 +19,18 @@ import (
 type Service struct {
 	hostCol  *mongodriver.Collection
 	queueCol *mongodriver.Collection
+	emailSvc *services.EmailService
 }
 
-func New(hostCol, queueCol *mongodriver.Collection) *Service {
-	return &Service{hostCol: hostCol, queueCol: queueCol}
+func New(hostCol, queueCol *mongodriver.Collection, emailSvc *services.EmailService) *Service {
+	return &Service{
+		hostCol:  hostCol,
+		queueCol: queueCol,
+		emailSvc: emailSvc,
+	}
 }
 
-func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*hostdomain.Host, error) {
+func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*hostdomain.Host, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -39,7 +45,7 @@ func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*h
 	err := s.hostCol.FindOne(ctx, filter).Decode(&host)
 	if err == nil {
 		_, _ = s.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, bson.M{"$set": bson.M{"last_seen": time.Now()}})
-		return &host, nil
+		return &host, false, nil
 	}
 
 	now := time.Now()
@@ -58,12 +64,17 @@ func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*h
 	}
 
 	if _, err := s.hostCol.InsertOne(ctx, host); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &host, nil
+
+	if s.emailSvc != nil && email != "" {
+		_ = s.emailSvc.SendWelcomeEmail(email, "there")
+	}
+
+	return &host, true, nil
 }
 
-func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdomain.SocialIdentity) (*hostdomain.Host, error) {
+func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdomain.SocialIdentity) (*hostdomain.Host, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -72,10 +83,10 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 	err := s.hostCol.FindOne(ctx, bson.M{providerField: identity.ProviderUserID}).Decode(&host)
 	if err == nil {
 		_, _ = s.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, bson.M{"$set": bson.M{"last_seen": time.Now()}})
-		return &host, nil
+		return &host, false, nil
 	}
 	if err != mongodriver.ErrNoDocuments {
-		return nil, err
+		return nil, false, err
 	}
 
 	now := time.Now()
@@ -93,7 +104,7 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 		if err == nil {
 			existing := providerAuthForHost(&host, identity.Provider)
 			if existing != nil && existing.ProviderUserID != identity.ProviderUserID {
-				return nil, fmt.Errorf("account already linked with a different %s identity", identity.Provider)
+				return nil, false, fmt.Errorf("account already linked with a different %s identity", identity.Provider)
 			}
 			_, err := s.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, bson.M{"$set": bson.M{
 				"last_seen":                        now,
@@ -101,14 +112,14 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 				"social_auth." + identity.Provider + ".last_login_at": now,
 			}})
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			applyProviderAuth(&host, identity.Provider, providerAuth)
 			host.LastSeen = time.Now()
-			return &host, nil
+			return &host, false, nil
 		}
 		if err != mongodriver.ErrNoDocuments {
-			return nil, err
+			return nil, false, err
 		}
 	}
 
@@ -126,9 +137,9 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 	applyProviderAuth(&host, identity.Provider, providerAuth)
 
 	if _, err := s.hostCol.InsertOne(ctx, host); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &host, nil
+	return &host, true, nil
 }
 
 func (s *Service) FindByID(ctx context.Context, id string) (*hostdomain.Host, error) {
@@ -161,6 +172,17 @@ func (s *Service) UpdateHost(ctx context.Context, id string, updates bson.M) err
 }
 
 func (s *Service) DeleteHost(ctx context.Context, id string) error {
+	var host hostdomain.Host
+	if err := s.hostCol.FindOne(ctx, bson.M{"_id": id}).Decode(&host); err == nil {
+		if s.emailSvc != nil && host.Email != nil {
+			hostName := "there"
+			if host.Name != "" {
+				hostName = host.Name
+			}
+			_ = s.emailSvc.SendAccountDeletionEmail(*host.Email, hostName)
+		}
+	}
+
 	_, _ = s.queueCol.DeleteMany(ctx, bson.M{"host_id": id})
 	_, err := s.hostCol.DeleteOne(ctx, bson.M{"_id": id})
 	return err

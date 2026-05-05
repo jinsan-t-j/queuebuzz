@@ -23,8 +23,10 @@ import (
 	"queuebuzz/internal/modules/queue/jobs"
 	"queuebuzz/internal/modules/queue/repository"
 
+	billingservice "queuebuzz/internal/modules/billing/service"
 	"queuebuzz/internal/modules/host/service"
 	queueservice "queuebuzz/internal/modules/queue/service"
+	legacyservices "queuebuzz/internal/services"
 	"queuebuzz/internal/sse"
 
 	"github.com/gofiber/fiber/v3"
@@ -33,16 +35,18 @@ import (
 
 type Handler struct {
 	cfg              *config.Config
-	queueService     *queueservice.Service
-	analyticsService *queueservice.AnalyticsService
-	authService      *authservice.AuthService
-	hostService      *service.Service
-	redisRepo        *repository.RedisRepository
-	broker           *sse.Broker
-	notifier         *queueservice.QueueNotifier
-	posJob           *jobs.PositionJob
-	hostNotifierJob  *jobs.HostNotifierJob
-	caller           *jobs.Caller
+	Service          *queueservice.Service
+	AnalyticsService *queueservice.AnalyticsService
+	AuthService      *authservice.AuthService
+	HostService      *service.Service
+	RedisRepo        *repository.RedisRepository
+	Broker           *sse.Broker
+	Notifier         *queueservice.QueueNotifier
+	PosJob           *jobs.PositionJob
+	HostNotifierJob  *jobs.HostNotifierJob
+	Caller           *jobs.Caller
+	BillingSvc       *billingservice.BillingService
+	EmailService     *legacyservices.EmailService
 }
 
 func NewHandler(
@@ -57,26 +61,30 @@ func NewHandler(
 	posJob *jobs.PositionJob,
 	hostNotifierJob *jobs.HostNotifierJob,
 	caller *jobs.Caller,
+	billingSvc *billingservice.BillingService,
+	emailSvc *legacyservices.EmailService,
 ) *Handler {
 	return &Handler{
 		cfg:              cfg,
-		queueService:     queueSvc,
-		analyticsService: analyticsSvc,
-		authService:      authSvc,
-		hostService:      hostSvc,
-		redisRepo:        redisRepo,
-		broker:           broker,
-		notifier:         notifier,
-		posJob:           posJob,
-		hostNotifierJob:  hostNotifierJob,
-		caller:           caller,
+		Service:          queueSvc,
+		AnalyticsService: analyticsSvc,
+		AuthService:      authSvc,
+		HostService:      hostSvc,
+		RedisRepo:        redisRepo,
+		Broker:           broker,
+		Notifier:         notifier,
+		PosJob:           posJob,
+		HostNotifierJob:  hostNotifierJob,
+		Caller:           caller,
+		BillingSvc:       billingSvc,
+		EmailService:     emailSvc,
 	}
 }
 
 func (h *Handler) toQueueResponse(ctx context.Context, queue domain.Queue) dto.QueueRecord {
 	var profileImg, bannerImg string
 	if queue.HostID != nil {
-		if host, err := h.hostService.FindByID(ctx, *queue.HostID); err == nil && host != nil {
+		if host, err := h.HostService.FindByID(ctx, *queue.HostID); err == nil && host != nil {
 			profileImg = helpers.DerefString(host.ProfileImageURL)
 			bannerImg = helpers.DerefString(host.BannerImageURL)
 		}
@@ -140,7 +148,7 @@ func (h *Handler) Create(c fiber.Ctx) error {
 	maxRetries := 3
 
 	for i := 0; i < maxRetries; i++ {
-		queue, err = h.queueService.CreateQueue(c.Context(), queueservice.CreateQueueParams{
+		queue, err = h.Service.CreateQueue(c.Context(), queueservice.CreateQueueParams{
 			HostID:            hostIDPtr,
 			HostPublicID:      hostPublicIDPtr,
 			Name:              req.Name,
@@ -148,7 +156,6 @@ func (h *Handler) Create(c fiber.Ctx) error {
 			AvgServiceMins:    *req.AvgServiceMins,
 			AllowPartyJoining: req.AllowPartyJoining,
 			MaxPartySize:      req.MaxPartySize,
-			RecoveryEmail:     req.RecoveryEmail,
 			CollectEmails:     req.CollectEmails,
 		})
 
@@ -174,7 +181,7 @@ func (h *Handler) Create(c fiber.Ctx) error {
 	response := h.toQueueResponse(c.Context(), *queue)
 
 	if hostID == "" {
-		token, err := h.authService.IssueAnonymousToken(c.Context(), queue.ID)
+		token, err := h.AuthService.IssueAnonymousToken(c.Context(), queue.ID)
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
@@ -209,7 +216,7 @@ func (h *Handler) CheckSlug(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "slug is required")
 	}
 
-	available, err := h.queueService.CheckSlugAvailability(c.Context(), slug)
+	available, err := h.Service.CheckSlugAvailability(c.Context(), slug)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to check slug availability")
 	}
@@ -236,9 +243,9 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 	var err error
 
 	if hostPublicID != "" {
-		queue, err = h.queueService.GetLiveQueueForHost(c.Context(), hostPublicID)
+		queue, err = h.Service.GetLiveQueueForHost(c.Context(), hostPublicID)
 	} else if queueID != "" {
-		queue, err = h.queueService.GetLiveQueueByID(c.Context(), queueID)
+		queue, err = h.Service.GetLiveQueueByID(c.Context(), queueID)
 	} else {
 		return fiber.NewError(fiber.StatusUnauthorized, "no active host session found")
 	}
@@ -266,7 +273,7 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 // @Router /queue/{id}/live [get]
 func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 	hostPublicID, _ := c.Locals("host_public_id").(string)
-	queue, err := h.queueService.GetLiveQueueByID(c.Context(), c.Params("id"))
+	queue, err := h.Service.GetLiveQueueByID(c.Context(), c.Params("id"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -303,15 +310,16 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "queue id is required")
 	}
 
+	hostID, _ := c.Locals("host_id").(string)
 	snapshotFn := func() ([][]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		queue, err := h.queueService.GetQueue(ctx, queueID)
+		queue, err := h.Service.GetQueue(ctx, queueID)
 		if err != nil {
 			return nil, err
 		}
-		entries, err := h.queueService.GetQueueEntries(ctx, queueID,
+		entries, err := h.Service.GetQueueEntries(ctx, queueID,
 			constants.EntryStatusWaiting,
 			constants.EntryStatusCalled,
 			constants.EntryStatusIdle,
@@ -323,8 +331,9 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 		}
 
 		var results [][]byte
+		maskedEntries := h.maskEntriesIfRequired(ctx, hostID, dto.ToEntryResponses(entries))
 
-		entriesData, _ := json.Marshal(events.Wrap(sse.NewMessage(events.EventQueueUpdate, dto.ToEntryResponses(entries))))
+		entriesData, _ := json.Marshal(events.Wrap(sse.NewMessage(events.EventQueueUpdate, maskedEntries)))
 		results = append(results, entriesData)
 
 		if queue.Status != constants.QueueStatusActive {
@@ -335,7 +344,7 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 		return results, nil
 	}
 
-	return h.broker.ServeHTTP(c, queueID, snapshotFn)
+	return h.Broker.ServeHTTP(c, queueID, snapshotFn)
 }
 
 // PublicEvents godoc
@@ -362,14 +371,14 @@ func (h *Handler) PublicEvents(c fiber.Ctx) error {
 		defer cancel()
 
 		// Initial wait count
-		count, _ := h.queueService.GetWaitingCount(ctx, queueID)
+		count, _ := h.Service.GetWaitingCount(ctx, queueID)
 		countMsg := events.Wrap(sse.NewMessage(events.EventWaitingCountUpdated, map[string]interface{}{"count": count}))
 		countPayload, _ := json.Marshal(countMsg)
 
 		return [][]byte{countPayload}, nil
 	}
 
-	return h.broker.ServeHTTP(c, "queue_public:"+queueID, snapshotFn)
+	return h.Broker.ServeHTTP(c, "queue_public:"+queueID, snapshotFn)
 }
 
 // PauseQueue godoc
@@ -386,11 +395,11 @@ func (h *Handler) PublicEvents(c fiber.Ctx) error {
 func (h *Handler) PauseQueue(c fiber.Ctx) error {
 	queueID := c.Params("id")
 
-	if err := h.queueService.PauseQueue(c.Context(), queueID); err != nil {
+	if err := h.Service.PauseQueue(c.Context(), queueID); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	h.hostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusPaused)
+	h.HostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusPaused)
 
 	return helpers.NewSuccessResponse("Queue paused successfully", nil).OK(c)
 }
@@ -421,9 +430,6 @@ func (h *Handler) Update(c fiber.Ctx) error {
 	if req.AvgServiceMins != nil {
 		updates["avg_service_mins"] = *req.AvgServiceMins
 	}
-	if req.RecoveryEmail != nil {
-		updates["recovery_email"] = *req.RecoveryEmail
-	}
 	if req.Slug != nil {
 		updates["slug"] = *req.Slug
 	}
@@ -449,7 +455,7 @@ func (h *Handler) Update(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "No fields to update")
 	}
 
-	queue, err := h.queueService.UpdateQueue(c.Context(), queueID, updates)
+	queue, err := h.Service.UpdateQueue(c.Context(), queueID, updates)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -470,11 +476,11 @@ func (h *Handler) Update(c fiber.Ctx) error {
 // @Router /queue/{id}/resume [post]
 func (h *Handler) ResumeQueue(c fiber.Ctx) error {
 	queueID := c.Params("id")
-	if err := h.queueService.ResumeQueue(c.Context(), queueID); err != nil {
+	if err := h.Service.ResumeQueue(c.Context(), queueID); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	h.hostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusActive)
+	h.HostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusActive)
 
 	return helpers.NewSuccessResponse("Queue resumed successfully", nil).OK(c)
 }
@@ -492,11 +498,25 @@ func (h *Handler) ResumeQueue(c fiber.Ctx) error {
 // @Router /queue/{id}/close [post]
 func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 	queueID := c.Params("id")
-	if err := h.queueService.TerminateQueue(c.Context(), queueID); err != nil {
+	unserved, err := h.Service.TerminateQueue(c.Context(), queueID)
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	h.hostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusClosed)
+	h.HostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusClosed)
+
+	// Notify unserved guests
+	if len(unserved) > 0 {
+		queue, _ := h.Service.GetQueue(c.Context(), queueID)
+		queueName := "Your Queue"
+		if queue != nil {
+			queueName = queue.Name
+		}
+
+		for _, entry := range unserved {
+			h.Notifier.NotifyQueueEnded(entry.ID, queueName)
+		}
+	}
 
 	if c.Cookies("access_token") == "" {
 		c.Cookie(&fiber.Cookie{
@@ -531,6 +551,12 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 		return err
 	}
 
+	if req.Email != nil && *req.Email != "" {
+		if err := h.EmailService.ValidateEmail(*req.Email); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+	}
+
 	queueID := c.Params("id")
 	createdBy, _ := c.Locals("host_id").(string)
 	if createdBy == "" {
@@ -550,14 +576,14 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 		entry.CreatedBy = &createdBy
 	}
 
-	result, err := h.queueService.CreateEntry(c.Context(), entry)
+	result, err := h.Service.CreateEntry(c.Context(), entry)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
 	entryRecord := dto.ToEntryResponse(result.Entry, result.Position)
-	h.hostNotifierJob.DispatchUserJoined(result.QueueID, entryRecord)
-	h.posJob.Dispatch(result.QueueID)
+	h.HostNotifierJob.DispatchUserJoined(result.QueueID, entryRecord)
+	h.PosJob.Dispatch(result.QueueID)
 
 	// Mask PII for the public response
 	maskedRecord := entryRecord
@@ -589,40 +615,40 @@ func (h *Handler) CallEntry(c fiber.Ctx) error {
 	if entryID == "" {
 		// Acquire Lock to prevent race conditions during "Call Next"
 		lockKey := internalredis.ActionLockKey(queueID, "call_next")
-		ok, err := h.redisRepo.AcquireLock(c.Context(), lockKey, 3*time.Second)
+		ok, err := h.RedisRepo.AcquireLock(c.Context(), lockKey, 3*time.Second)
 		if err != nil || !ok {
 			return fiber.NewError(fiber.StatusTooManyRequests, "Action in progress. Please wait.")
 		}
-		defer h.redisRepo.ReleaseLock(c.Context(), lockKey)
+		defer h.RedisRepo.ReleaseLock(c.Context(), lockKey)
 
 		// Business Logic: Strict Mode Violation Check
-		queue, err := h.queueService.GetQueue(c.Context(), queueID)
+		queue, err := h.Service.GetQueue(c.Context(), queueID)
 		if err == nil && queue.StrictQueueMode {
-			hasActive, _ := h.queueService.HasCalledEntries(c.Context(), queueID)
+			hasActive, _ := h.Service.HasCalledEntries(c.Context(), queueID)
 			if hasActive {
 				return fiber.NewError(fiber.StatusConflict, "Please serve the current guest before calling the next one.")
 			}
 		}
 
 		// Case: Call Next Guest
-		entry, err = h.queueService.CallNextUser(c.Context(), queueID)
+		entry, err = h.Service.CallNextUser(c.Context(), queueID)
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "No guests waiting in queue")
 		}
-		h.posJob.Dispatch(queueID)
+		h.PosJob.Dispatch(queueID)
 	} else {
 		// Case: Ping/Recall Specific Guest
-		if err := h.queueService.UpdateEntryStatus(c.Context(), entryID, constants.EntryStatusCalled); err != nil {
+		if err := h.Service.UpdateEntryStatus(c.Context(), entryID, constants.EntryStatusCalled); err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Failed to call guest")
 		}
-		entry, err = h.queueService.GetEntry(c.Context(), entryID)
+		entry, err = h.Service.GetEntry(c.Context(), entryID)
 		if err != nil {
 			return fiber.NewError(fiber.StatusNotFound, "Guest record not found")
 		}
 	}
 
-	h.caller.DispatchCall(queueID, entry.ID, constants.EntryStatusCalled)
-	h.hostNotifierJob.DispatchUserStatus(queueID, entry.ID, constants.EntryStatusCalled)
+	h.Caller.DispatchCall(queueID, entry.ID, constants.EntryStatusCalled)
+	h.HostNotifierJob.DispatchUserStatus(queueID, entry.ID, constants.EntryStatusCalled)
 
 	return helpers.NewSuccessResponse("Guest called successfully", fiber.Map{
 		"id":           entry.ID,
@@ -648,43 +674,43 @@ func (h *Handler) Serve(c fiber.Ctx) error {
 	queueID := c.Params("id")
 	entryID := c.Params("entry_id")
 
-	if err := h.queueService.ServeUser(c.Context(), entryID); err != nil {
+	if err := h.Service.ServeUser(c.Context(), entryID); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusServed)
-	h.posJob.Dispatch(queueID)
+	h.HostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusServed)
+	h.PosJob.Dispatch(queueID)
 
 	return c.SendStatus(fiber.StatusOK)
 }
-
 func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 	queueID := ctx.Params("id")
-	response, err := h.queueService.GetHistoryDetail(ctx.Context(), queueID)
+	response, err := h.Service.GetHistoryDetail(ctx.Context(), queueID)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	hostID, _ := ctx.Locals("host_id").(string)
+	h.maskHistoryIfRequired(ctx.Context(), hostID, response)
 
 	return helpers.NewSuccessResponse("History detail fetched", response).OK(ctx)
 }
 
 func (h *Handler) GetHistoryList(c fiber.Ctx) error {
 	hostPublicID, _ := c.Locals("host_public_id").(string)
-	if hostPublicID == "" {
-		return fiber.NewError(fiber.StatusUnauthorized, "host session not found")
-	}
+	hostID, _ := c.Locals("host_id").(string)
 
 	search := c.Query("search")
 	status := c.Query("filter")
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "10"))
 
-	queues, total, err := h.queueService.GetQueueHistoryListForHost(c.Context(), hostPublicID, search, status, page, limit)
+	queues, total, err := h.Service.GetQueueHistoryListForHost(c.Context(), hostID, hostPublicID, search, status, page, limit)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	summary, _ := h.queueService.GetHostHistorySummary(c.Context(), hostPublicID)
+	summary, _ := h.Service.GetHostHistorySummary(c.Context(), hostID, hostPublicID)
 
 	totalPages := 1
 	if total > 0 {
@@ -768,7 +794,7 @@ func (h *Handler) RegisterHostFCM(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "fcm token is required")
 	}
 
-	if err := h.queueService.RegisterHostFCM(c.Context(), queueID, token); err != nil {
+	if err := h.Service.RegisterHostFCM(c.Context(), queueID, token); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
@@ -789,7 +815,7 @@ func (h *Handler) RegisterHostFCM(c fiber.Ctx) error {
 func (h *Handler) UnregisterHostFCM(c fiber.Ctx) error {
 	queueID := c.Params("id")
 
-	if err := h.queueService.UnregisterHostFCM(c.Context(), queueID); err != nil {
+	if err := h.Service.UnregisterHostFCM(c.Context(), queueID); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
@@ -802,7 +828,7 @@ func (h *Handler) ClearHistory(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusUnauthorized, "host session not found")
 	}
 
-	if err := h.queueService.ClearHostHistory(c.Context(), hostPublicID); err != nil {
+	if err := h.Service.ClearHostHistory(c.Context(), hostPublicID); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to clear history")
 	}
 
@@ -827,15 +853,62 @@ func (h *Handler) GetDashboard(c fiber.Ctx) error {
 	}
 
 	hostName := "Host"
-	host, err := h.hostService.FindByID(c.Context(), hostID)
+	totalQueues := 0
+	totalServed := 0
+	host, err := h.HostService.FindByID(c.Context(), hostID)
 	if err == nil && host != nil {
 		hostName = host.Name
+		totalQueues = host.TotalQueueCount
+		totalServed = host.TotalServedCount
 	}
 
-	data, err := h.analyticsService.GetDashboardData(c.Context(), hostPublicID, hostName)
+	data, err := h.AnalyticsService.GetDashboardData(c.Context(), hostPublicID, hostName)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to load dashboard metrics: "+err.Error())
 	}
 
+	// Enrich dashboard data with persistent host stats
+	data.HasHistory = totalQueues > 0
+	if data.HasHistory {
+		// Milestone 1: Create your first queue
+		if len(data.QuickSetup.Steps) > 0 {
+			data.QuickSetup.Steps[0].IsDone = true
+		}
+		// Milestone 2: Serve your first guest
+		if totalServed > 0 && len(data.QuickSetup.Steps) > 1 {
+			data.QuickSetup.Steps[1].IsDone = true
+		}
+		// Hide Quick Setup once they've created 5+ queues overall
+		if totalQueues >= 5 {
+			data.QuickSetup.Show = false
+		}
+	}
+
 	return helpers.NewSuccessResponse("Dashboard data fetched", data).OK(c)
+}
+func (h *Handler) maskEntriesIfRequired(ctx context.Context, hostID string, entries []dto.EntryRecord) []dto.EntryRecord {
+	canView, _ := h.BillingSvc.CanViewGuestData(ctx, hostID)
+	if canView {
+		return entries
+	}
+
+	for i := range entries {
+		entries[i].Email = helpers.MaskEmail(entries[i].Email)
+		entries[i].Phone = helpers.MaskPhone(entries[i].Phone)
+	}
+	return entries
+}
+func (h *Handler) maskHistoryIfRequired(ctx context.Context, hostID string, resp *dto.HistoryDetailResponse) {
+	if resp == nil {
+		return
+	}
+	canView, _ := h.BillingSvc.CanViewGuestData(ctx, hostID)
+	if canView {
+		return
+	}
+
+	for i := range resp.Entries {
+		resp.Entries[i].Email = helpers.MaskEmail(resp.Entries[i].Email)
+		resp.Entries[i].Phone = helpers.MaskPhone(resp.Entries[i].Phone)
+	}
 }

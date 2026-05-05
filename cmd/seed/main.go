@@ -61,17 +61,19 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 			CreatedAt: time.Now(),
 		},
 		domain.Plan{
-			ID:           uuid.New().String(),
-			Slug:         "pro-india",
-			Tier:         "pro",
-			Priority:     1,
-			Name:         "Pro",
-			Description:  "Advanced tools for growing teams and multiple queues.",
-			IsFree:       false,
-			CountryCode:  "IN",
-			Currency:     "INR",
-			MonthlyPrice: 49900,  // ₹499.00
-			YearlyPrice:  549900, // ₹5499.00
+			ID:                       uuid.New().String(),
+			Slug:                     "pro-india",
+			Tier:                     "pro",
+			ProviderMonthlyProductID: "pdt_0Ne5uKsxY42uLuUmU2WKw",
+			ProviderYearlyProductID:  "pdt_0Ne5uaCCG7EHWSNhqvm6y",
+			Priority:                 1,
+			Name:                     "Pro",
+			Description:              "Advanced tools for growing teams and multiple queues.",
+			IsFree:                   false,
+			CountryCode:              "IN",
+			Currency:                 "INR",
+			MonthlyPrice:             49900,  // ₹499.00
+			YearlyPrice:              549900, // ₹5499.00
 			Limits: domain.PlanLimit{
 				MaxQueuesPerMonth:    25,
 				MaxGuestsPerQueue:    100,
@@ -85,17 +87,19 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 			CreatedAt: time.Now(),
 		},
 		domain.Plan{
-			ID:           uuid.New().String(),
-			Slug:         "pro-global",
-			Tier:         "pro",
-			Priority:     1,
-			Name:         "Pro",
-			Description:  "Advanced tools for growing teams and multiple queues.",
-			IsFree:       false,
-			CountryCode:  "GLOBAL",
-			Currency:     "USD",
-			MonthlyPrice: 900,   // $9.00
-			YearlyPrice:  10900, // $109.00
+			ID:                       uuid.New().String(),
+			Slug:                     "pro-global",
+			Tier:                     "pro",
+			ProviderMonthlyProductID: "pdt_0Ne5uofrnHT4jcxTHUnvj",
+			ProviderYearlyProductID:  "pdt_0Ne5v3GEqWY2e0ZlKxcZT",
+			Priority:                 1,
+			Name:                     "Pro",
+			Description:              "Advanced tools for growing teams and multiple queues.",
+			IsFree:                   false,
+			CountryCode:              "GLOBAL",
+			Currency:                 "USD",
+			MonthlyPrice:             900,   // $9.00
+			YearlyPrice:              10900, // $109.00
 			Limits: domain.PlanLimit{
 				MaxQueuesPerMonth:    25,
 				MaxGuestsPerQueue:    100,
@@ -109,19 +113,21 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 			CreatedAt: time.Now(),
 		},
 		domain.Plan{
-			ID:           uuid.New().String(),
-			Slug:         "business-elite-india",
-			Tier:         "elite",
-			Priority:     2,
-			Name:         "Business Elite",
-			Description:  "Full-scale solution for high-traffic businesses and brands.",
-			IsFree:       false,
-			CountryCode:  "IN",
-			Currency:     "INR",
-			MonthlyPrice: 149900,  // ₹1,499.00
-			YearlyPrice:  1649900, // ₹16,499.00
+			ID:                       uuid.New().String(),
+			Slug:                     "business-elite-india",
+			Tier:                     "elite",
+			ProviderMonthlyProductID: "pdt_0Ne5wFV18Y9BvXsfH7V0h",
+			ProviderYearlyProductID:  "pdt_0Ne5wWhuf8iEjEkRa3bH2",
+			Priority:                 2,
+			Name:                     "Business Elite",
+			Description:              "Full-scale solution for high-traffic businesses and brands.",
+			IsFree:                   false,
+			CountryCode:              "IN",
+			Currency:                 "INR",
+			MonthlyPrice:             149900,  // ₹1,499.00
+			YearlyPrice:              1649900, // ₹16,499.00
 			Limits: domain.PlanLimit{
-				MaxQueuesPerMonth:    0,
+				MaxQueuesPerMonth:    50,
 				MaxGuestsPerQueue:    0,
 				HistoryAccess:        true,
 				CustomBranding:       true,
@@ -133,17 +139,19 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 			CreatedAt: time.Now(),
 		},
 		domain.Plan{
-			ID:           uuid.New().String(),
-			Slug:         "business-elite-global",
-			Tier:         "elite",
-			Priority:     2,
-			Name:         "Business Elite",
-			Description:  "Full-scale solution for high-traffic businesses and brands.",
-			IsFree:       false,
-			CountryCode:  "GLOBAL",
-			Currency:     "USD",
-			MonthlyPrice: 2900, // $29.00
-			YearlyPrice:  29000,
+			ID:                       uuid.New().String(),
+			Slug:                     "business-elite-global",
+			Tier:                     "elite",
+			ProviderMonthlyProductID: "pdt_0Ne5wrIFDOx2iHElcLfQU",
+			ProviderYearlyProductID:  "pdt_0Ne5x7prwzv6qp16pDVMy",
+			Priority:                 2,
+			Name:                     "Business Elite",
+			Description:              "Full-scale solution for high-traffic businesses and brands.",
+			IsFree:                   false,
+			CountryCode:              "GLOBAL",
+			Currency:                 "USD",
+			MonthlyPrice:             2900, // $29.00
+			YearlyPrice:              29000,
 			Limits: domain.PlanLimit{
 				MaxQueuesPerMonth:    0,
 				MaxGuestsPerQueue:    0,

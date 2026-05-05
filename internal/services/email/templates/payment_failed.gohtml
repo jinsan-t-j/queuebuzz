@@ -1,0 +1,13 @@
+{{define "title"}}Payment Failed — QueueBuzz{{end}}
+
+{{define "content"}}
+<h1 style="font-size: 24px; margin-top: 0;">Payment Failed ⚠️</h1>
+<p style="line-height: 1.6; margin: 16px 0;">We were unable to process the {{.BillingCycle}} payment for your <strong>{{.PlanName}}</strong> subscription.</p>
+<p style="line-height: 1.6; margin: 16px 0;">Your subscription is currently on a grace period. Please update your payment method to avoid any interruption to your premium features.</p>
+<div style="text-align: center;">
+    <a href="{{.DashboardLink}}" style="display: inline-block; background-color: #F97316; color: #FFFFFF !important; padding: 12px 32px; border-radius: 100px; text-decoration: none; font-weight: bold; margin: 24px 0;">Update Payment Method</a>
+</div>
+<p style="line-height: 1.6; margin: 16px 0; font-size: 13px; color: #7B6B95;">If you believe this is an error, please reply to this email for assistance.</p>
+{{end}}
+
+{{template "layout" .}}

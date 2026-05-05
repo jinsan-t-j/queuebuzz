@@ -15,6 +15,9 @@ import (
 
 	"sort"
 
+	billingservice "queuebuzz/internal/modules/billing/service"
+	systemservice "queuebuzz/internal/modules/system/service"
+
 	"github.com/google/uuid"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/redis/go-redis/v9"
@@ -28,6 +31,8 @@ type Service struct {
 	entryCol     *mongodriver.Collection
 	redisRepo    *repository.RedisRepository
 	analyticsSvc *AnalyticsService
+	billingSvc   *billingservice.BillingService
+	systemSvc    *systemservice.SystemService
 }
 
 func New(
@@ -35,12 +40,16 @@ func New(
 	entryCol *mongodriver.Collection,
 	redisRepo *repository.RedisRepository,
 	analyticsSvc *AnalyticsService,
+	billingSvc *billingservice.BillingService,
+	systemSvc *systemservice.SystemService,
 ) *Service {
 	return &Service{
 		queueCol:     queueCol,
 		entryCol:     entryCol,
 		redisRepo:    redisRepo,
 		analyticsSvc: analyticsSvc,
+		billingSvc:   billingSvc,
+		systemSvc:    systemSvc,
 	}
 }
 
@@ -52,7 +61,6 @@ type CreateQueueParams struct {
 	AvgServiceMins    int
 	AllowPartyJoining *bool
 	MaxPartySize      *int
-	RecoveryEmail     *string
 	CollectEmails     *bool
 }
 
@@ -99,11 +107,28 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 	}
 
 	now := time.Now()
+
 	allowParty := params.AllowPartyJoining != nil && *params.AllowPartyJoining
 	maxParty := 0
 	if params.MaxPartySize != nil {
 		maxParty = *params.MaxPartySize
 	}
+	// Determine expiry from plan
+	expiryHours := constants.DefaultQueueExpiryH
+	hostID := ""
+	if params.HostID != nil {
+		hostID = *params.HostID
+	}
+	plan, _ := s.billingSvc.GetHostPlan(ctx, hostID)
+	if plan != nil {
+		if plan.Limits.QueueExpiryHours > 0 {
+			expiryHours = plan.Limits.QueueExpiryHours
+		} else if plan.Limits.QueueExpiryHours <= 0 && plan.Tier != "free" {
+			// 0 = Unlimited (1 year technical limit)
+			expiryHours = 24 * 365
+		}
+	}
+
 	queue := domain.Queue{
 		ID:                uuid.New().String(),
 		HostID:            params.HostID,
@@ -117,10 +142,25 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		Status:            constants.QueueStatusActive,
 		CreatedAt:         now,
 		UpdatedAt:         now,
-		ExpiresAt:         now.Add(time.Duration(constants.DefaultQueueExpiryH) * time.Hour),
+		ExpiresAt:         now.Add(time.Duration(expiryHours) * time.Hour),
 	}
 
-	joinCode, err := s.redisRepo.GenerateJoinCode(ctx, queue.ID)
+	// Join Code settings
+	settings, _ := s.systemSvc.GetSettings(ctx)
+	codeLen := constants.JoinCodeLength
+	maxAttempts := constants.MaxJoinCodeAttempts
+	if settings != nil {
+		if settings.DefaultQueueJoinCodeLength > 0 {
+			codeLen = settings.DefaultQueueJoinCodeLength
+		}
+		if settings.DefaultQueueMaxJoinCodeAttempts > 0 {
+			maxAttempts = settings.DefaultQueueMaxJoinCodeAttempts
+		}
+	}
+
+	// Join code TTL should match queue expiry + extra buffer
+	joinCodeTTL := time.Duration(expiryHours+constants.JoinCodeTTLExtraH) * time.Hour
+	joinCode, err := s.redisRepo.GenerateJoinCode(ctx, queue.ID, codeLen, maxAttempts, joinCodeTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +171,11 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 	}
 	if _, err := s.queueCol.InsertOne(ctx, queue); err != nil {
 		return nil, fmt.Errorf("failed to create queue: %w", err)
+	}
+
+	// Increment monthly usage count for host
+	if params.HostID != nil {
+		_ = s.billingSvc.IncrementMonthlyQueueCount(ctx, *params.HostID)
 	}
 
 	// Warm up Redis re-hydration sentinel (avoid redundant first-load query to DB)
@@ -166,7 +211,7 @@ func (s *Service) GetQueue(ctx context.Context, queueID string) (*domain.Queue, 
 	return &queue, nil
 }
 
-func (s *Service) TerminateQueue(ctx context.Context, queueID string) error {
+func (s *Service) TerminateQueue(ctx context.Context, queueID string) ([]domain.Entry, error) {
 	now := time.Now()
 	update := bson.M{
 		"$set": bson.M{
@@ -182,11 +227,49 @@ func (s *Service) TerminateQueue(ctx context.Context, queueID string) error {
 			},
 		},
 	}
-	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, update)
+
+	// 1. Find unserved entries before we close the queue and clean up Redis
+	filter := bson.M{
+		"queue_id": queueID,
+		"status": bson.M{"$in": []string{
+			constants.EntryStatusWaiting,
+			constants.EntryStatusCalled,
+			constants.EntryStatusIdle,
+			constants.EntryStatusArrived,
+		}},
+	}
+	cursor, err := s.entryCol.Find(ctx, filter)
+	var unserved []domain.Entry
+	if err == nil {
+		_ = cursor.All(ctx, &unserved)
+	}
+
+	// 2. Update queue status
+	_, err = s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, update)
 	if err == nil {
 		s.invalidateHostSummaryByQueueID(ctx, queueID)
+
+		// 3. Mark unserved entries as SKIPPED
+		if len(unserved) > 0 {
+			_, _ = s.entryCol.UpdateMany(ctx, filter, bson.M{
+				"$set": bson.M{
+					"status":      constants.EntryStatusSkipped,
+					"finished_at": now,
+					"updated_at":  now,
+				},
+			})
+		}
+
+		// 4. Clean up Redis keys
+		queue, qErr := s.GetQueue(ctx, queueID)
+		if qErr == nil && queue != nil {
+			_ = s.redisRepo.DeleteQueueKeys(ctx, queueID)
+			if queue.JoinCode != "" {
+				_ = s.redisRepo.ReleaseJoinCode(ctx, queue.JoinCode)
+			}
+		}
 	}
-	return err
+	return unserved, err
 }
 
 func (s *Service) invalidateHostSummaryByQueueID(ctx context.Context, queueID string) {
@@ -255,12 +338,20 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 	// 2. Process Identity & Returning Status
 	s.analyticsSvc.ProcessIdentity(ctx, &entry, queue)
 
+	// 3. Capacity Checks are now handled by GuestCapacityGuard middleware
+
 	// 4. Standard entry creation
 	if err := s.ensureTicketCounter(ctx, entry.QueueID); err != nil {
 		return nil, err
 	}
 
-	ticketNo, err := s.redisRepo.NextTicket(ctx, entry.QueueID)
+	// Join the queue with dynamic TTL
+	ttl := time.Until(queue.ExpiresAt)
+	if ttl <= 0 {
+		ttl = 24 * time.Hour // fallback
+	}
+
+	ticketNo, err := s.redisRepo.NextTicket(ctx, entry.QueueID, ttl)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +369,7 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 	}
 
 	score := float64(now.Unix())
-	if err := s.redisRepo.AddToQueue(ctx, entry.QueueID, entry.ID, score); err != nil {
+	if err := s.redisRepo.AddToQueue(ctx, entry.QueueID, entry.ID, score, ttl); err != nil {
 		return nil, fmt.Errorf("failed to add to queue positions: %w", err)
 	}
 
@@ -403,6 +494,15 @@ func (s *Service) CallNextUser(ctx context.Context, queueID string) (*domain.Ent
 				return nil, err
 			}
 			entry.Status = constants.EntryStatusCalled
+
+			// Start Idle Timer (Guest has X mins to show up)
+			idleMins := constants.DefaultIdleTimeoutMin
+			settings, _ := s.systemSvc.GetSettings(ctx)
+			if settings != nil && settings.DefaultQueueEntryIdleTimeoutMin > 0 {
+				idleMins = settings.DefaultQueueEntryIdleTimeoutMin
+			}
+			_ = s.redisRepo.SetIdleTimer(ctx, queueID, entry.Token, time.Duration(idleMins)*time.Minute)
+
 			return entry, nil
 		}
 	}
@@ -441,6 +541,15 @@ func (s *Service) finishUserSession(ctx context.Context, entryID, status string)
 		return err
 	}
 	_ = s.redisRepo.RemoveFromQueue(ctx, entry.QueueID, entryID)
+
+	// Update host metrics if served
+	if status == constants.EntryStatusServed {
+		var q domain.Queue
+		if err := s.queueCol.FindOne(ctx, bson.M{"_id": entry.QueueID}).Decode(&q); err == nil && q.HostID != nil {
+			_ = s.billingSvc.IncrementTotalServedCount(ctx, *q.HostID)
+		}
+	}
+
 	return nil
 }
 
@@ -514,13 +623,25 @@ func (s *Service) GetActiveQueuesForHost(ctx context.Context, hostPublicID strin
 	return queues, nil
 }
 
+func (s *Service) CountQueuesCreatedSince(ctx context.Context, hostID string, since time.Time) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	filter := bson.M{
+		"host_id":    hostID,
+		"created_at": bson.M{"$gte": since},
+	}
+
+	return s.queueCol.CountDocuments(ctx, filter)
+}
+
 type QueueWithStats struct {
 	domain.Queue `bson:",inline"`
 	TotalServed  int   `bson:"total_served"`
 	AvgWaitMS    int64 `bson:"avg_wait_ms"`
 }
 
-func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostPublicID string, search, status string, page, limit int) ([]QueueWithStats, int64, error) {
+func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostID, hostPublicID string, search, status string, page, limit int) ([]QueueWithStats, int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -534,6 +655,13 @@ func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostPublicID s
 	match := bson.M{
 		"host_public_id": hostPublicID,
 		"status":         bson.M{"$nin": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+	}
+
+	// Apply History Retention limit
+	retentionDays, _ := s.billingSvc.GetHistoryRetentionDays(ctx, hostID)
+	if retentionDays > 0 {
+		cutoff := time.Now().AddDate(0, 0, -retentionDays)
+		match["created_at"] = bson.M{"$gte": cutoff}
 	}
 
 	if search != "" {
@@ -620,7 +748,7 @@ func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostPublicID s
 	return results[0].Data, total, nil
 }
 
-func (s *Service) GetHostHistorySummary(ctx context.Context, hostPublicID string) (*domain.HostHistorySummary, error) {
+func (s *Service) GetHostHistorySummary(ctx context.Context, hostID, hostPublicID string) (*domain.HostHistorySummary, error) {
 	// 1. Try cache
 	if summary, err := s.redisRepo.GetHistorySummary(ctx, hostPublicID); err == nil && summary != nil {
 		return summary, nil
@@ -631,10 +759,18 @@ func (s *Service) GetHostHistorySummary(ctx context.Context, hostPublicID string
 
 	pipeline := mongodriver.Pipeline{
 		// 1. Match queues for this host that are not active/paused
-		{{Key: "$match", Value: bson.M{
-			"host_public_id": hostPublicID,
-			"status":         bson.M{"$nin": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
-		}}},
+		{{Key: "$match", Value: (func() bson.M {
+			match := bson.M{
+				"host_public_id": hostPublicID,
+				"status":         bson.M{"$nin": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+			}
+			retentionDays, _ := s.billingSvc.GetHistoryRetentionDays(ctx, hostID)
+			if retentionDays > 0 {
+				cutoff := time.Now().AddDate(0, 0, -retentionDays)
+				match["created_at"] = bson.M{"$gte": cutoff}
+			}
+			return match
+		})()}},
 		// 2. Lookup served entries
 		{{Key: "$lookup", Value: bson.M{
 			"from": "queue_entries",
@@ -737,25 +873,6 @@ func (s *Service) GetQueueByJoinCode(ctx context.Context, joinCode string) (*dom
 		return nil, err
 	}
 	return &queue, nil
-}
-
-func (s *Service) GetQueueHistory(ctx context.Context, queueID string) ([]domain.Entry, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	cursor, err := s.entryCol.Find(ctx, bson.M{
-		"queue_id": queueID,
-		"status":   bson.M{"$in": []string{constants.EntryStatusServed, constants.EntryStatusSkipped, constants.EntryStatusLeft}},
-	}, options.Find().SetSort(bson.M{"joined_at": -1}))
-	if err != nil {
-		return nil, err
-	}
-
-	var entries []domain.Entry
-	if err := cursor.All(ctx, &entries); err != nil {
-		return nil, err
-	}
-	return entries, nil
 }
 
 type QueueStats struct {
@@ -896,7 +1013,8 @@ func (s *Service) ensureTicketCounter(ctx context.Context, queueID string) error
 
 	// Sync Redis with DB last known ticket
 	log.Debug().Str("queue_id", queueID).Int64("last_num", lastNum).Msg("Redis: re-hydrated ticket counter from MongoDB")
-	return s.redisRepo.SetTicketCounter(ctx, queueID, lastNum)
+	ttl := s.getQueueRedisTTL(ctx, queueID)
+	return s.redisRepo.SetTicketCounter(ctx, queueID, lastNum, ttl)
 }
 
 func (s *Service) rehydrateQueue(ctx context.Context, queueID string) ([]string, error) {
@@ -926,9 +1044,23 @@ func (s *Service) rehydrateQueue(ctx context.Context, queueID string) ([]string,
 		}
 	}
 
-	_ = s.redisRepo.AddToQueueBulk(ctx, queueID, members)
+	ttl := s.getQueueRedisTTL(ctx, queueID)
+	_ = s.redisRepo.AddToQueueBulk(ctx, queueID, members, ttl)
 
 	return ids, nil
+}
+
+func (s *Service) getQueueRedisTTL(ctx context.Context, queueID string) time.Duration {
+	queue, err := s.GetQueue(ctx, queueID)
+	if err != nil || queue == nil {
+		return 24 * time.Hour
+	}
+	ttl := time.Until(queue.ExpiresAt)
+	if ttl <= 0 {
+		return 24 * time.Hour
+	}
+	// Add 2h buffer to ensure Redis keys outlive the MongoDB expiry sweep
+	return ttl + 2*time.Hour
 }
 
 func (s *Service) GetHistoryDetail(ctx context.Context, queueID string) (*dto.HistoryDetailResponse, error) {
@@ -971,6 +1103,8 @@ func (s *Service) GetHistoryDetail(ctx context.Context, queueID string) (*dto.Hi
 		historyEntries[i] = dto.HistoryEntry{
 			TicketNo:    e.TicketNo,
 			DisplayName: e.Name,
+			Email:       e.Email,
+			Phone:       e.Phone,
 			Status:      e.Status,
 		}
 

@@ -12,6 +12,7 @@ main
 workflows/build-queuebuzz-backend.md
 coverage.out
 *.code-workspace
+.scannerwork
 
 .gitnexus
 .claude

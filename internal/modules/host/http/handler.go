@@ -6,6 +6,7 @@ import (
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
 	authservice "queuebuzz/internal/modules/auth/service"
+	"queuebuzz/internal/modules/billing/service"
 	"queuebuzz/internal/modules/host/dto"
 	hostservice "queuebuzz/internal/modules/host/service"
 	queueservice "queuebuzz/internal/modules/queue/service"
@@ -20,13 +21,14 @@ import (
 )
 
 type Handler struct {
-	cfg          *config.Config
-	authService  *authservice.AuthService
-	redisService *legacyservices.RedisService
-	hostService  *hostservice.Service
-	queueService *queueservice.Service
-	r2Service    *storage.R2Service
-	emailService *legacyservices.EmailService
+	cfg            *config.Config
+	authService    *authservice.AuthService
+	redisService   *legacyservices.RedisService
+	hostService    *hostservice.Service
+	queueService   *queueservice.Service
+	billingService *service.BillingService
+	r2Service      *storage.R2Service
+	emailService   *legacyservices.EmailService
 }
 
 func NewHandler(
@@ -35,17 +37,19 @@ func NewHandler(
 	redisSvc *legacyservices.RedisService,
 	hostSvc *hostservice.Service,
 	queueSvc *queueservice.Service,
+	billingSvc *service.BillingService,
 	r2Svc *storage.R2Service,
 	emailSvc *legacyservices.EmailService,
 ) *Handler {
 	return &Handler{
-		cfg:          cfg,
-		authService:  authSvc,
-		redisService: redisSvc,
-		hostService:  hostSvc,
-		queueService: queueSvc,
-		r2Service:    r2Svc,
-		emailService: emailSvc,
+		cfg:            cfg,
+		authService:    authSvc,
+		redisService:   redisSvc,
+		hostService:    hostSvc,
+		queueService:   queueSvc,
+		billingService: billingSvc,
+		r2Service:      r2Svc,
+		emailService:   emailSvc,
 	}
 }
 
@@ -132,6 +136,8 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 		ID:              host.ID,
 		PublicID:        host.PublicID,
 		Name:            name,
+		BusinessName:    host.BusinessName,
+		Address:         host.Address,
 		Email:           email,
 		Tier:            host.Tier,
 		Avatar:          "",
@@ -194,7 +200,31 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 	const maxImageBytes = 1024 * 1024 // 1MB
 	ctx := c.Context()
 
-	// 2. Process Images (Multipart Files take priority over Base64)
+	supportedBrandingFields := []string{"banner_image_url", "profile_image_url", "business_name", "address"}
+	hasBrandingUpdate := false
+
+	for _, field := range supportedBrandingFields {
+		if _, ok := updates[field]; ok {
+			hasBrandingUpdate = true
+			break
+		}
+	}
+
+	if !hasBrandingUpdate {
+		if _, err := c.FormFile("banner_image"); err == nil {
+			hasBrandingUpdate = true
+		} else if _, err := c.FormFile("profile_image"); err == nil {
+			hasBrandingUpdate = true
+		}
+	}
+
+	if hasBrandingUpdate {
+		plan, err := h.billingService.GetHostPlan(ctx, hostID)
+		if err != nil || plan == nil || !plan.Limits.CustomBranding {
+			return fiber.NewError(fiber.StatusForbidden, "Custom branding is only available on Elite plans")
+		}
+	}
+
 	imageFields := []struct {
 		formName  string
 		dbField   string
@@ -205,7 +235,6 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 	}
 
 	for _, field := range imageFields {
-		// 1. Check for multipart file upload
 		fh, err := c.FormFile(field.formName)
 		if err == nil {
 			if err := validateImageFile(fh, maxImageBytes); err != nil {
@@ -232,13 +261,10 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 			}
 			updates[field.dbField] = url
 		} else if v, ok := updates[field.dbField]; ok {
-			// 2. Check for image clearing (empty string)
 			val, _ := v.(string)
 			if val == "" {
 				updates[field.dbField] = nil
 			} else {
-				// We no longer support updating images via JSON/Base64 strings.
-				// If a URL is passed but no file is provided, we ignore the field.
 				delete(updates, field.dbField)
 			}
 		}

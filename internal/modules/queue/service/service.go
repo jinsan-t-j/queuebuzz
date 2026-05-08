@@ -1356,12 +1356,12 @@ func (s *Service) DeleteQueuesBulk(ctx context.Context, hostID string, queueIDs 
 		return err
 	}
 
-	createdAts := make([]time.Time, len(queues))
+	decrCreatedAts := make([]time.Time, 0)
 	activeIDs := make([]string, 0)
 	activeCodes := make([]string, 0)
 
-	for i, q := range queues {
-		createdAts[i] = q.CreatedAt
+	for _, q := range queues {
+		decrCreatedAts = append(decrCreatedAts, q.CreatedAt)
 		if q.Status == constants.QueueStatusActive || q.Status == constants.QueueStatusPaused {
 			activeIDs = append(activeIDs, q.ID)
 			if q.JoinCode != "" {
@@ -1377,7 +1377,9 @@ func (s *Service) DeleteQueuesBulk(ctx context.Context, hostID string, queueIDs 
 		_ = s.redisRepo.ReleaseJoinCodesBulk(ctx, activeCodes)
 	}
 
-	_ = s.billingSvc.DecrementMonthlyQueueCountBulk(ctx, hostID, createdAts)
+	if len(decrCreatedAts) > 0 {
+		_ = s.billingSvc.DecrementMonthlyQueueCountBulk(ctx, hostID, decrCreatedAts)
+	}
 
 	for pid := range hostPublicIDs {
 		_ = s.redisRepo.InvalidateHistorySummary(ctx, pid)

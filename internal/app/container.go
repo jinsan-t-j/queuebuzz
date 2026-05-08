@@ -129,7 +129,7 @@ func NewContainer(
 	customerHandler := customerhttp.NewHandler(cfg, customerSvc, queueSvc, authSvc, joinCodeSvc, broker, posJob, hostNotifierJob, emailSvc)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 
-	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob, authSvc, queueCol)
+	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob, expiryJob, authSvc, queueCol)
 	queueModule.Start(ctx)
 
 	systemHandler := systemhttp.NewHandler(cfg, systemSvc)

@@ -143,3 +143,23 @@ func PATCHForm(s *setup.TestSuite, path string, fields map[string]string, files 
 	}
 	return s.Do(req)
 }
+
+// DELETE sends a DELETE request.
+func DELETE(s *setup.TestSuite, path string, cookies ...*http.Cookie) (*http.Response, error) {
+	req, _ := http.NewRequest(http.MethodDelete, s.BaseURL+path, nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	return s.Do(req)
+}
+
+// DELETEWithBody sends a DELETE request with a JSON body.
+func DELETEWithBody(s *setup.TestSuite, path string, body any, cookies ...*http.Cookie) (*http.Response, error) {
+	payload, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodDelete, s.BaseURL+path, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	return s.Do(req)
+}

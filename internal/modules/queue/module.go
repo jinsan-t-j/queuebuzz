@@ -20,6 +20,7 @@ type Module struct {
 	expiryService       *queueservice.ExpiryService
 	posJob              *jobs.PositionJob
 	hostNotifierJob     *jobs.HostNotifierJob
+	ExpiryJob           *jobs.ExpiryJob
 	authService         *authservice.AuthService
 	queueCol            *mongo.Collection
 }
@@ -30,6 +31,7 @@ func New(
 	expiryService *queueservice.ExpiryService,
 	posJob *jobs.PositionJob,
 	hostNotifierJob *jobs.HostNotifierJob,
+	expiryJob *jobs.ExpiryJob,
 	authService *authservice.AuthService,
 	queueCol *mongo.Collection,
 ) *Module {
@@ -39,6 +41,7 @@ func New(
 		expiryService:       expiryService,
 		posJob:              posJob,
 		hostNotifierJob:     hostNotifierJob,
+		ExpiryJob:           expiryJob,
 		authService:         authService,
 		queueCol:            queueCol,
 	}

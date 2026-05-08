@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	authutil "queuebuzz/tests/e2e/auth/utils"
@@ -8,9 +9,12 @@ import (
 	qutil "queuebuzz/tests/e2e/queue/utils"
 	"queuebuzz/tests/e2e/util"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestQueue_Management_Lifecycle(t *testing.T) {
@@ -100,4 +104,113 @@ func TestQueue_Settings_Update(t *testing.T) {
 	data := util.DecodedBody(t, resp)
 	assert.Equal(t, notes, data["notes"])
 	assert.Equal(t, float64(15), data["avg_service_mins"])
+}
+
+func TestQueue_Delete(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	ctx := context.Background()
+	token, hostID, _ := authutil.RegisterHost(t, s, "Delete Host", "delete-test@test.com", "password")
+
+	getCount := func() int {
+		var host struct {
+			MonthlyQueueCount int `bson:"monthly_queue_count"`
+		}
+		err := s.DB.Collection("hosts").FindOne(ctx, bson.M{"_id": hostID}).Decode(&host)
+		require.NoError(t, err)
+		return host.MonthlyQueueCount
+	}
+
+	// 1. Create a queue
+	queueID := qutil.CreateAuthenticatedQueue(t, s, "Deletable Queue", token)
+	assert.Equal(t, 1, getCount())
+
+	// 2. Delete via API
+	resp, err := util.DELETE(s, "/api/v1/queue/history/"+queueID, util.AuthCookie(token))
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// 3. Verify quota decremented
+	assert.Equal(t, 0, getCount(), "Quota should be 0 after deletion")
+}
+
+func TestQueue_BulkDelete(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	ctx := context.Background()
+	token, hostID, _ := authutil.RegisterHost(t, s, "Bulk Host", "bulk-test@test.com", "password")
+
+	// 0. Upgrade to Pro plan (manually for test setup) to allow >1 queue
+	var proPlan struct {
+		ID string `bson:"_id"`
+	}
+	err := s.DB.Collection("billing_plans").FindOne(ctx, bson.M{"tier": "pro"}).Decode(&proPlan)
+	require.NoError(t, err)
+
+	_, err = s.DB.Collection("billing_subscriptions").InsertOne(ctx, bson.M{
+		"_id":                uuid.New().String(),
+		"host_id":            hostID,
+		"plan_id":            proPlan.ID,
+		"status":             "active",
+		"current_period_end": time.Now().Add(30 * 24 * time.Hour),
+		"created_at":         time.Now(),
+		"updated_at":         time.Now(),
+	})
+	require.NoError(t, err)
+
+	// Also update host tier just in case
+	_, err = s.DB.Collection("hosts").UpdateOne(ctx, bson.M{"_id": hostID}, bson.M{"$set": bson.M{"tier": "pro"}})
+	require.NoError(t, err)
+
+	// Invalidate billing cache so the new plan is picked up
+	_ = s.App.Container.Redis.Del(ctx, "billing:host_plan:"+hostID).Err()
+
+	getCount := func() int {
+		var host struct {
+			MonthlyQueueCount int `bson:"monthly_queue_count"`
+		}
+		err := s.DB.Collection("hosts").FindOne(ctx, bson.M{"_id": hostID}).Decode(&host)
+		require.NoError(t, err)
+		return host.MonthlyQueueCount
+	}
+
+	// 1. Create multiple queues (one at a time, terminating each to allow next creation)
+	q1 := qutil.CreateAuthenticatedQueue(t, s, "Queue 1", token)
+	resp, err := util.POST(s, "/api/v1/queue/manage/"+q1+"/terminate", nil, util.AuthCookie(token))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	q2 := qutil.CreateAuthenticatedQueue(t, s, "Queue 2", token)
+	resp, err = util.POST(s, "/api/v1/queue/manage/"+q2+"/terminate", nil, util.AuthCookie(token))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	q3 := qutil.CreateAuthenticatedQueue(t, s, "Queue 3", token)
+	resp, err = util.POST(s, "/api/v1/queue/manage/"+q3+"/terminate", nil, util.AuthCookie(token))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	assert.Equal(t, 3, getCount())
+
+	// 2. Bulk delete two of them
+	payload := map[string][]string{"ids": {q1, q2}}
+	resp, err = util.DELETEWithBody(s, "/api/v1/queue/history", payload, util.AuthCookie(token))
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// 3. Verify quota decremented by 2
+	assert.Equal(t, 1, getCount(), "Quota should be 1 after bulk deleting 2 of 3 queues")
+
+	// 4. Delete the last one
+	resp, err = util.DELETE(s, "/api/v1/queue/history/"+q3, util.AuthCookie(token))
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, 0, getCount(), "Quota should be 0 after deleting last queue")
 }

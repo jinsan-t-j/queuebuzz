@@ -15,38 +15,31 @@ import (
 	stdwebhook "github.com/standard-webhooks/standard-webhooks/libraries/go"
 )
 
-// DodoProvider implements PaymentProvider using the official Dodo Payments Go SDK.
 type DodoProvider struct {
 	client     *dodopayments.Client
 	webhookKey string
-	isTestMode bool
 }
 
-// NewDodoProvider creates a provider using the official SDK.
-// Set isTestMode=true for development, false for production.
-func NewDodoProvider(apiKey, webhookKey string, isTestMode bool) *DodoProvider {
-	opts := []option.RequestOption{
+func NewDodoProvider(apiKey, webhookKey string, isProduction bool, opts ...option.RequestOption) *DodoProvider {
+	finalOpts := []option.RequestOption{
 		option.WithBearerToken(apiKey),
 	}
-	if isTestMode {
-		opts = append(opts, option.WithEnvironmentTestMode())
+
+	if isProduction {
+		finalOpts = append(finalOpts, option.WithEnvironmentLiveMode())
 	} else {
-		opts = append(opts, option.WithEnvironmentLiveMode())
+		finalOpts = append(finalOpts, option.WithEnvironmentTestMode())
 	}
 
-	client := dodopayments.NewClient(opts...)
+	finalOpts = append(finalOpts, opts...)
 
 	return &DodoProvider{
-		client:     client,
+		client:     dodopayments.NewClient(finalOpts...),
 		webhookKey: webhookKey,
-		isTestMode: isTestMode,
 	}
 }
 
-// CreateCheckoutSession creates a hosted checkout session via the Dodo SDK.
-// The user is redirected to the returned URL to complete payment.
 func (p *DodoProvider) CreateCheckoutSession(req CheckoutRequest) (*CheckoutResponse, error) {
-	// Resolve the correct product ID based on billing cycle
 	productID := req.Plan.ProviderMonthlyProductID
 	if req.BillingCycle == "yearly" {
 		productID = req.Plan.ProviderYearlyProductID
@@ -56,13 +49,11 @@ func (p *DodoProvider) CreateCheckoutSession(req CheckoutRequest) (*CheckoutResp
 			req.Plan.Slug, req.BillingCycle)
 	}
 
-	// Extract host email for checkout prefill
 	var email string
 	if req.Host.Email != nil {
 		email = *req.Host.Email
 	}
 
-	// Build metadata for webhook correlation
 	metadata := map[string]string{
 		"host_id":       req.Host.ID,
 		"plan_id":       req.Plan.ID,
@@ -70,7 +61,6 @@ func (p *DodoProvider) CreateCheckoutSession(req CheckoutRequest) (*CheckoutResp
 		"plan_tier":     req.Plan.Tier,
 	}
 
-	// Create checkout session via SDK
 	params := dodopayments.CheckoutSessionNewParams{
 		CheckoutSessionRequest: dodopayments.CheckoutSessionRequestParam{
 			ProductCart: dodopayments.F([]dodopayments.ProductItemReqParam{
@@ -85,7 +75,6 @@ func (p *DodoProvider) CreateCheckoutSession(req CheckoutRequest) (*CheckoutResp
 		},
 	}
 
-	// Prefill customer email if available
 	if email != "" {
 		params.CheckoutSessionRequest.Customer = dodopayments.F[dodopayments.CustomerRequestUnionParam](
 			dodopayments.CustomerRequestParam{
@@ -96,7 +85,7 @@ func (p *DodoProvider) CreateCheckoutSession(req CheckoutRequest) (*CheckoutResp
 
 	session, err := p.client.CheckoutSessions.New(context.Background(), params)
 	if err != nil {
-		log.Error().Err(err).Str("plan", req.Plan.Slug).Str("host", req.Host.ID).Msg("Failed to create Dodo checkout session")
+		log.Error().Err(err).Msg("Failed to create Dodo checkout session")
 		return nil, fmt.Errorf("failed to create checkout session: %w", err)
 	}
 
@@ -111,7 +100,6 @@ func (p *DodoProvider) VerifyWebhook(payload []byte, headers map[string]string) 
 		return nil, fmt.Errorf("webhook key not configured")
 	}
 
-	// Verify signature using Standard Webhooks library
 	wh, err := stdwebhook.NewWebhook(p.webhookKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize webhook verifier: %w", err)
@@ -126,7 +114,6 @@ func (p *DodoProvider) VerifyWebhook(payload []byte, headers map[string]string) 
 		return nil, fmt.Errorf("webhook signature verification failed: %w", err)
 	}
 
-	// Parse the top-level envelope
 	var raw struct {
 		Type string          `json:"type"`
 		Data json.RawMessage `json:"data"`
@@ -139,7 +126,6 @@ func (p *DodoProvider) VerifyWebhook(payload []byte, headers map[string]string) 
 		Type: raw.Type,
 	}
 
-	// Route parsing based on event type prefix
 	switch {
 	case isPaymentEvent(raw.Type):
 		if err := p.parsePaymentEvent(raw.Data, event); err != nil {
@@ -150,16 +136,12 @@ func (p *DodoProvider) VerifyWebhook(payload []byte, headers map[string]string) 
 			return nil, err
 		}
 	default:
-		// Unknown event type — still valid, return with raw type for logging
 		log.Debug().Str("type", raw.Type).Msg("Unrecognized Dodo webhook event type")
 	}
 
 	return event, nil
 }
 
-// parsePaymentEvent extracts fields from payment.succeeded / payment.failed payloads.
-// Per Dodo docs, payment webhooks include: payment_id, total_amount, customer,
-// subscription_id, invoice_url, settlement_amount, currency, metadata, etc.
 func (p *DodoProvider) parsePaymentEvent(data json.RawMessage, event *BillingEvent) error {
 	var pd struct {
 		PaymentID        string `json:"payment_id"`
@@ -184,7 +166,7 @@ func (p *DodoProvider) parsePaymentEvent(data json.RawMessage, event *BillingEve
 
 	event.ProviderPaymentID = pd.PaymentID
 	event.SubscriptionID = pd.SubscriptionID
-	event.ProviderID = pd.SubscriptionID // for correlation
+	event.ProviderID = pd.SubscriptionID
 	event.TotalAmount = pd.TotalAmount
 	event.Amount = pd.SettlementAmount
 	event.Currency = pd.Currency
@@ -196,7 +178,6 @@ func (p *DodoProvider) parsePaymentEvent(data json.RawMessage, event *BillingEve
 		event.CardExpiry = fmt.Sprintf("%s/%s", pd.ExpiryMonth, pd.ExpiryYear)
 	}
 
-	// Map internal event type
 	switch event.Type {
 	case "payment.succeeded":
 		event.Type = billingdomain.EventPaymentSucceeded
@@ -206,7 +187,6 @@ func (p *DodoProvider) parsePaymentEvent(data json.RawMessage, event *BillingEve
 		event.Status = billingdomain.SubscriptionPastDue
 	}
 
-	// Extract host/plan info from metadata (set at checkout time)
 	if pd.Metadata != nil {
 		event.HostID = pd.Metadata["host_id"]
 		event.PlanID = pd.Metadata["plan_id"]
@@ -216,10 +196,6 @@ func (p *DodoProvider) parsePaymentEvent(data json.RawMessage, event *BillingEve
 	return nil
 }
 
-// parseSubscriptionEvent extracts fields from subscription.* payloads.
-// Per Dodo docs, subscription webhooks include: subscription_id, status,
-// cancel_at_next_billing_date, cancellation_comment, cancellation_feedback,
-// cancelled_at, next_billing_date, recurring_pre_tax_amount, customer, metadata, etc.
 func (p *DodoProvider) parseSubscriptionEvent(data json.RawMessage, event *BillingEvent) error {
 	var sd struct {
 		SubscriptionID           string `json:"subscription_id"`
@@ -253,7 +229,6 @@ func (p *DodoProvider) parseSubscriptionEvent(data json.RawMessage, event *Billi
 	event.CancellationFeedback = sd.CancellationFeedback
 	event.ProviderCustomerID = sd.Customer.CustomerID
 
-	// Parse timestamps (Dodo sends ISO 8601)
 	if t, err := parseISO8601(sd.NextBillingDate); err == nil {
 		event.NextBillingDate = t.Unix()
 		event.CurrentPeriodEnd = t.Unix()
@@ -265,38 +240,49 @@ func (p *DodoProvider) parseSubscriptionEvent(data json.RawMessage, event *Billi
 		event.PreviousBillingDate = t.Unix()
 	}
 
-	// Map internal event type and status
 	switch event.Type {
 	case "subscription.active":
 		event.Type = billingdomain.EventSubscriptionActive
-		event.Status = billingdomain.SubscriptionActive
+		if sd.Status != "" {
+			event.Status = billingdomain.SubscriptionStatus(sd.Status)
+		} else {
+			event.Status = billingdomain.SubscriptionActive
+		}
 	case "subscription.renewed":
 		event.Type = billingdomain.EventSubscriptionRenewed
 		event.Status = billingdomain.SubscriptionActive
 	case "subscription.failed", "subscription.on_hold":
 		event.Type = billingdomain.EventSubscriptionFailed
-		event.Status = billingdomain.SubscriptionPastDue
+		if sd.Status != "" {
+			event.Status = billingdomain.SubscriptionStatus(sd.Status)
+		} else {
+			event.Status = billingdomain.SubscriptionPastDue
+		}
 	case "subscription.cancelled":
 		event.Type = billingdomain.EventSubscriptionCancelled
 		event.Status = billingdomain.SubscriptionCanceled
 	case "subscription.updated":
 		event.Type = billingdomain.EventSubscriptionUpdated
-		event.Status = billingdomain.SubscriptionActive
+		if sd.Status != "" {
+			event.Status = billingdomain.SubscriptionStatus(sd.Status)
+		} else {
+			event.Status = billingdomain.SubscriptionActive
+		}
 	case "subscription.expired":
 		event.Type = billingdomain.EventSubscriptionCancelled
 		event.Status = billingdomain.SubscriptionCanceled
 	default:
-		// Keep raw type for unhandled sub-events
+		if sd.Status != "" {
+			event.Status = billingdomain.SubscriptionStatus(sd.Status)
+		}
 	}
 
-	// Extract host/plan info from metadata (set at checkout time)
 	if sd.Metadata != nil {
 		event.HostID = sd.Metadata["host_id"]
 		event.PlanID = sd.Metadata["plan_id"]
 		event.BillingCycle = sd.Metadata["billing_cycle"]
 	}
 
-	// Infer billing cycle from payment_frequency_interval if metadata is missing
 	if event.BillingCycle == "" {
 		switch sd.PaymentFrequencyInterval {
 		case "Year":
@@ -306,13 +292,10 @@ func (p *DodoProvider) parseSubscriptionEvent(data json.RawMessage, event *Billi
 		}
 	}
 
-	// Fetch latest details to get card info (Dodo webhooks for subscriptions don't include it)
 	if details, err := p.GetSubscription(sd.SubscriptionID); err == nil {
 		event.CardLast4 = details.CardLast4
 		event.CardBrand = details.CardBrand
 		event.CardExpiry = details.CardExpiry
-	} else {
-		log.Warn().Err(err).Str("subscription_id", sd.SubscriptionID).Msg("Failed to fetch subscription details during webhook parsing")
 	}
 
 	return nil
@@ -340,7 +323,6 @@ func (p *DodoProvider) GetSubscription(subscriptionID string) (*SubscriptionDeta
 		Metadata:                 sub.Metadata,
 	}
 
-	// Fetch payment method details if ID is present
 	if sub.PaymentMethodID != "" {
 		pms, err := p.client.Customers.GetPaymentMethods(context.Background(), sub.Customer.CustomerID)
 		if err == nil {
@@ -362,7 +344,6 @@ func (p *DodoProvider) GetSubscription(subscriptionID string) (*SubscriptionDeta
 	return details, nil
 }
 
-// CancelSubscription cancels a subscription at the end of the current billing period.
 func (p *DodoProvider) CancelSubscription(subscriptionID string, comment *string, feedback *string) error {
 	params := dodopayments.SubscriptionUpdateParams{
 		CancelAtNextBillingDate: dodopayments.F(true),
@@ -378,13 +359,10 @@ func (p *DodoProvider) CancelSubscription(subscriptionID string, comment *string
 			dodoFeedback = dodopayments.CancellationFeedbackTooExpensive
 		case "missing_features":
 			dodoFeedback = dodopayments.CancellationFeedbackMissingFeatures
-		case "switching", "switching_to_competitor", "switched_service":
+		case "switching", "switched_service":
 			dodoFeedback = dodopayments.CancellationFeedbackSwitchedService
-		case "not_using", "unused":
+		case "unused":
 			dodoFeedback = dodopayments.CancellationFeedbackUnused
-		default:
-			// If it doesn't match a known enum, we don't send the feedback field
-			// to avoid 422, but the reason will still be in the comment.
 		}
 
 		if dodoFeedback != "" {
@@ -399,7 +377,6 @@ func (p *DodoProvider) CancelSubscription(subscriptionID string, comment *string
 	return nil
 }
 
-// UpdatePaymentMethod returns a Dodo-hosted payment link for updating the payment method.
 func (p *DodoProvider) UpdatePaymentMethod(subscriptionID, returnURL string) (*PaymentMethodUpdateResponse, error) {
 	params := dodopayments.SubscriptionUpdatePaymentMethodParams{
 		Body: dodopayments.SubscriptionUpdatePaymentMethodParamsBodyNew{

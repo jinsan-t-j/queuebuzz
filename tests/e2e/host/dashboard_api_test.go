@@ -1,8 +1,11 @@
-package e2e
+package host
 
 import (
 	"fmt"
 	"net/http"
+	authutil "queuebuzz/tests/e2e/auth/utils"
+	"queuebuzz/tests/e2e/billing"
+	qutil "queuebuzz/tests/e2e/queue/utils"
 	"queuebuzz/tests/e2e/util"
 	"testing"
 	"time"
@@ -17,7 +20,7 @@ func TestDashboard_EmptyState(t *testing.T) {
 
 	// Register a new host to get a clean state
 	email := fmt.Sprintf("empty-%d@example.com", time.Now().UnixNano())
-	hostToken := util.RegisterHost(t, s, "Empty Host", email, "password123")
+	hostToken, _, _ := authutil.RegisterHost(t, s, "Empty Host", email, "password123")
 
 	// Fetch dashboard
 	resp, err := util.GET(s, "/api/v1/queue/dashboard", util.AuthCookie(hostToken))
@@ -51,12 +54,12 @@ func TestDashboard_WithActiveQueue(t *testing.T) {
 
 	// 1. Create a host and a queue
 	email := fmt.Sprintf("active-%d@example.com", time.Now().UnixNano())
-	hostToken := util.RegisterHost(t, s, "Active Host", email, "password123")
+	hostToken, _, _ := authutil.RegisterHost(t, s, "Active Host", email, "password123")
 
 	// Use the host token to create a queue (optional, but good for linking)
 	// Wait, CreateQueue in util.go uses anonymous creation.
 	// Let's create a queue using the host token.
-	queueID := util.CreateAuthenticatedQueue(t, s, "Active Dashboard Queue", hostToken)
+	queueID := qutil.CreateAuthenticatedQueue(t, s, "Active Dashboard Queue", hostToken)
 
 	// 2. Fetch dashboard
 	resp, err := util.GET(s, "/api/v1/queue/dashboard", util.AuthCookie(hostToken))
@@ -72,8 +75,8 @@ func TestDashboard_WithActiveQueue(t *testing.T) {
 	assert.Equal(t, "Active Dashboard Queue", activeQueue["queueName"])
 
 	// 4. Join a customer and serve them
-	util.JoinQueue(t, s, queueID, "Customer 1")
-	util.ServeNext(t, s, queueID, hostToken)
+	qutil.JoinQueue(t, s, queueID, "Customer 1")
+	qutil.ServeNext(t, s, queueID, hostToken)
 
 	// 5. Fetch dashboard again
 	resp, err = util.GET(s, "/api/v1/queue/dashboard", util.AuthCookie(hostToken))
@@ -91,14 +94,13 @@ func TestHistory_List_And_Summary(t *testing.T) {
 
 	// 1. Create a host and a historical queue
 	email := fmt.Sprintf("history-%d@example.com", time.Now().UnixNano())
-	hostToken := util.RegisterHost(t, s, "History Host", email, "password123")
-	hostID := "host-" + email
-	util.UpgradeToPremium(t, s, hostID)
+	hostToken, hostID, _ := authutil.RegisterHost(t, s, "History Host", email, "password123")
+	billing.UpgradeToPremium(t, s, hostID, hostToken)
 
-	queueID := util.CreateAuthenticatedQueue(t, s, "Historical Queue", hostToken)
+	queueID := qutil.CreateAuthenticatedQueue(t, s, "Historical Queue", hostToken)
 
-	util.JoinQueue(t, s, queueID, "Guest")
-	util.ServeNext(t, s, queueID, hostToken)
+	qutil.JoinQueue(t, s, queueID, "Guest")
+	qutil.ServeNext(t, s, queueID, hostToken)
 
 	// Terminate queue to make it historical
 	resp, err := util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/terminate", queueID), nil, util.AuthCookie(hostToken))
@@ -127,14 +129,13 @@ func TestHistory_Pagination_And_Filtering(t *testing.T) {
 	s.CleanDB()
 
 	email := fmt.Sprintf("multi-%d@example.com", time.Now().UnixNano())
-	hostToken := util.RegisterHost(t, s, "Multi Host", email, "password123")
-	hostID := "host-" + email
-	util.UpgradeToPremium(t, s, hostID)
+	hostToken, hostID, _ := authutil.RegisterHost(t, s, "Multi Host", email, "password123")
+	billing.UpgradeToPremium(t, s, hostID, hostToken)
 
 	// Create 3 historical queues
 	queues := []string{"Queue Alpha", "Queue Beta", "Queue Gamma"}
 	for _, name := range queues {
-		qid := util.CreateAuthenticatedQueue(t, s, name, hostToken)
+		qid := qutil.CreateAuthenticatedQueue(t, s, name, hostToken)
 		util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/terminate", qid), nil, util.AuthCookie(hostToken))
 	}
 

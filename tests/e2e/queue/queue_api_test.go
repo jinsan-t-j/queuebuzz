@@ -1,8 +1,11 @@
-package e2e
+package queue
 
 import (
 	"fmt"
 	"net/http"
+	authutil "queuebuzz/tests/e2e/auth/utils"
+	"queuebuzz/tests/e2e/billing"
+	qutil "queuebuzz/tests/e2e/queue/utils"
 	"queuebuzz/tests/e2e/util"
 	"testing"
 
@@ -14,27 +17,28 @@ func TestQueue_Management_Lifecycle(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, hostToken := util.CreateQueue(t, s, "Lifecycle Queue")
-	util.UpgradeToPremium(t, s, queueID)
+	token, hostID, _ := authutil.RegisterHost(t, s, "Host", "host@test.com", "password")
+	queueID := qutil.CreateAuthenticatedQueue(t, s, "Lifecycle Queue", token)
+	billing.UpgradeToPremium(t, s, hostID, token)
 
 	// 1. Join some customers
-	util.JoinQueue(t, s, queueID, "Customer 1")
-	util.JoinQueue(t, s, queueID, "Customer 2")
+	qutil.JoinQueue(t, s, queueID, "Customer 1")
+	qutil.JoinQueue(t, s, queueID, "Customer 2")
 
 	// 2. Fetch history
-	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/manage/%s/history", queueID), util.HostCookie(hostToken))
+	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/manage/%s/history", queueID), util.HostCookie(token))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// 3. Pause queue
-	resp, err = util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/pause", queueID), nil, util.HostCookie(hostToken))
+	resp, err = util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/pause", queueID), nil, util.HostCookie(token))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// 4. Resume queue
-	resp, err = util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/resume", queueID), nil, util.HostCookie(hostToken))
+	resp, err = util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/resume", queueID), nil, util.HostCookie(token))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -44,8 +48,8 @@ func TestQueue_Management_CrossOwner_Forbidden(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	_, hostToken1 := util.CreateQueue(t, s, "Queue A")
-	queueBID, _ := util.CreateQueue(t, s, "Queue B")
+	_, hostToken1 := qutil.CreateQueue(t, s, "Queue A")
+	queueBID, _ := qutil.CreateQueue(t, s, "Queue B")
 
 	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/manage/%s/history", queueBID), util.HostCookie(hostToken1))
 	require.NoError(t, err)
@@ -57,7 +61,7 @@ func TestQueue_Management_Unauthorized(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, _ := util.CreateQueue(t, s, "No Auth Queue")
+	queueID, _ := qutil.CreateQueue(t, s, "No Auth Queue")
 
 	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/manage/%s/history", queueID))
 	require.NoError(t, err)
@@ -69,7 +73,7 @@ func TestQueue_Settings_Update(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, hostToken := util.CreateQueue(t, s, "Settings Queue")
+	queueID, hostToken := qutil.CreateQueue(t, s, "Settings Queue")
 
 	// 1. Update settings
 	strictMode := true

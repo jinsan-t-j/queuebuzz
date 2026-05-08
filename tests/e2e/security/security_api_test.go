@@ -1,9 +1,10 @@
-package e2e
+package security
 
 import (
 	"fmt"
 	"io"
 	"net/http"
+	qutil "queuebuzz/tests/e2e/queue/utils"
 	"queuebuzz/tests/e2e/setup"
 	"queuebuzz/tests/e2e/util"
 	"strings"
@@ -17,7 +18,6 @@ import (
 func TestSecurity_RateLimit_Triggered(t *testing.T) {
 	s := Suite(t)
 
-	// Create a dedicated instance with rate limiting ENABLED
 	cfg := *s.App.Container.Config
 	cfg.DisableRateLimit = false
 	testApp := setup.BootAppWithConfig(t, &cfg, &setup.MockSender{}, s.Proxy)
@@ -82,8 +82,8 @@ func TestSecurity_CrossOwner_Rejected(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	_, hostToken1 := util.CreateQueue(t, s, "Queue A")
-	queueBID, _ := util.CreateQueue(t, s, "Queue B")
+	_, hostToken1 := qutil.CreateQueue(t, s, "Queue A")
+	queueBID, _ := qutil.CreateQueue(t, s, "Queue B")
 
 	resp, err := util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/terminate", queueBID), nil, util.HostCookie(hostToken1))
 	require.NoError(t, err)
@@ -114,7 +114,7 @@ func TestSecurity_Join_NoPIILeak(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, _ := util.CreateQueue(t, s, "PII Test")
+	queueID, _ := qutil.CreateQueue(t, s, "PII Test")
 
 	payload := map[string]any{
 		"display_name": "Test User",

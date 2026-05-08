@@ -14,6 +14,7 @@ import (
 	authservice "queuebuzz/internal/modules/auth/service"
 	billingmodule "queuebuzz/internal/modules/billing"
 	billinghttp "queuebuzz/internal/modules/billing/http"
+	billingjobs "queuebuzz/internal/modules/billing/jobs"
 	billingprovider "queuebuzz/internal/modules/billing/provider"
 	billingservice "queuebuzz/internal/modules/billing/service"
 	customermodule "queuebuzz/internal/modules/customer"
@@ -63,7 +64,12 @@ type Container struct {
 	cancel context.CancelFunc
 }
 
-func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *Container {
+func NewContainer(
+	cfg *config.Config,
+	notifSender firebase.NotificationSender,
+	emailProv email.Provider,
+	billingProv billingprovider.PaymentProvider,
+) *Container {
 	mClient, mongoDB := mongo.Connect(cfg.DBUri, cfg.DBName)
 	rdb := redis.Connect(cfg.RedisURL, cfg.RedisPassword)
 	limiters := middlewares.NewRateLimiters(cfg)
@@ -81,28 +87,9 @@ func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *
 	customerRedisRepo := customerrepo.NewRedisRepository(rdb)
 	queueRedisRepo := queuerepo.NewRedisRepository(rdb)
 
-	// Core services (order matters — later services depend on earlier ones)
 	systemSvc := systemservice.NewSystemService(cfg, mongoDB, rdb)
+	emailSvc := services.NewEmailService(cfg, emailProv, systemSvc)
 
-	// Email provider + service
-	var emailProvider email.Provider
-	if cfg.IsProduction() {
-		emailProvider = &email.BrevoProvider{
-			APIKey:    cfg.BrevoAPIKey,
-			FromEmail: cfg.EmailFrom,
-			FromName:  "QueueBuzz",
-			ReplyTo:   cfg.EmailReplyTo,
-		}
-	} else {
-		emailProvider = &email.MailpitProvider{
-			Host:      cfg.MailpitSMTPHost,
-			Port:      cfg.MailpitSMTPPort,
-			FromEmail: cfg.EmailFrom,
-		}
-	}
-	emailSvc := services.NewEmailService(cfg, emailProvider, systemSvc)
-
-	billingProv := billingprovider.NewDodoProvider(cfg.DodoAPIKey, cfg.DodoWebhookKey, !cfg.IsProduction())
 	billingSvc := billingservice.NewBillingService(mongoDB, rdb, systemSvc, emailSvc, billingProv)
 	billingHandler := billinghttp.NewHandler(billingSvc, billingProv, rdb)
 
@@ -131,10 +118,12 @@ func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *
 	go caller.Start(ctx)
 	go expiryJob.Start(ctx)
 	go keyspaceJob.Start(ctx)
+	billingReminderJob := billingjobs.NewRenewalReminderJob(billingSvc)
+	go billingReminderJob.Start(ctx)
 	go emailSvc.Job().Start(ctx)
 
 	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
-	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc, r2Svc, emailSvc)
+	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc, billingSvc, r2Svc, emailSvc)
 	queueHandler := queuehttp.NewHandler(cfg, queueSvc, analyticsSvc, authSvc, hostSvc, queueRedisRepo, broker, notifier, posJob, hostNotifierJob, caller, billingSvc, emailSvc)
 	customerSvc := customerservice.New(entryCol, customerRedisRepo, queueSvc)
 	customerHandler := customerhttp.NewHandler(cfg, customerSvc, queueSvc, authSvc, joinCodeSvc, broker, posJob, hostNotifierJob, emailSvc)
@@ -145,6 +134,8 @@ func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *
 
 	systemHandler := systemhttp.NewHandler(cfg, systemSvc)
 	systemModule := systemmodule.New(systemHandler)
+
+	billingModule := billingmodule.New(billingHandler, billingSvc, authSvc, billingReminderJob)
 
 	return &Container{
 		Config:       cfg,
@@ -157,7 +148,7 @@ func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *
 		Queue:        queueModule,
 		Customer:     customermodule.New(customerHandler, authSvc),
 		Notification: notificationmodule.New(notifHandler),
-		Billing:      billingmodule.New(billingHandler, billingSvc, authSvc),
+		Billing:      billingModule,
 		System:       systemModule,
 		Broker:       broker,
 		cancel:       cancel,

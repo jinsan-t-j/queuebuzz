@@ -7,6 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"math"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -302,7 +303,7 @@ func (s *EmailService) SendRenewalReminder(toEmail, planName string, renewalDate
 	}
 	formattedAmount := fmt.Sprintf("%s%.2f", symbol, float64(amount)/100.0)
 
-	daysUntil := int(time.Until(renewalDate).Hours() / 24)
+	daysUntil := int(math.Ceil(time.Until(renewalDate).Hours() / 24))
 	if daysUntil < 1 {
 		daysUntil = 1
 	}

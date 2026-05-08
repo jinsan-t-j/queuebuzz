@@ -16,8 +16,31 @@ import (
 	redis "github.com/redis/go-redis/v9"
 )
 
-func (r *RedisRepository) SetHistorySummary(ctx context.Context, hostPublicID string, summary *domain.HostHistorySummary) error {
-	key := fmt.Sprintf("history_summary:%s", hostPublicID)
+func (r *RedisRepository) SetHistoryList(ctx context.Context, hostID, search, status string, page, limit int, response interface{}) error {
+	key := fmt.Sprintf("host:%s:history:list:%s:%s:%d:%d", hostID, search, status, page, limit)
+	data, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	return r.rdb.Set(ctx, key, data, 30*time.Minute).Err()
+}
+
+func (r *RedisRepository) GetHistoryList(ctx context.Context, hostID, search, status string, page, limit int) ([]byte, error) {
+	key := fmt.Sprintf("host:%s:history:list:%s:%s:%d:%d", hostID, search, status, page, limit)
+	return r.rdb.Get(ctx, key).Bytes()
+}
+
+func (r *RedisRepository) InvalidateHostHistory(ctx context.Context, hostID string) error {
+	pattern := fmt.Sprintf("host:%s:history:*", hostID)
+	keys, err := r.rdb.Keys(ctx, pattern).Result()
+	if err != nil || len(keys) == 0 {
+		return err
+	}
+	return r.rdb.Del(ctx, keys...).Err()
+}
+
+func (r *RedisRepository) SetHistorySummary(ctx context.Context, hostID string, summary *domain.HostHistorySummary) error {
+	key := fmt.Sprintf("host:%s:history:summary", hostID)
 	data, err := json.Marshal(summary)
 	if err != nil {
 		return err
@@ -25,8 +48,8 @@ func (r *RedisRepository) SetHistorySummary(ctx context.Context, hostPublicID st
 	return r.rdb.Set(ctx, key, data, 24*time.Hour).Err()
 }
 
-func (r *RedisRepository) GetHistorySummary(ctx context.Context, hostPublicID string) (*domain.HostHistorySummary, error) {
-	key := fmt.Sprintf("history_summary:%s", hostPublicID)
+func (r *RedisRepository) GetHistorySummary(ctx context.Context, hostID string) (*domain.HostHistorySummary, error) {
+	key := fmt.Sprintf("host:%s:history:summary", hostID)
 	data, err := r.rdb.Get(ctx, key).Bytes()
 	if err != nil {
 		return nil, err
@@ -38,13 +61,13 @@ func (r *RedisRepository) GetHistorySummary(ctx context.Context, hostPublicID st
 	return &summary, nil
 }
 
-func (r *RedisRepository) InvalidateHistorySummary(ctx context.Context, hostPublicID string) error {
-	key := fmt.Sprintf("history_summary:%s", hostPublicID)
+func (r *RedisRepository) InvalidateHistorySummary(ctx context.Context, hostID string) error {
+	key := fmt.Sprintf("host:%s:history:summary", hostID)
 	return r.rdb.Del(ctx, key).Err()
 }
 
-func (r *RedisRepository) SetHistoryDetail(ctx context.Context, queueID string, detail interface{}) error {
-	key := fmt.Sprintf("history_detail:%s", queueID)
+func (r *RedisRepository) SetHistoryDetail(ctx context.Context, hostID, queueID string, detail interface{}) error {
+	key := fmt.Sprintf("host:%s:history:detail:%s", hostID, queueID)
 	data, err := json.Marshal(detail)
 	if err != nil {
 		return err
@@ -52,9 +75,14 @@ func (r *RedisRepository) SetHistoryDetail(ctx context.Context, queueID string, 
 	return r.rdb.Set(ctx, key, data, 7*24*time.Hour).Err()
 }
 
-func (r *RedisRepository) GetHistoryDetail(ctx context.Context, queueID string) ([]byte, error) {
-	key := fmt.Sprintf("history_detail:%s", queueID)
+func (r *RedisRepository) GetHistoryDetail(ctx context.Context, hostID, queueID string) ([]byte, error) {
+	key := fmt.Sprintf("host:%s:history:detail:%s", hostID, queueID)
 	return r.rdb.Get(ctx, key).Bytes()
+}
+
+func (r *RedisRepository) InvalidateHistoryDetail(ctx context.Context, hostID, queueID string) error {
+	key := fmt.Sprintf("host:%s:history:detail:%s", hostID, queueID)
+	return r.rdb.Del(ctx, key).Err()
 }
 
 type RedisRepository struct {
@@ -71,6 +99,17 @@ func NewRedisRepository(rdb *redis.Client) *RedisRepository {
 func (r *RedisRepository) ReleaseJoinCode(ctx context.Context, code string) error {
 	key := fmt.Sprintf("joincode:%s", code)
 	return r.rdb.Del(ctx, key).Err()
+}
+
+func (r *RedisRepository) ReleaseJoinCodesBulk(ctx context.Context, codes []string) error {
+	if len(codes) == 0 {
+		return nil
+	}
+	keys := make([]string, len(codes))
+	for i, code := range codes {
+		keys[i] = fmt.Sprintf("joincode:%s", code)
+	}
+	return r.rdb.Del(ctx, keys...).Err()
 }
 
 func (r *RedisRepository) GenerateJoinCode(ctx context.Context, queueID string, length int, maxAttempts int, ttl time.Duration) (string, error) {
@@ -269,6 +308,19 @@ func (r *RedisRepository) DeleteQueueKeys(ctx context.Context, queueID string) e
 		keys := []string{
 			internalredis.QueuePositionsKey(queueID),
 			internalredis.TicketCounterKey(queueID),
+		}
+		return r.rdb.Del(tCtx, keys...).Err()
+	})
+}
+
+func (r *RedisRepository) DeleteQueuesKeysBulk(ctx context.Context, queueIDs []string) error {
+	if len(queueIDs) == 0 {
+		return nil
+	}
+	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
+		keys := make([]string, 0, len(queueIDs)*2)
+		for _, id := range queueIDs {
+			keys = append(keys, internalredis.QueuePositionsKey(id), internalredis.TicketCounterKey(id))
 		}
 		return r.rdb.Del(tCtx, keys...).Err()
 	})

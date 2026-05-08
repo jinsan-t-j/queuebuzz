@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -61,6 +60,7 @@ type CreateQueueParams struct {
 	AvgServiceMins    int
 	AllowPartyJoining *bool
 	MaxPartySize      *int
+	ManualPositioning *bool
 	CollectEmails     *bool
 }
 
@@ -138,6 +138,7 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		AvgServiceMins:    params.AvgServiceMins,
 		AllowPartyJoining: allowParty,
 		MaxPartySize:      maxParty,
+		ManualPositioning: params.ManualPositioning != nil && *params.ManualPositioning,
 		CollectEmails:     params.CollectEmails != nil && *params.CollectEmails,
 		Status:            constants.QueueStatusActive,
 		CreatedAt:         now,
@@ -368,19 +369,22 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 		return nil, fmt.Errorf("failed to insert queue entry: %w", err)
 	}
 
-	score := float64(now.Unix())
-	if err := s.redisRepo.AddToQueue(ctx, entry.QueueID, entry.ID, score, ttl); err != nil {
-		return nil, fmt.Errorf("failed to add to queue positions: %w", err)
-	}
+	var position int64
+	if !queue.ManualPositioning {
+		score := float64(now.Unix())
+		if err := s.redisRepo.AddToQueue(ctx, entry.QueueID, entry.ID, score, ttl); err != nil {
+			return nil, fmt.Errorf("failed to add to queue positions: %w", err)
+		}
 
-	position, err := s.GetPosition(ctx, entry.QueueID, entry.ID)
-	if err != nil {
-		position = 0
+		pos, err := s.GetPosition(ctx, entry.QueueID, entry.ID)
+		if err == nil {
+			position = pos + 1
+		}
 	}
 
 	return &JoinQueueResult{
 		Entry:    entry,
-		Position: position + 1,
+		Position: position,
 	}, nil
 }
 
@@ -562,18 +566,22 @@ func (s *Service) GetEntryStatusByID(ctx context.Context, entryID string) (*Join
 		return nil, err
 	}
 
-	position, err := s.GetPosition(ctx, entry.QueueID, entry.ID)
+	queue, err := s.GetQueue(ctx, entry.QueueID)
 	if err != nil {
-		position = 0
+		return nil, fmt.Errorf("queue not found: %w", err)
 	}
 
-	if position == -1 {
-		position = 0
+	var position int64
+	if !queue.ManualPositioning {
+		pos, err := s.GetPosition(ctx, entry.QueueID, entry.ID)
+		if err == nil {
+			position = pos + 1
+		}
 	}
 
 	return &JoinQueueResult{
 		Entry:    entry,
-		Position: position + 1,
+		Position: position,
 	}, nil
 }
 
@@ -1067,15 +1075,7 @@ func (s *Service) GetHistoryDetail(ctx context.Context, queueID string) (*dto.Hi
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// 1. Try Cache First
-	if cached, err := s.redisRepo.GetHistoryDetail(ctx, queueID); err == nil {
-		var resp dto.HistoryDetailResponse
-		if err := json.Unmarshal(cached, &resp); err == nil {
-			return &resp, nil
-		}
-	}
-
-	// 2. Fetch Queue
+	// 1. Fetch Queue
 	var queue domain.Queue
 	if err := s.queueCol.FindOne(ctx, bson.M{"_id": queueID}).Decode(&queue); err != nil {
 		return nil, err
@@ -1277,10 +1277,111 @@ func (s *Service) GetHistoryDetail(ctx context.Context, queueID string) (*dto.Hi
 		response.ClosedAt = &cAt
 	}
 
-	// 8. Cache result if queue is ended
-	if queue.Status != constants.QueueStatusActive && queue.Status != constants.QueueStatusPaused {
-		_ = s.redisRepo.SetHistoryDetail(ctx, queueID, response)
+	return response, nil
+}
+
+func (s *Service) DeleteQueue(ctx context.Context, hostID string, queueID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var queue domain.Queue
+	if err := s.queueCol.FindOne(ctx, bson.M{"_id": queueID, "host_id": hostID}).Decode(&queue); err != nil {
+		return err
 	}
 
-	return response, nil
+	_, err := s.entryCol.DeleteMany(ctx, bson.M{"queue_id": queueID})
+	if err != nil {
+		return err
+	}
+
+	_, err = s.queueCol.DeleteOne(ctx, bson.M{"_id": queueID})
+	if err != nil {
+		return err
+	}
+
+	if queue.Status == constants.QueueStatusActive || queue.Status == constants.QueueStatusPaused {
+		if queue.JoinCode != "" {
+			_ = s.redisRepo.ReleaseJoinCode(ctx, queue.JoinCode)
+		}
+	}
+	_ = s.billingSvc.DecrementMonthlyQueueCount(ctx, hostID, queue.CreatedAt)
+
+	if queue.HostPublicID != nil {
+		_ = s.redisRepo.InvalidateHistorySummary(ctx, *queue.HostPublicID)
+	}
+
+	return nil
+}
+
+func (s *Service) DeleteQueuesBulk(ctx context.Context, hostID string, queueIDs []string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if len(queueIDs) == 0 {
+		return nil
+	}
+
+	cursor, err := s.queueCol.Find(ctx, bson.M{
+		"_id":     bson.M{"$in": queueIDs},
+		"host_id": hostID,
+	})
+	if err != nil {
+		return err
+	}
+	var queues []domain.Queue
+	if err := cursor.All(ctx, &queues); err != nil {
+		return err
+	}
+
+	validIDs := make([]string, len(queues))
+	hostPublicIDs := make(map[string]struct{})
+	for i, q := range queues {
+		validIDs[i] = q.ID
+		if q.HostPublicID != nil {
+			hostPublicIDs[*q.HostPublicID] = struct{}{}
+		}
+	}
+
+	if len(validIDs) == 0 {
+		return nil
+	}
+
+	_, err = s.entryCol.DeleteMany(ctx, bson.M{"queue_id": bson.M{"$in": validIDs}})
+	if err != nil {
+		return err
+	}
+
+	_, err = s.queueCol.DeleteMany(ctx, bson.M{"_id": bson.M{"$in": validIDs}})
+	if err != nil {
+		return err
+	}
+
+	createdAts := make([]time.Time, len(queues))
+	activeIDs := make([]string, 0)
+	activeCodes := make([]string, 0)
+
+	for i, q := range queues {
+		createdAts[i] = q.CreatedAt
+		if q.Status == constants.QueueStatusActive || q.Status == constants.QueueStatusPaused {
+			activeIDs = append(activeIDs, q.ID)
+			if q.JoinCode != "" {
+				activeCodes = append(activeCodes, q.JoinCode)
+			}
+		}
+	}
+
+	if len(activeIDs) > 0 {
+		_ = s.redisRepo.DeleteQueuesKeysBulk(ctx, activeIDs)
+	}
+	if len(activeCodes) > 0 {
+		_ = s.redisRepo.ReleaseJoinCodesBulk(ctx, activeCodes)
+	}
+
+	_ = s.billingSvc.DecrementMonthlyQueueCountBulk(ctx, hostID, createdAts)
+
+	for pid := range hostPublicIDs {
+		_ = s.redisRepo.InvalidateHistorySummary(ctx, pid)
+	}
+
+	return nil
 }

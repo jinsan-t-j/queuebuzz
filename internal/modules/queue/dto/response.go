@@ -14,6 +14,7 @@ type QueueRecord struct {
 	AvgServiceMins      int    `json:"avg_service_mins"`
 	AllowPartyJoining   bool   `json:"allow_party_joining"`
 	MaxPartySize        int    `json:"max_party_size"`
+	ManualPositioning   bool   `json:"manual_positioning"`
 	StrictQueueMode     bool   `json:"strict_queue_mode"`
 	CollectEmails       bool   `json:"collect_emails"`
 	Notes               string `json:"notes,omitempty"`
@@ -180,6 +181,7 @@ func ToQueueResponse(queue domain.Queue, profileImg, bannerImg string) QueueReco
 		AvgServiceMins:      queue.AvgServiceMins,
 		AllowPartyJoining:   queue.AllowPartyJoining,
 		MaxPartySize:        queue.MaxPartySize,
+		ManualPositioning:   queue.ManualPositioning,
 		StrictQueueMode:     queue.StrictQueueMode,
 		CollectEmails:       queue.CollectEmails,
 		Notes:               queue.Notes,

@@ -80,7 +80,9 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 	host := queue.Group("/", middlewares.AuthMiddleware(m.authService))
 	host.Get("/dashboard", m.QueueHandler.GetDashboard)
 	host.Get("/slug-check", m.QueueHandler.CheckSlug)
-	host.Get("/history", queuehttp.HistoryAccessGuard(m.QueueHandler.BillingSvc), m.QueueHandler.GetHistoryList)
-	host.Delete("/history", m.QueueHandler.ClearHistory)
+	host.Get("/history", m.QueueHandler.GetHistoryList)
+	host.Delete("/history", m.QueueHandler.DeleteHistoryBulk)
+	host.Delete("/history/:id", m.QueueHandler.DeleteHistory)
+	host.Post("/history/clear", m.QueueHandler.ClearHistory)
 	host.Get("/live", m.QueueHandler.GetLiveQueue)
 }

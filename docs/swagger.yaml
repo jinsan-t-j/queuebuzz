@@ -1925,6 +1925,37 @@ paths:
       summary: Clear all history
       tags:
       - Queue
+    get:
+      description: Gets the history of all queues for the host.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: History fetched
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get the queues history
+      tags:
+      - Queue
   /queue/history/bulk:
     post:
       description: Deletes multiple queue histories at once.
@@ -2005,6 +2036,44 @@ paths:
               type: string
             type: object
       summary: Get live queue
+      tags:
+      - Queue
+  /queue/manage/{id}/history:
+    get:
+      description: Gets the history of a queue for the host
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: History fetched
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get the queue history
       tags:
       - Queue
   /queue/slug-check:

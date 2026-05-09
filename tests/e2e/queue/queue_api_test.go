@@ -214,3 +214,37 @@ func TestQueue_BulkDelete(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, 0, getCount(), "Quota should be 0 after deleting last queue")
 }
+
+func TestQueue_Terminate_InvalidatesCache(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	ctx := context.Background()
+	token, hostID, _ := authutil.RegisterHost(t, s, "Terminator", "terminate@test.com", "password")
+	queueID := qutil.CreateAuthenticatedQueue(t, s, "Terminatable Queue", token)
+
+	// 1. Populate history and summary caches via API
+	resp, err := util.GET(s, "/api/v1/queue/history?filter=all", util.AuthCookie(token))
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	// Verify Caches EXIST before termination
+	historyKey := fmt.Sprintf("host:%s:history:list::all:1:10", hostID)
+	summaryKey := fmt.Sprintf("host:%s:history:summary", hostID)
+	exists, _ := s.App.Container.Redis.Exists(ctx, historyKey).Result()
+	assert.Equal(t, int64(1), exists, "History list cache should exist after API call")
+	exists, _ = s.App.Container.Redis.Exists(ctx, summaryKey).Result()
+	assert.Equal(t, int64(1), exists, "History summary cache should exist after API call")
+
+	// 2. Terminate queue
+	resp, err = util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/terminate", queueID), nil, util.AuthCookie(token))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// 3. Verify caches are invalidated
+	exists, _ = s.App.Container.Redis.Exists(ctx, historyKey).Result()
+	assert.Equal(t, int64(0), exists, "History list cache should be invalidated after termination")
+	exists, _ = s.App.Container.Redis.Exists(ctx, summaryKey).Result()
+	assert.Equal(t, int64(0), exists, "History summary cache should be invalidated after termination")
+}

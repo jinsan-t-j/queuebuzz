@@ -5,6 +5,7 @@ import (
 	"fmt"
 	authutil "queuebuzz/tests/e2e/auth/utils"
 	qutil "queuebuzz/tests/e2e/queue/utils"
+	"queuebuzz/tests/e2e/util"
 	"testing"
 	"time"
 
@@ -42,8 +43,21 @@ func TestQueue_Expiry(t *testing.T) {
 	exists, _ := s.App.Container.Redis.Exists(ctx, fmt.Sprintf("queue_positions:%s", queueID)).Result()
 	assert.Equal(t, int64(1), exists, "Redis positions key should exist after joining")
 
+	// 2.5 Populate history list and summary caches via API
+	resp, err := util.GET(s, "/api/v1/queue/history?filter=all", util.AuthCookie(token))
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	// Verify Caches EXIST before expiry
+	historyKey := fmt.Sprintf("host:%s:history:list::all:1:10", hostID)
+	summaryKey := fmt.Sprintf("host:%s:history:summary", hostID)
+	exists, _ = s.App.Container.Redis.Exists(ctx, historyKey).Result()
+	assert.Equal(t, int64(1), exists, "History list cache should exist after API call")
+	exists, _ = s.App.Container.Redis.Exists(ctx, summaryKey).Result()
+	assert.Equal(t, int64(1), exists, "History summary cache should exist after API call")
+
 	// 3. Force expire the queue in DB
-	_, err := s.DB.Collection("queues").UpdateOne(ctx,
+	_, err = s.DB.Collection("queues").UpdateOne(ctx,
 		bson.M{"_id": queueID},
 		bson.M{"$set": bson.M{"expires_at": time.Now().Add(-1 * time.Hour)}},
 	)
@@ -62,6 +76,12 @@ func TestQueue_Expiry(t *testing.T) {
 	// 6. Verify Redis keys are cleaned up
 	exists, _ = s.App.Container.Redis.Exists(ctx, fmt.Sprintf("queue_positions:%s", queueID)).Result()
 	assert.Equal(t, int64(0), exists, "Redis positions key should be deleted after expiry")
+
+	// 6.5 Verify History Caches are invalidated
+	exists, _ = s.App.Container.Redis.Exists(ctx, historyKey).Result()
+	assert.Equal(t, int64(0), exists, "History list cache should be invalidated")
+	exists, _ = s.App.Container.Redis.Exists(ctx, summaryKey).Result()
+	assert.Equal(t, int64(0), exists, "History summary cache should be invalidated")
 
 	// 7. Verify Quota is STILL 1 (per business policy: expiry != deletion)
 	assert.Equal(t, 1, getCount(), "Quota should still be 1 after expiry")

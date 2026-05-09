@@ -505,7 +505,10 @@ func (h *Handler) ResumeQueue(c fiber.Ctx) error {
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /queue/{id}/close [post]
 func (h *Handler) TerminateQueue(c fiber.Ctx) error {
+	hostID, _ := c.Locals("host_id").(string)
+	hostPublicID, _ := c.Locals("host_public_id").(string)
 	queueID := c.Params("id")
+
 	unserved, err := h.Service.TerminateQueue(c.Context(), queueID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -523,6 +526,13 @@ func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 
 		for _, entry := range unserved {
 			h.Notifier.NotifyQueueEnded(entry.ID, queueName)
+		}
+	}
+
+	if h.RedisRepo != nil && hostID != "" {
+		_ = h.RedisRepo.InvalidateHostHistory(c.Context(), hostID)
+		if hostPublicID != "" {
+			_ = h.RedisRepo.InvalidateHistorySummary(c.Context(), hostPublicID)
 		}
 	}
 
@@ -691,6 +701,18 @@ func (h *Handler) Serve(c fiber.Ctx) error {
 
 	return c.SendStatus(fiber.StatusOK)
 }
+
+// GetHistory godoc
+// @Summary Get the queue history
+// @Description Gets the history of a queue for the host
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Success 200 {object} map[string]interface{} "History fetched"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/manage/{id}/history [get]
 func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 	queueID := ctx.Params("id")
 
@@ -727,6 +749,16 @@ func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 	return helpers.NewSuccessResponse("History detail fetched", response).OK(ctx)
 }
 
+// GetHistoryList godoc
+// @Summary Get the queues history
+// @Description Gets the history of all queues for the host.
+// @Tags Queue
+// @Produce json
+// @Success 200 {object} map[string]interface{} "History fetched"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/history [get]
 func (h *Handler) GetHistoryList(c fiber.Ctx) error {
 	hostPublicID, _ := c.Locals("host_public_id").(string)
 	hostID, _ := c.Locals("host_id").(string)

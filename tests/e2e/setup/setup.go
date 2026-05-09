@@ -104,6 +104,7 @@ func BootAppWithConfig(t *testing.T, cfg *config.Config, sender firebase.Notific
 	dodoOpts := []option.RequestOption{option.WithBaseURL(dodoMock.Server.URL)}
 
 	a := app.New(cfg, sender, dodoOpts...)
+	a.Container.Start()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -148,6 +149,9 @@ func BootAppWithConfig(t *testing.T, cfg *config.Config, sender firebase.Notific
 }
 
 func (s *TestSuite) CleanDB() {
+	// Give background jobs a moment to finish before dropping collections
+	time.Sleep(100 * time.Millisecond)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

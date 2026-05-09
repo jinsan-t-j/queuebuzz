@@ -84,6 +84,9 @@ func New(cfg *config.Config, sender firebase.NotificationSender, dodoOpts ...opt
 func (a *App) Start() {
 	go a.listenForShutdown()
 
+	// Start background jobs managed by the container
+	a.Container.Start()
+
 	if err := a.Fiber.Listen(":" + a.Container.Config.AppPort); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start server")
 	}

@@ -1,8 +1,6 @@
 package queue
 
 import (
-	"context"
-
 	"queuebuzz/internal/middlewares"
 	authservice "queuebuzz/internal/modules/auth/service"
 	notificationhttp "queuebuzz/internal/modules/notification/http"
@@ -45,9 +43,6 @@ func New(
 		authService:         authService,
 		queueCol:            queueCol,
 	}
-}
-
-func (m *Module) Start(_ context.Context) {
 }
 
 func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateLimiters) {

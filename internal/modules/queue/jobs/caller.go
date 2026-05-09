@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/modules/queue/service"
 )
 
@@ -36,6 +37,11 @@ func (c *Caller) Start(ctx context.Context) {
 }
 
 func (c *Caller) DispatchCall(queueID, entryID, status string) {
+	if config.Get().IsTesting() {
+		c.notifier.PublishUserCalled(queueID, entryID, status)
+		return
+	}
+
 	select {
 	case c.callChan <- CallTask{QueueID: queueID, EntryID: entryID, Status: status}:
 	default:

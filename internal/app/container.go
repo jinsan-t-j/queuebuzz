@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"queuebuzz/internal/log"
+	"sync"
 	"time"
 
 	"queuebuzz/internal/config"
@@ -60,8 +61,19 @@ type Container struct {
 	Billing      *billingmodule.Module
 	System       *systemmodule.Module
 	Broker       *sse.Broker
+	EmailSvc     *services.EmailService
 
+	// Jobs
+	posJob             *jobs.PositionJob
+	hostNotifierJob    *jobs.HostNotifierJob
+	caller             *jobs.Caller
+	expiryJob          *jobs.ExpiryJob
+	keyspaceJob        *jobs.KeyspaceJob
+	billingReminderJob *billingjobs.RenewalReminderJob
+
+	ctx    context.Context
 	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 func NewContainer(
@@ -104,23 +116,16 @@ func NewContainer(
 		log.Fatal().Err(err).Msg("Failed to initialize R2 storage")
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	broker := sse.NewBroker()
-	notifier := queueservice.NewQueueNotifier(cfg, broker, notifSender, emailSvc, queueCol, entryCol)
+	notifier := queueservice.NewQueueNotifier(ctx, cfg, broker, notifSender, emailSvc, queueCol, entryCol)
 	expirySvc := queueservice.NewExpiryService(rdb, queueCol, entryCol, queueRedisRepo, notifier, billingSvc, systemSvc)
 	posJob := jobs.NewPositionJob(expirySvc)
 	hostNotifierJob := jobs.NewHostNotifierJob(queueSvc, expirySvc)
 	caller := jobs.NewCaller(notifier)
 	expiryJob := jobs.NewExpiryJob(expirySvc)
 	keyspaceJob := jobs.NewKeyspaceJob(rdb, expirySvc)
-	ctx, cancel := context.WithCancel(context.Background())
-	go posJob.Start(ctx)
-	go hostNotifierJob.Start(ctx)
-	go caller.Start(ctx)
-	go expiryJob.Start(ctx)
-	go keyspaceJob.Start(ctx)
 	billingReminderJob := billingjobs.NewRenewalReminderJob(billingSvc)
-	go billingReminderJob.Start(ctx)
-	go emailSvc.Job().Start(ctx)
 
 	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc, billingSvc, r2Svc, emailSvc)
@@ -130,7 +135,6 @@ func NewContainer(
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 
 	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob, expiryJob, authSvc, queueCol)
-	queueModule.Start(ctx)
 
 	systemHandler := systemhttp.NewHandler(cfg, systemSvc)
 	systemModule := systemmodule.New(systemHandler)
@@ -151,17 +155,57 @@ func NewContainer(
 		Billing:      billingModule,
 		System:       systemModule,
 		Broker:       broker,
-		cancel:       cancel,
+		EmailSvc:     emailSvc,
+
+		posJob:             posJob,
+		hostNotifierJob:    hostNotifierJob,
+		caller:             caller,
+		expiryJob:          expiryJob,
+		keyspaceJob:        keyspaceJob,
+		billingReminderJob: billingReminderJob,
+
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
+func (c *Container) Start() {
+	log.Info().Msg("Starting background jobs...")
+
+	c.runJob("PositionJob", c.posJob.Start)
+	c.runJob("HostNotifierJob", c.hostNotifierJob.Start)
+	c.runJob("CallerJob", c.caller.Start)
+	c.runJob("ExpiryJob", c.expiryJob.Start)
+	c.runJob("KeyspaceJob", c.keyspaceJob.Start)
+	c.runJob("BillingReminderJob", c.billingReminderJob.Start)
+	c.runJob("EmailJob", c.EmailSvc.Job().Start)
+}
+
+func (c *Container) runJob(name string, fn func(context.Context)) {
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Str("job", name).Msg("Background job panicked")
+			}
+		}()
+		fn(c.ctx)
+	}()
+}
+
 func (c *Container) Shutdown() {
+	log.Info().Msg("Stopping background jobs...")
 	if c.Broker != nil {
 		c.Broker.Shutdown()
 	}
 	if c.cancel != nil {
 		c.cancel()
 	}
+
+	// Wait for all background goroutines to finish
+	c.wg.Wait()
+	log.Info().Msg("All background jobs stopped")
 }
 
 func (c *Container) Cleanup() {

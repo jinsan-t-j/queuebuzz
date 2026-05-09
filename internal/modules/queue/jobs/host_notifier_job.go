@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/modules/queue/dto"
 	"queuebuzz/internal/modules/queue/service"
 )
@@ -51,54 +52,7 @@ func (j *HostNotifierJob) Start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case ev := <-j.eventChan:
-			switch ev.Action {
-			case ActionUserJoined:
-				switch v := ev.Payload.(type) {
-				case dto.EntryRecord:
-					j.notifier.PublishEntryUpdate(ev.QueueID, v)
-				case *dto.EntryRecord:
-					j.notifier.PublishEntryUpdate(ev.QueueID, *v)
-				default:
-					panic(fmt.Errorf("ActionUserJoined payload error: %T", ev.Payload))
-				}
-			case ActionUserArrived:
-				if entryID, ok := ev.Payload.(string); ok {
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					entry, err := j.queueService.GetEntry(ctx, entryID)
-					cancel()
-					if err == nil && entry != nil {
-						j.notifier.PublishUserArrived(ev.QueueID, entryID, entry.Name, entry.TicketNo)
-					}
-				}
-			case ActionUserCalled:
-				switch v := ev.Payload.(type) {
-				case StatusPayload:
-					j.notifier.PublishUserCalled(ev.QueueID, v.ID, v.Status)
-				case *StatusPayload:
-					j.notifier.PublishUserCalled(ev.QueueID, v.ID, v.Status)
-				}
-			case ActionUserStatus:
-				switch v := ev.Payload.(type) {
-				case StatusPayload:
-					j.notifier.PublishUserStatus(ev.QueueID, v.ID, v.Status)
-				case *StatusPayload:
-					j.notifier.PublishUserStatus(ev.QueueID, v.ID, v.Status)
-				}
-			case ActionQueueStatus:
-				if status, ok := ev.Payload.(string); ok {
-					j.notifier.PublishQueueStatus(ev.QueueID, status)
-				}
-			case ActionUserUpdated:
-				if entryID, ok := ev.Payload.(string); ok {
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					entry, err := j.queueService.GetEntry(ctx, entryID)
-					pos, _ := j.queueService.GetPosition(ctx, ev.QueueID, entryID)
-					cancel()
-					if err == nil && entry != nil {
-						j.notifier.PublishEntryUpdate(ev.QueueID, dto.ToEntryResponse(*entry, pos+1))
-					}
-				}
-			}
+			j.processEvent(ev)
 		}
 	}
 }
@@ -128,9 +82,65 @@ func (j *HostNotifierJob) DispatchUserUpdated(queueID, entryID string) {
 }
 
 func (j *HostNotifierJob) dispatch(queueID string, action HostNotifyAction, payload interface{}) {
+	if config.Get().IsTesting() {
+		j.processEvent(HostNotifyEvent{QueueID: queueID, Action: action, Payload: payload})
+		return
+	}
+
 	select {
 	case j.eventChan <- HostNotifyEvent{QueueID: queueID, Action: action, Payload: payload}:
 	default:
 		// Optional: log dropped event or increment a counter
+	}
+}
+
+func (j *HostNotifierJob) processEvent(ev HostNotifyEvent) {
+	switch ev.Action {
+	case ActionUserJoined:
+		switch v := ev.Payload.(type) {
+		case dto.EntryRecord:
+			j.notifier.PublishEntryUpdate(ev.QueueID, v)
+		case *dto.EntryRecord:
+			j.notifier.PublishEntryUpdate(ev.QueueID, *v)
+		default:
+			panic(fmt.Errorf("ActionUserJoined payload error: %T", ev.Payload))
+		}
+	case ActionUserArrived:
+		if entryID, ok := ev.Payload.(string); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			entry, err := j.queueService.GetEntry(ctx, entryID)
+			cancel()
+			if err == nil && entry != nil {
+				j.notifier.PublishUserArrived(ev.QueueID, entryID, entry.Name, entry.TicketNo)
+			}
+		}
+	case ActionUserCalled:
+		switch v := ev.Payload.(type) {
+		case StatusPayload:
+			j.notifier.PublishUserCalled(ev.QueueID, v.ID, v.Status)
+		case *StatusPayload:
+			j.notifier.PublishUserCalled(ev.QueueID, v.ID, v.Status)
+		}
+	case ActionUserStatus:
+		switch v := ev.Payload.(type) {
+		case StatusPayload:
+			j.notifier.PublishUserStatus(ev.QueueID, v.ID, v.Status)
+		case *StatusPayload:
+			j.notifier.PublishUserStatus(ev.QueueID, v.ID, v.Status)
+		}
+	case ActionQueueStatus:
+		if status, ok := ev.Payload.(string); ok {
+			j.notifier.PublishQueueStatus(ev.QueueID, status)
+		}
+	case ActionUserUpdated:
+		if entryID, ok := ev.Payload.(string); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			entry, err := j.queueService.GetEntry(ctx, entryID)
+			pos, _ := j.queueService.GetPosition(ctx, ev.QueueID, entryID)
+			cancel()
+			if err == nil && entry != nil {
+				j.notifier.PublishEntryUpdate(ev.QueueID, dto.ToEntryResponse(*entry, pos+1))
+			}
+		}
 	}
 }

@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -56,57 +56,44 @@ func NewBillingService(
 }
 
 func (s *BillingService) GetHostPlan(ctx context.Context, hostID string) (*domain.Plan, error) {
-	if hostID == "" {
-		return s.getDefaultPlan(ctx)
+	if cached := s.getCachedHostPlan(ctx, hostID); cached != nil {
+		return cached, nil
 	}
 
-	cacheKey := "billing:host_plan:" + hostID
-	if s.redis != nil {
-		if val, err := s.redis.Get(ctx, cacheKey).Result(); err == nil {
-			var plan domain.Plan
-			if json.Unmarshal([]byte(val), &plan) == nil {
-				return &plan, nil
-			}
+	sub, err := s.GetSubscription(ctx, hostID)
+	if err != nil {
+		if errors.Is(err, mongodriver.ErrNoDocuments) {
+			return s.handleNoSubscription(ctx, hostID)
 		}
-	}
-
-	var sub domain.Subscription
-	err := s.subsCol.FindOne(ctx, bson.M{"host_id": hostID}).Decode(&sub)
-	if err != nil && err != mongodriver.ErrNoDocuments {
 		return nil, fmt.Errorf("failed to get subscription: %w", err)
 	}
 
-	var planID string
-	if err == mongodriver.ErrNoDocuments {
-		p, err := s.getDefaultPlan(ctx)
-		if err == nil && s.redis != nil {
-			data, _ := json.Marshal(p)
-			_ = s.redis.Set(ctx, cacheKey, data, 10*time.Minute).Err()
-		}
-		return p, err
-	}
+	planID := sub.PlanID
 
-	planID = sub.PlanID
-
-	plan, err := s.getPlanByID(ctx, planID)
-	if err == nil && s.redis != nil {
-		data, _ := json.Marshal(plan)
-		_ = s.redis.Set(ctx, cacheKey, data, 1*time.Hour).Err()
+	plan, err := s.GetPlanByID(ctx, planID)
+	if err == nil {
+		s.setCacheHostPlan(ctx, hostID, plan, 1*time.Hour)
 	}
 	return plan, err
 }
 
-func (s *BillingService) getDefaultPlan(ctx context.Context) (*domain.Plan, error) {
-	settings, _ := s.systemSvc.GetSettings(ctx)
-	planID := "free"
-	if settings != nil {
-		planID = settings.DefaultPlanID
-	}
-	return s.getPlanByID(ctx, planID)
+func (s *BillingService) downgradeHostTier(ctx context.Context, hostID string) error {
+	_, err := s.hostsCol.UpdateOne(ctx, bson.M{"_id": hostID}, bson.M{
+		"$set": bson.M{"tier": "free"},
+	})
+	return err
 }
 
-// getPlanByID looks up a plan, handling both string and ObjectID _id formats.
-func (s *BillingService) getPlanByID(ctx context.Context, planID string) (*domain.Plan, error) {
+func (s *BillingService) handleNoSubscription(ctx context.Context, hostID string) (*domain.Plan, error) {
+	p, err := s.getStandardFreePlan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch default plan: %w", err)
+	}
+	s.setCacheHostPlan(ctx, hostID, p, 10*time.Minute)
+	return p, nil
+}
+
+func (s *BillingService) GetPlanByID(ctx context.Context, planID string) (*domain.Plan, error) {
 	var plan domain.Plan
 	filter := bson.M{"_id": planID}
 	if oid, err := bson.ObjectIDFromHex(planID); err == nil {
@@ -118,11 +105,6 @@ func (s *BillingService) getPlanByID(ctx context.Context, planID string) (*domai
 		return nil, fmt.Errorf("failed to get plan %s: %w", planID, err)
 	}
 	return &plan, nil
-}
-
-// GetPlanByID is the public accessor for plan lookup by ID.
-func (s *BillingService) GetPlanByID(ctx context.Context, planID string) (*domain.Plan, error) {
-	return s.getPlanByID(ctx, planID)
 }
 
 func (s *BillingService) IsLimitExceeded(ctx context.Context, hostID string, limitType string, currentVal int) (bool, error) {
@@ -142,7 +124,7 @@ func (s *BillingService) IsLimitExceeded(ctx context.Context, hostID string, lim
 			if err := s.hostsCol.FindOne(ctx, bson.M{"_id": hostID}).Decode(&host); err == nil {
 				// Self-healing: if it's been more than a month since last reset, do it now
 				// This handles cases where the webhook might have been missed or failed
-				if !host.MonthlyLimitResetAt.IsZero() && time.Since(host.MonthlyLimitResetAt) > 31*24*time.Hour {
+				if host.MonthlyLimitResetAt.IsZero() || time.Since(host.MonthlyLimitResetAt) > 31*24*time.Hour {
 					_ = s.ResetMonthlyLimits(ctx, hostID)
 					usage = 0
 				} else {
@@ -165,6 +147,9 @@ func (s *BillingService) CheckHistoryAccess(ctx context.Context, hostID string) 
 	plan, err := s.GetHostPlan(ctx, hostID)
 	if err != nil {
 		return false, err
+	}
+	if plan == nil {
+		return false, nil
 	}
 	return plan.Limits.HistoryAccess, nil
 }
@@ -243,7 +228,7 @@ func (s *BillingService) CreateCheckoutURL(ctx context.Context, hostID, planID, 
 	}
 
 	// 3. Look up the plan
-	plan, err := s.getPlanByID(ctx, planID)
+	plan, err := s.GetPlanByID(ctx, planID)
 	if err != nil {
 		return "", fmt.Errorf("plan not found: %w", err)
 	}
@@ -270,9 +255,10 @@ func (s *BillingService) CreateCheckoutURL(ctx context.Context, hostID, planID, 
 	// 7. Guard: prevent duplicate active subscriptions for the same plan
 	var existingSub domain.Subscription
 	err = s.subsCol.FindOne(ctx, bson.M{
-		"host_id": hostID,
-		"plan_id": planID,
-		"status":  domain.SubscriptionActive,
+		"host_id":      hostID,
+		"plan_id":      planID,
+		"status":       domain.SubscriptionActive,
+		"cancelled_at": nil,
 	}).Decode(&existingSub)
 	if err == nil {
 		return "", fmt.Errorf("you already have an active subscription for this plan")
@@ -345,15 +331,6 @@ func (s *BillingService) HandleFailedPayment(ctx context.Context, event *provide
 		log.Error().Err(err).Str("host_id", event.HostID).Msg("Failed to record failed transaction")
 	}
 
-	var sub domain.Subscription
-	err := s.subsCol.FindOne(ctx, bson.M{"host_id": event.HostID}).Decode(&sub)
-	if err != nil {
-		if err == mongodriver.ErrNoDocuments {
-			return nil
-		}
-		return err
-	}
-
 	graceDays := 3
 	settings, _ := s.systemSvc.GetSettings(ctx)
 	if settings != nil && settings.DefaultQueueSubscriptionGracePeriodDays > 0 {
@@ -361,16 +338,31 @@ func (s *BillingService) HandleFailedPayment(ctx context.Context, event *provide
 	}
 
 	graceUntil := now.AddDate(0, 0, graceDays)
-	sub.Status = domain.SubscriptionInGrace
-	sub.GracePeriodUntil = &graceUntil
-	sub.CardLast4 = event.CardLast4
-	sub.CardBrand = event.CardBrand
-	sub.CardExpiry = event.CardExpiry
-	sub.UpdatedAt = now
+	update := bson.M{
+		"status":             domain.SubscriptionInGrace,
+		"grace_period_until": graceUntil,
+		"updated_at":         now,
+	}
 
-	opts := options.UpdateOne().SetUpsert(true)
-	_, err = s.subsCol.UpdateOne(ctx, bson.M{"host_id": sub.HostID}, bson.M{"$set": sub}, opts)
-	return err
+	if event.CardLast4 != "" {
+		update["card_last4"] = event.CardLast4
+		update["card_brand"] = event.CardBrand
+		update["card_expiry"] = event.CardExpiry
+	}
+
+	res, err := s.subsCol.UpdateOne(ctx, bson.M{"host_id": event.HostID}, bson.M{"$set": update})
+	if err != nil {
+		log.Error().Err(err).Str("host_id", event.HostID).Msg("Failed to update subscription in HandleFailedPayment")
+		return err
+	}
+
+	if res.MatchedCount == 0 {
+		log.Warn().Str("host_id", event.HostID).Msg("No subscription found during HandleFailedPayment, skipping grace update")
+		return nil
+	}
+
+	s.invalidateHostPlanCache(ctx, event.HostID)
+	return nil
 }
 
 // HandleCancellation records the cancellation, downgrades the host to free tier,
@@ -378,6 +370,8 @@ func (s *BillingService) HandleFailedPayment(ctx context.Context, event *provide
 func (s *BillingService) HandleCancellation(ctx context.Context, event *provider.BillingEvent) error {
 	now := time.Now()
 
+	// Record an audit transaction for the cancellation. We use TransactionFailed
+	// with a "cancelled" reason to indicate this event didn't generate revenue.
 	tx := domain.Transaction{
 		ID:                "tx_" + uuid.New().String()[:8],
 		HostID:            event.HostID,
@@ -398,15 +392,16 @@ func (s *BillingService) HandleCancellation(ctx context.Context, event *provider
 	// Mark subscription as canceled
 	_, err := s.subsCol.UpdateOne(ctx, bson.M{"host_id": event.HostID}, bson.M{
 		"$set": bson.M{
-			"status":     domain.SubscriptionCanceled,
-			"updated_at": now,
+			"status":       domain.SubscriptionCanceled,
+			"cancelled_at": now,
+			"updated_at":   now,
 		},
 	})
 	if err != nil {
 		log.Error().Err(err).Str("host_id", event.HostID).Msg("Failed to cancel subscription")
 	}
 
-	// Downgrade host to free tier
+	// Downgrade host to free tier immediately
 	if _, err := s.hostsCol.UpdateOne(ctx, bson.M{"_id": event.HostID}, bson.M{
 		"$set": bson.M{"tier": "free"},
 	}); err != nil {
@@ -414,9 +409,7 @@ func (s *BillingService) HandleCancellation(ctx context.Context, event *provider
 	}
 
 	// Invalidate host plan cache so subsequent reads reflect the downgrade
-	if s.redis != nil && event.HostID != "" {
-		_ = s.redis.Del(ctx, "billing:host_plan:"+event.HostID).Err()
-	}
+	s.invalidateHostPlanCache(ctx, event.HostID)
 
 	return nil
 }
@@ -426,8 +419,9 @@ func (s *BillingService) HandleCancellation(ctx context.Context, event *provider
 func (s *BillingService) HasExistingSubscription(ctx context.Context, hostID string) bool {
 	var sub domain.Subscription
 	err := s.subsCol.FindOne(ctx, bson.M{
-		"host_id": hostID,
-		"status":  bson.M{"$in": []string{string(domain.SubscriptionActive), string(domain.SubscriptionInGrace)}},
+		"host_id":      hostID,
+		"status":       bson.M{"$in": []string{string(domain.SubscriptionActive), string(domain.SubscriptionInGrace)}},
+		"cancelled_at": nil,
 	}).Decode(&sub)
 	return err == nil
 }
@@ -464,6 +458,88 @@ func (s *BillingService) IncrementMonthlyQueueCount(ctx context.Context, hostID 
 	return err
 }
 
+// DecrementMonthlyQueueCount decrements the host's monthly queue usage counter if the queue was created
+// in the current billing cycle. This allows hosts to "free up" a slot if they delete a queue.
+func (s *BillingService) DecrementMonthlyQueueCount(ctx context.Context, hostID string, queueCreatedAt time.Time) error {
+	if hostID == "" {
+		return nil
+	}
+
+	var host hostdomain.Host
+	if err := s.hostsCol.FindOne(ctx, bson.M{"_id": hostID}).Decode(&host); err != nil {
+		return err
+	}
+
+	inc := bson.M{}
+	if host.TotalQueueCount > 0 {
+		inc["total_queue_count"] = -1
+	}
+
+	// Only decrement monthly count if the queue was created after the last reset
+	if host.MonthlyQueueCount > 0 && !queueCreatedAt.Before(host.MonthlyLimitResetAt) {
+		inc["monthly_queue_count"] = -1
+	}
+
+	if len(inc) == 0 {
+		return nil
+	}
+
+	_, err := s.hostsCol.UpdateOne(ctx, bson.M{"_id": hostID}, bson.M{"$inc": inc})
+	if err != nil {
+		log.Error().Err(err).Str("host_id", hostID).Msg("Failed to decrement monthly queue count")
+	}
+	return err
+}
+
+// DecrementMonthlyQueueCountBulk handles multiple queue deletions in a single host update.
+func (s *BillingService) DecrementMonthlyQueueCountBulk(ctx context.Context, hostID string, queueCreatedAts []time.Time) error {
+	if hostID == "" || len(queueCreatedAts) == 0 {
+		return nil
+	}
+
+	var host hostdomain.Host
+	if err := s.hostsCol.FindOne(ctx, bson.M{"_id": hostID}).Decode(&host); err != nil {
+		return err
+	}
+
+	monthlyDecr := 0
+	for _, createdAt := range queueCreatedAts {
+		if !createdAt.Before(host.MonthlyLimitResetAt) {
+			monthlyDecr++
+		}
+	}
+
+	inc := bson.M{}
+	// Decrement total count (capped at current value)
+	totalDecr := len(queueCreatedAts)
+	if host.TotalQueueCount < totalDecr {
+		totalDecr = host.TotalQueueCount
+	}
+	if totalDecr > 0 {
+		inc["total_queue_count"] = -totalDecr
+	}
+
+	// Decrement monthly count (capped at current value)
+	if monthlyDecr > 0 {
+		if host.MonthlyQueueCount < monthlyDecr {
+			monthlyDecr = host.MonthlyQueueCount
+		}
+		if monthlyDecr > 0 {
+			inc["monthly_queue_count"] = -monthlyDecr
+		}
+	}
+
+	if len(inc) == 0 {
+		return nil
+	}
+
+	_, err := s.hostsCol.UpdateOne(ctx, bson.M{"_id": hostID}, bson.M{"$inc": inc})
+	if err != nil {
+		log.Error().Err(err).Str("host_id", hostID).Msg("Failed to bulk decrement queue counts")
+	}
+	return err
+}
+
 func (s *BillingService) IncrementTotalServedCount(ctx context.Context, hostID string) error {
 	if hostID == "" {
 		return nil
@@ -489,10 +565,9 @@ func (s *BillingService) ProcessBillingEvent(ctx context.Context, event *provide
 	planName := s.GetHostPlanName(ctx, event.PlanID)
 
 	// Invalidate host plan cache after any billing event
-	if s.redis != nil && event.HostID != "" {
-		cacheKey := "billing:host_plan:" + event.HostID
-		_ = s.redis.Del(ctx, cacheKey).Err()
-	}
+	s.invalidateHostPlanCache(ctx, event.HostID)
+
+	log.Info().Str("type", event.Type).Str("host_id", event.HostID).Str("status", string(event.Status)).Msg("Processing billing event")
 
 	hasExistingSub := s.HasExistingSubscription(ctx, event.HostID)
 
@@ -516,14 +591,10 @@ func (s *BillingService) ProcessBillingEvent(ctx context.Context, event *provide
 		}
 		return err
 
-	case domain.EventSubscriptionActive:
-		return s.HandleSubscriptionStateUpdate(ctx, event, hostEmail, planName)
-
-	case domain.EventSubscriptionRenewed:
+	case domain.EventSubscriptionActive, domain.EventSubscriptionRenewed:
 		// Dodo sometimes sends subscription.renewed on initial creation.
 		// We only process real renewals (where there's a previous billing period).
-		log.Debug().Int64("PreviousBillingDate", event.PreviousBillingDate).Msg("EventSubscriptionRenewed")
-		if event.PreviousBillingDate == 0 {
+		if event.Type == domain.EventSubscriptionRenewed && event.PreviousBillingDate == 0 {
 			return nil
 		}
 		return s.HandleSubscriptionStateUpdate(ctx, event, hostEmail, planName)
@@ -550,7 +621,8 @@ func (s *BillingService) ProcessBillingEvent(ctx context.Context, event *provide
 		if hostEmail != "" && s.emailSvc != nil {
 			_ = s.emailSvc.SendSubscriptionPending(hostEmail, planName)
 		}
-		return nil
+		// Also update DB state to pending
+		return s.HandleSubscriptionStateUpdate(ctx, event, hostEmail, planName)
 
 	default:
 		log.Warn().Str("event_type", event.Type).Msg("Unprocessed billing event type")
@@ -586,7 +658,7 @@ func (s *BillingService) HandlePaymentSucceeded(ctx context.Context, event *prov
 		log.Error().Err(err).Str("host_id", event.HostID).Msg("Failed to record successful transaction")
 	}
 
-	plan, _ := s.getPlanByID(ctx, event.PlanID)
+	plan, _ := s.GetPlanByID(ctx, event.PlanID)
 	planName := ""
 	if plan != nil {
 		planName = plan.Name
@@ -626,6 +698,8 @@ func (s *BillingService) HandlePaymentSucceeded(ctx context.Context, event *prov
 		"billing_cycle":            event.BillingCycle,
 		"current_period_end":       periodEnd,
 		"cancel_at_period_end":     false,
+		"cancelled_at":             nil,
+		"renewal_reminder_sent_at": nil,
 		"card_last4":               event.CardLast4,
 		"card_brand":               event.CardBrand,
 		"card_expiry":              event.CardExpiry,
@@ -664,7 +738,13 @@ func (s *BillingService) HandleSubscriptionStateUpdate(ctx context.Context, even
 		"status":                   event.Status,
 		"provider_subscription_id": event.ProviderID,
 		"provider_customer_id":     event.ProviderCustomerID,
+		"cancelled_at":             nil, // Reactivate if renewed
+		"renewal_reminder_sent_at": nil,
 		"updated_at":               now,
+	}
+
+	if event.Status == domain.SubscriptionCanceled {
+		update["cancelled_at"] = now
 	}
 
 	if event.CardLast4 != "" {
@@ -699,10 +779,14 @@ func (s *BillingService) HandleSubscriptionStateUpdate(ctx context.Context, even
 		}
 	}
 
+	if event.Status == "pending" && hostEmail != "" && s.emailSvc != nil {
+		_ = s.emailSvc.SendSubscriptionPending(hostEmail, planName)
+	}
+
 	return nil
 }
 
-// HandleSubscriptionUpdated syncs cancellation metadata from subscription.updated events.
+// HandleSubscriptionUpdated syncs metadata and plan changes from subscription.updated events.
 func (s *BillingService) HandleSubscriptionUpdated(ctx context.Context, event *provider.BillingEvent) error {
 	now := time.Now()
 
@@ -713,6 +797,13 @@ func (s *BillingService) HandleSubscriptionUpdated(ctx context.Context, event *p
 		"updated_at":            now,
 	}
 
+	if event.PlanID != "" {
+		update["plan_id"] = event.PlanID
+	}
+	if event.BillingCycle != "" {
+		update["billing_cycle"] = event.BillingCycle
+	}
+
 	if event.CardLast4 != "" {
 		update["card_last4"] = event.CardLast4
 		update["card_brand"] = event.CardBrand
@@ -720,8 +811,7 @@ func (s *BillingService) HandleSubscriptionUpdated(ctx context.Context, event *p
 	}
 
 	if event.CancelledAt > 0 {
-		cancelledAt := time.Unix(event.CancelledAt, 0)
-		update["cancelled_at"] = cancelledAt
+		update["cancelled_at"] = time.Unix(event.CancelledAt, 0)
 	}
 	if event.CurrentPeriodEnd > 0 {
 		update["current_period_end"] = time.Unix(event.CurrentPeriodEnd, 0)
@@ -730,20 +820,32 @@ func (s *BillingService) HandleSubscriptionUpdated(ctx context.Context, event *p
 	_, err := s.subsCol.UpdateOne(ctx, bson.M{"host_id": event.HostID}, bson.M{"$set": update})
 	if err != nil {
 		log.Error().Err(err).Str("host_id", event.HostID).Msg("Failed to update subscription metadata")
+		return err
 	}
-	return err
+
+	if event.PlanID != "" {
+		plan, _ := s.GetPlanByID(ctx, event.PlanID)
+		if plan != nil {
+			_, _ = s.hostsCol.UpdateOne(ctx, bson.M{"_id": event.HostID}, bson.M{
+				"$set": bson.M{"tier": plan.Tier},
+			})
+		}
+	}
+
+	s.invalidateHostPlanCache(ctx, event.HostID)
+
+	return nil
 }
 
 // GetHostPlanName returns the plan name for a given plan ID (used in emails).
 func (s *BillingService) GetHostPlanName(ctx context.Context, planID string) string {
-	plan, err := s.getPlanByID(ctx, planID)
+	plan, err := s.GetPlanByID(ctx, planID)
 	if err != nil || plan == nil {
 		return planID
 	}
 	return plan.Name
 }
 
-// GetHostEmail returns the host email for notification purposes.
 func (s *BillingService) GetHostEmail(ctx context.Context, hostID string) (string, error) {
 	var host hostdomain.Host
 	if err := s.hostsCol.FindOne(ctx, bson.M{"_id": hostID}).Decode(&host); err != nil {
@@ -755,18 +857,6 @@ func (s *BillingService) GetHostEmail(ctx context.Context, hostID string) (strin
 	return "", nil
 }
 
-// GetHostName returns the host name for notification purposes.
-func (s *BillingService) GetHostName(ctx context.Context, hostID string) string {
-	var host hostdomain.Host
-	if err := s.hostsCol.FindOne(ctx, bson.M{"_id": hostID}).Decode(&host); err != nil {
-		return "Host"
-	}
-	if host.Name != "" {
-		return host.Name
-	}
-	return "Host"
-}
-
 // GetSubscriptionsExpiringIn returns subscriptions whose current period ends
 // within the given duration from now. Used by the renewal reminder cron job.
 func (s *BillingService) GetSubscriptionsExpiringIn(ctx context.Context, d time.Duration) ([]domain.Subscription, error) {
@@ -774,7 +864,9 @@ func (s *BillingService) GetSubscriptionsExpiringIn(ctx context.Context, d time.
 	deadline := now.Add(d)
 
 	cursor, err := s.subsCol.Find(ctx, bson.M{
-		"status": domain.SubscriptionActive,
+		"status":                   domain.SubscriptionActive,
+		"cancelled_at":             nil,
+		"renewal_reminder_sent_at": nil,
 		"current_period_end": bson.M{
 			"$gte": now,
 			"$lte": deadline,
@@ -792,41 +884,93 @@ func (s *BillingService) GetSubscriptionsExpiringIn(ctx context.Context, d time.
 	return subs, nil
 }
 
-// GetSubscription returns the subscription for a given host, with provider details.
+// RunRenewalReminders orchestrates finding expiring subscriptions and sending emails.
+func (s *BillingService) RunRenewalReminders(ctx context.Context) error {
+	// Look for subscriptions expiring in 3 days
+	subs, err := s.GetSubscriptionsExpiringIn(ctx, 3*24*time.Hour)
+	if err != nil {
+		return err
+	}
+
+	for _, sub := range subs {
+		hostEmail, err := s.GetHostEmail(ctx, sub.HostID)
+		if err != nil || hostEmail == "" {
+			continue
+		}
+
+		plan, err := s.GetPlanByID(ctx, sub.PlanID)
+		if err != nil || plan == nil {
+			continue
+		}
+
+		// Calculate amount based on billing cycle
+		amount := plan.MonthlyPrice
+		if sub.BillingCycle == "yearly" {
+			amount = plan.YearlyPrice
+		}
+
+		if s.emailSvc != nil {
+			_ = s.emailSvc.SendRenewalReminder(hostEmail, plan.Name, sub.CurrentPeriodEnd, amount, plan.Currency)
+		}
+
+		// Mark as sent to prevent multiple emails
+		now := time.Now()
+		_, _ = s.subsCol.UpdateOne(ctx, bson.M{"host_id": sub.HostID, "cancelled_at": nil}, bson.M{
+			"$set": bson.M{"renewal_reminder_sent_at": &now},
+		})
+	}
+
+	return nil
+}
+
 func (s *BillingService) GetSubscription(ctx context.Context, hostID string) (*domain.Subscription, error) {
 	var sub domain.Subscription
-	err := s.subsCol.FindOne(ctx, bson.M{"host_id": hostID}).Decode(&sub)
+	err := s.subsCol.FindOne(ctx, bson.M{"host_id": hostID, "cancelled_at": nil}).Decode(&sub)
 	if err != nil {
 		return nil, err
 	}
+
+	// Handle expired grace period
+	if sub.Status == domain.SubscriptionInGrace && sub.GracePeriodUntil != nil && time.Now().After(*sub.GracePeriodUntil) {
+		log.Info().Str("host_id", hostID).Msg("Subscription grace period expired, treating as canceled")
+
+		// Update DB to reflect expiration
+		_, _ = s.subsCol.UpdateOne(ctx, bson.M{"host_id": hostID}, bson.M{
+			"$set": bson.M{
+				"status":       domain.SubscriptionCanceled,
+				"cancelled_at": time.Now(),
+				"updated_at":   time.Now(),
+			},
+		})
+
+		_ = s.downgradeHostTier(ctx, hostID)
+
+		return nil, mongodriver.ErrNoDocuments
+	}
+
 	return &sub, nil
 }
 
-// CancelSubscription cancels the host's subscription at the end of the current billing period.
-func (s *BillingService) CancelSubscription(ctx context.Context, hostID string, comment *string, feedback *string) error {
+func (s *BillingService) CancelSubscriptionAtPeriodEnd(ctx context.Context, hostID string, comment *string, feedback *string) error {
 	sub, err := s.GetSubscription(ctx, hostID)
 	if err != nil {
-		return fmt.Errorf("no active subscription found: %w", err)
+		if errors.Is(err, mongodriver.ErrNoDocuments) {
+			return fmt.Errorf("no active subscription found")
+		}
+		return fmt.Errorf("failed to check subscription: %w", err)
 	}
 
 	if sub.ProviderSubscriptionID == "" {
 		return fmt.Errorf("subscription has no provider ID")
 	}
 
-	if sub.Status == domain.SubscriptionCanceled {
-		return fmt.Errorf("subscription is already canceled")
-	}
-
 	if sub.CancelAtPeriodEnd {
 		return fmt.Errorf("subscription is already scheduled for cancellation")
 	}
 
-	// Cancel via provider (schedules cancel at period end)
 	if err := s.payment.CancelSubscription(sub.ProviderSubscriptionID, comment, feedback); err != nil {
 		return fmt.Errorf("provider cancellation failed: %w", err)
 	}
-
-	// Optimistically update local state (webhook will confirm)
 	now := time.Now()
 	_, updateErr := s.subsCol.UpdateOne(ctx, bson.M{"host_id": hostID}, bson.M{
 		"$set": bson.M{
@@ -838,18 +982,18 @@ func (s *BillingService) CancelSubscription(ctx context.Context, hostID string, 
 	})
 
 	// Invalidate cached plan so the UI immediately reflects the cancelling state
-	if s.redis != nil {
-		_ = s.redis.Del(ctx, "billing:host_plan:"+hostID).Err()
-	}
+	s.invalidateHostPlanCache(ctx, hostID)
 
 	return updateErr
 }
 
-// UpdatePaymentMethod returns a Dodo-hosted link for the host to update their payment method.
 func (s *BillingService) UpdatePaymentMethod(ctx context.Context, hostID, returnURL string) (string, error) {
 	sub, err := s.GetSubscription(ctx, hostID)
 	if err != nil {
-		return "", fmt.Errorf("no active subscription found: %w", err)
+		if errors.Is(err, mongodriver.ErrNoDocuments) {
+			return "", fmt.Errorf("no active subscription found")
+		}
+		return "", fmt.Errorf("failed to check subscription: %w", err)
 	}
 
 	if sub.ProviderSubscriptionID == "" {
@@ -877,29 +1021,48 @@ func (s *BillingService) SyncSubscriptionDetails(ctx context.Context, sub *domai
 	}
 
 	now := time.Now()
-	// Update local struct
-	sub.CardLast4 = details.CardLast4
-	sub.CardBrand = details.CardBrand
-	sub.CardExpiry = details.CardExpiry
-	sub.Status = domain.SubscriptionStatus(details.Status)
-	sub.CurrentPeriodEnd = time.Unix(details.NextBillingDate, 0)
+	if details.CardLast4 != "" {
+		sub.CardLast4 = details.CardLast4
+		sub.CardBrand = details.CardBrand
+		sub.CardExpiry = details.CardExpiry
+	}
+	if details.Status != "" {
+		sub.Status = domain.SubscriptionStatus(details.Status)
+	}
+	if details.NextBillingDate > 0 {
+		sub.CurrentPeriodEnd = time.Unix(details.NextBillingDate, 0)
+	}
 	sub.UpdatedAt = now
 
-	// Persist to DB
-	_, err = s.subsCol.UpdateOne(ctx, bson.M{"host_id": sub.HostID}, bson.M{
-		"$set": bson.M{
-			"card_last4":         sub.CardLast4,
-			"card_brand":         sub.CardBrand,
-			"card_expiry":        sub.CardExpiry,
-			"status":             sub.Status,
-			"current_period_end": sub.CurrentPeriodEnd,
-			"updated_at":         sub.UpdatedAt,
-		},
-	})
+	update := bson.M{
+		"card_last4":         sub.CardLast4,
+		"card_brand":         sub.CardBrand,
+		"card_expiry":        sub.CardExpiry,
+		"status":             sub.Status,
+		"current_period_end": sub.CurrentPeriodEnd,
+		"updated_at":         sub.UpdatedAt,
+	}
+	if sub.Status == domain.SubscriptionCanceled {
+		update["cancelled_at"] = now
+	} else {
+		update["cancelled_at"] = nil
+	}
+
+	_, err = s.subsCol.UpdateOne(ctx, bson.M{"host_id": sub.HostID}, bson.M{"$set": update})
 	return err
 }
 
 func generateInvoiceNumber() string {
 	now := time.Now()
 	return fmt.Sprintf("QB-%s-%s", now.Format("20060102"), uuid.New().String()[:6])
+}
+
+func (s *BillingService) getStandardFreePlan(ctx context.Context) (*domain.Plan, error) {
+	var plan domain.Plan
+	opts := options.FindOne().SetSort(bson.M{"created_at": -1})
+	err := s.plansCol.FindOne(ctx, bson.M{"tier": "free", "is_free": true}, opts).Decode(&plan)
+	if err != nil {
+		return nil, fmt.Errorf("no free plan found in database: %w", err)
+	}
+	return &plan, nil
 }

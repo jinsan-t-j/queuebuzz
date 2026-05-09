@@ -8,6 +8,7 @@ type CreateQueueRequest struct {
 	AvgServiceMins    *int    `json:"avg_service_mins" validate:"omitempty,min=1,max=60"`
 	AllowPartyJoining *bool   `json:"allow_party_joining" validate:"omitempty"`
 	MaxPartySize      *int    `json:"max_party_size" validate:"omitempty,min=1,max=100"`
+	ManualPositioning *bool   `json:"manual_positioning" validate:"omitempty"`
 	CollectEmails     *bool   `json:"collect_emails" validate:"omitempty"`
 }
 

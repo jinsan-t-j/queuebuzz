@@ -106,7 +106,7 @@ func (h *Handler) toQueueResponse(ctx context.Context, queue domain.Queue) dto.Q
 // @Router /queue/create [post]
 func (h *Handler) Create(c fiber.Ctx) error {
 	var req dto.CreateQueueRequest
-	if err := c.Bind().JSON(&req); err != nil {
+	if err := c.Bind().Body(&req); err != nil {
 		return err
 	}
 
@@ -156,6 +156,7 @@ func (h *Handler) Create(c fiber.Ctx) error {
 			AvgServiceMins:    *req.AvgServiceMins,
 			AllowPartyJoining: req.AllowPartyJoining,
 			MaxPartySize:      req.MaxPartySize,
+			ManualPositioning: req.ManualPositioning,
 			CollectEmails:     req.CollectEmails,
 		})
 
@@ -195,6 +196,13 @@ func (h *Handler) Create(c fiber.Ctx) error {
 			SameSite: "Lax",
 			Path:     "/",
 		})
+	}
+
+	if hostID != "" && h.RedisRepo != nil {
+		_ = h.RedisRepo.InvalidateHostHistory(c.Context(), hostID)
+		if hostPublicID != "" {
+			_ = h.RedisRepo.InvalidateHistorySummary(c.Context(), hostPublicID)
+		}
 	}
 
 	return helpers.NewSuccessResponse("Queue created", response).Created(c)
@@ -497,7 +505,10 @@ func (h *Handler) ResumeQueue(c fiber.Ctx) error {
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /queue/{id}/close [post]
 func (h *Handler) TerminateQueue(c fiber.Ctx) error {
+	hostID, _ := c.Locals("host_id").(string)
+	hostPublicID, _ := c.Locals("host_public_id").(string)
 	queueID := c.Params("id")
+
 	unserved, err := h.Service.TerminateQueue(c.Context(), queueID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -515,6 +526,13 @@ func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 
 		for _, entry := range unserved {
 			h.Notifier.NotifyQueueEnded(entry.ID, queueName)
+		}
+	}
+
+	if h.RedisRepo != nil && hostID != "" {
+		_ = h.RedisRepo.InvalidateHostHistory(c.Context(), hostID)
+		if hostPublicID != "" {
+			_ = h.RedisRepo.InvalidateHistorySummary(c.Context(), hostPublicID)
 		}
 	}
 
@@ -547,7 +565,7 @@ func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 // @Router /queue/{id}/add-entry [post]
 func (h *Handler) AddEntry(c fiber.Ctx) error {
 	var req dto.AddEntryRequest
-	if err := c.Bind().JSON(&req); err != nil {
+	if err := c.Bind().Body(&req); err != nil {
 		return err
 	}
 
@@ -683,27 +701,84 @@ func (h *Handler) Serve(c fiber.Ctx) error {
 
 	return c.SendStatus(fiber.StatusOK)
 }
+
+// GetHistory godoc
+// @Summary Get the queue history
+// @Description Gets the history of a queue for the host
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Success 200 {object} map[string]interface{} "History fetched"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/manage/{id}/history [get]
 func (h *Handler) GetHistory(ctx fiber.Ctx) error {
 	queueID := ctx.Params("id")
+
+	hostID, _ := ctx.Locals("host_id").(string)
+	if hostID == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "Missing host ID")
+	}
+
+	canAccess, _ := h.BillingSvc.CheckHistoryAccess(ctx.Context(), hostID)
+	if !canAccess {
+		return fiber.NewError(fiber.StatusForbidden, "History access not allowed on current plan")
+	}
+	if h.RedisRepo != nil && hostID != "" {
+		if data, err := h.RedisRepo.GetHistoryDetail(ctx.Context(), hostID, queueID); err == nil {
+			var cached dto.HistoryDetailResponse
+			if json.Unmarshal(data, &cached) == nil {
+				h.maskHistoryIfRequired(ctx.Context(), hostID, &cached)
+				return helpers.NewSuccessResponse("History detail fetched (cached)", cached).OK(ctx)
+			}
+		}
+	}
+
 	response, err := h.Service.GetHistoryDetail(ctx.Context(), queueID)
 	if err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	hostID, _ := ctx.Locals("host_id").(string)
+	if h.RedisRepo != nil && hostID != "" {
+		_ = h.RedisRepo.SetHistoryDetail(ctx.Context(), hostID, queueID, response)
+	}
+
 	h.maskHistoryIfRequired(ctx.Context(), hostID, response)
 
 	return helpers.NewSuccessResponse("History detail fetched", response).OK(ctx)
 }
 
+// GetHistoryList godoc
+// @Summary Get the queues history
+// @Description Gets the history of all queues for the host.
+// @Tags Queue
+// @Produce json
+// @Success 200 {object} map[string]interface{} "History fetched"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/history [get]
 func (h *Handler) GetHistoryList(c fiber.Ctx) error {
 	hostPublicID, _ := c.Locals("host_public_id").(string)
 	hostID, _ := c.Locals("host_id").(string)
+	if hostID == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "Missing host ID")
+	}
 
 	search := c.Query("search")
 	status := c.Query("filter")
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+
+	if h.RedisRepo != nil {
+		if data, err := h.RedisRepo.GetHistoryList(c.Context(), hostID, search, status, page, limit); err == nil {
+			var cached dto.HistoryListResponse
+			if json.Unmarshal(data, &cached) == nil {
+				return helpers.NewSuccessResponse("History list fetched (cached)", cached).OK(c)
+			}
+		}
+	}
 
 	queues, total, err := h.Service.GetQueueHistoryListForHost(c.Context(), hostID, hostPublicID, search, status, page, limit)
 	if err != nil {
@@ -765,6 +840,14 @@ func (h *Handler) GetHistoryList(c fiber.Ctx) error {
 		}
 	}
 
+	if h.RedisRepo != nil {
+		_ = h.RedisRepo.SetHistoryList(c.Context(), hostID, search, status, page, limit, response)
+		// Also cache the summary for the host
+		if summary != nil {
+			_ = h.RedisRepo.SetHistorySummary(c.Context(), hostID, summary)
+		}
+	}
+
 	return helpers.NewSuccessResponse("History list fetched", response).OK(c)
 }
 
@@ -822,6 +905,90 @@ func (h *Handler) UnregisterHostFCM(c fiber.Ctx) error {
 	return helpers.NewSuccessResponse("Host FCM token unregistered", nil).OK(c)
 }
 
+// DeleteHistory godoc
+// @Summary Delete queue history
+// @Description Deletes a single queue's entire history (queue, entries, and related data).
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Success 200 {object} map[string]interface{} "History deleted successfully"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/{id}/history [delete]
+func (h *Handler) DeleteHistory(c fiber.Ctx) error {
+	hostID, _ := c.Locals("host_id").(string)
+	queueID := c.Params("id")
+
+	if hostID == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "host session not found")
+	}
+
+	if err := h.Service.DeleteQueue(c.Context(), hostID, queueID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to delete queue history")
+	}
+
+	if h.RedisRepo != nil {
+		_ = h.RedisRepo.InvalidateHostHistory(c.Context(), hostID)
+		_ = h.RedisRepo.InvalidateHistoryDetail(c.Context(), hostID, queueID)
+		_ = h.RedisRepo.InvalidateHistorySummary(c.Context(), hostID)
+	}
+
+	return helpers.NewSuccessResponse("History deleted successfully", nil).OK(c)
+}
+
+// DeleteHistoryBulk godoc
+// @Summary Delete multiple queue histories
+// @Description Deletes multiple queue histories at once.
+// @Tags Queue
+// @Produce json
+// @Param ids body []string true "Array of queue IDs"
+// @Success 200 {object} map[string]interface{} "History deleted successfully"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/history/bulk [post]
+func (h *Handler) DeleteHistoryBulk(c fiber.Ctx) error {
+	hostID, _ := c.Locals("host_id").(string)
+	if hostID == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "host session not found")
+	}
+
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := c.Bind().JSON(&req); err != nil {
+		return err
+	}
+
+	if len(req.IDs) == 0 {
+		return fiber.NewError(fiber.StatusBadRequest, "no ids provided")
+	}
+
+	if err := h.Service.DeleteQueuesBulk(c.Context(), hostID, req.IDs); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to delete bulk history")
+	}
+
+	if h.RedisRepo != nil {
+		_ = h.RedisRepo.InvalidateHostHistory(c.Context(), hostID)
+		_ = h.RedisRepo.InvalidateHistorySummary(c.Context(), hostID)
+		for _, id := range req.IDs {
+			_ = h.RedisRepo.InvalidateHistoryDetail(c.Context(), hostID, id)
+		}
+	}
+
+	return helpers.NewSuccessResponse("Selected history items deleted", nil).OK(c)
+}
+
+// ClearHistory godoc
+// @Summary Clear all history
+// @Description Clears all queue history for the host.
+// @Tags Queue
+// @Produce json
+// @Success 200 {object} map[string]interface{} "History cleared successfully"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/history [delete]
 func (h *Handler) ClearHistory(c fiber.Ctx) error {
 	hostPublicID, _ := c.Locals("host_public_id").(string)
 	if hostPublicID == "" {
@@ -830,6 +997,14 @@ func (h *Handler) ClearHistory(c fiber.Ctx) error {
 
 	if err := h.Service.ClearHostHistory(c.Context(), hostPublicID); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to clear history")
+	}
+
+	if h.RedisRepo != nil {
+		hostID, _ := c.Locals("host_id").(string)
+		if hostID != "" {
+			_ = h.RedisRepo.InvalidateHostHistory(c.Context(), hostID)
+			_ = h.RedisRepo.InvalidateHistorySummary(c.Context(), hostID)
+		}
 	}
 
 	return helpers.NewSuccessResponse("History cleared successfully", nil).OK(c)
@@ -886,6 +1061,7 @@ func (h *Handler) GetDashboard(c fiber.Ctx) error {
 
 	return helpers.NewSuccessResponse("Dashboard data fetched", data).OK(c)
 }
+
 func (h *Handler) maskEntriesIfRequired(ctx context.Context, hostID string, entries []dto.EntryRecord) []dto.EntryRecord {
 	canView, _ := h.BillingSvc.CanViewGuestData(ctx, hostID)
 	if canView {

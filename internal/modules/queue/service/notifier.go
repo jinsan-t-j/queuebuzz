@@ -24,6 +24,7 @@ import (
 
 // QueueNotifier publishes SSE events to queue and entry topics.
 type QueueNotifier struct {
+	ctx      context.Context
 	broker   *sse.Broker
 	fb       firebase.NotificationSender
 	emailSvc *services.EmailService
@@ -33,6 +34,7 @@ type QueueNotifier struct {
 }
 
 func NewQueueNotifier(
+	ctx context.Context,
 	cfg *config.Config,
 	broker *sse.Broker,
 	fb firebase.NotificationSender,
@@ -41,6 +43,7 @@ func NewQueueNotifier(
 	entryCol *mongodriver.Collection,
 ) *QueueNotifier {
 	return &QueueNotifier{
+		ctx:      ctx,
 		broker:   broker,
 		fb:       fb,
 		emailSvc: emailSvc,
@@ -196,8 +199,8 @@ func (n *QueueNotifier) notifyHost(queueID, title, body string, data map[string]
 		safeData[strings.Clone(k)] = strings.Clone(v)
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	run := func() {
+		ctx, cancel := context.WithTimeout(n.ctx, 15*time.Second)
 		defer cancel()
 
 		var q domain.Queue
@@ -237,7 +240,13 @@ func (n *QueueNotifier) notifyHost(queueID, title, body string, data map[string]
 				})
 			}
 		}
-	}()
+	}
+
+	if config.Get().IsTesting() {
+		run()
+	} else {
+		go run()
+	}
 }
 
 func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string]string) {
@@ -250,8 +259,8 @@ func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string
 		safeData[strings.Clone(k)] = strings.Clone(v)
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	run := func() {
+		ctx, cancel := context.WithTimeout(n.ctx, 15*time.Second)
 		defer cancel()
 
 		var e domain.Entry
@@ -312,5 +321,11 @@ func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string
 				}))
 			}
 		}
-	}()
+	}
+
+	if config.Get().IsTesting() {
+		run()
+	} else {
+		go run()
+	}
 }

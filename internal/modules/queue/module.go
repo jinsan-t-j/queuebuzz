@@ -1,8 +1,6 @@
 package queue
 
 import (
-	"context"
-
 	"queuebuzz/internal/middlewares"
 	authservice "queuebuzz/internal/modules/auth/service"
 	notificationhttp "queuebuzz/internal/modules/notification/http"
@@ -20,6 +18,7 @@ type Module struct {
 	expiryService       *queueservice.ExpiryService
 	posJob              *jobs.PositionJob
 	hostNotifierJob     *jobs.HostNotifierJob
+	ExpiryJob           *jobs.ExpiryJob
 	authService         *authservice.AuthService
 	queueCol            *mongo.Collection
 }
@@ -30,6 +29,7 @@ func New(
 	expiryService *queueservice.ExpiryService,
 	posJob *jobs.PositionJob,
 	hostNotifierJob *jobs.HostNotifierJob,
+	expiryJob *jobs.ExpiryJob,
 	authService *authservice.AuthService,
 	queueCol *mongo.Collection,
 ) *Module {
@@ -39,12 +39,10 @@ func New(
 		expiryService:       expiryService,
 		posJob:              posJob,
 		hostNotifierJob:     hostNotifierJob,
+		ExpiryJob:           expiryJob,
 		authService:         authService,
 		queueCol:            queueCol,
 	}
-}
-
-func (m *Module) Start(_ context.Context) {
 }
 
 func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateLimiters) {
@@ -80,7 +78,9 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 	host := queue.Group("/", middlewares.AuthMiddleware(m.authService))
 	host.Get("/dashboard", m.QueueHandler.GetDashboard)
 	host.Get("/slug-check", m.QueueHandler.CheckSlug)
-	host.Get("/history", queuehttp.HistoryAccessGuard(m.QueueHandler.BillingSvc), m.QueueHandler.GetHistoryList)
-	host.Delete("/history", m.QueueHandler.ClearHistory)
+	host.Get("/history", m.QueueHandler.GetHistoryList)
+	host.Delete("/history", m.QueueHandler.DeleteHistoryBulk)
+	host.Delete("/history/:id", m.QueueHandler.DeleteHistory)
+	host.Post("/history/clear", m.QueueHandler.ClearHistory)
 	host.Get("/live", m.QueueHandler.GetLiveQueue)
 }

@@ -63,7 +63,7 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				CanExport:            true,
 				QueueExpiryHours:     72, // 3 days
 				CanViewGuestData:     true,
-				HistoryRetentionDays: 30,
+				HistoryRetentionDays: 0,
 			},
 			CreatedAt: time.Now(),
 		},
@@ -89,7 +89,7 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				CanExport:            true,
 				QueueExpiryHours:     72,
 				CanViewGuestData:     true,
-				HistoryRetentionDays: 30,
+				HistoryRetentionDays: 0,
 			},
 			CreatedAt: time.Now(),
 		},
@@ -115,7 +115,7 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				CanExport:            true,
 				QueueExpiryHours:     168, // 1 week
 				CanViewGuestData:     true,
-				HistoryRetentionDays: 0, // Unlimited
+				HistoryRetentionDays: 0,
 			},
 			CreatedAt: time.Now(),
 		},
@@ -134,7 +134,7 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 			MonthlyPrice:             2900, // $29.00
 			YearlyPrice:              29000,
 			Limits: domain.PlanLimit{
-				MaxQueuesPerMonth:    0,
+				MaxQueuesPerMonth:    50,
 				MaxGuestsPerQueue:    0,
 				HistoryAccess:        true,
 				CustomBranding:       true,

@@ -1352,6 +1352,153 @@ const docTemplate = `{
                 }
             }
         },
+        "/queue/history": {
+            "get": {
+                "description": "Gets the history of all queues for the host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Get the queues history",
+                "responses": {
+                    "200": {
+                        "description": "History fetched",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Clears all queue history for the host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Clear all history",
+                "responses": {
+                    "200": {
+                        "description": "History cleared successfully",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/queue/history/bulk": {
+            "post": {
+                "description": "Deletes multiple queue histories at once.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Delete multiple queue histories",
+                "parameters": [
+                    {
+                        "description": "Array of queue IDs",
+                        "name": "ids",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "History deleted successfully",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/queue/live": {
             "get": {
                 "description": "Gets the live queue for the authenticated host.",
@@ -1386,6 +1533,63 @@ const docTemplate = `{
                                     }
                                 }
                             ]
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/queue/manage/{id}/history": {
+            "get": {
+                "description": "Gets the history of a queue for the host",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Get the queue history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "History fetched",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     },
                     "400": {
@@ -1830,6 +2034,63 @@ const docTemplate = `{
                                 "type": "string",
                                 "description": "text/event-stream"
                             }
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/queue/{id}/history": {
+            "delete": {
+                "description": "Deletes a single queue's entire history (queue, entries, and related data).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Delete queue history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "History deleted successfully",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     },
                     "400": {
@@ -2466,6 +2727,9 @@ const docTemplate = `{
                 "collect_emails": {
                     "type": "boolean"
                 },
+                "manual_positioning": {
+                    "type": "boolean"
+                },
                 "max_party_size": {
                     "type": "integer",
                     "maximum": 100,
@@ -2600,10 +2864,16 @@ const docTemplate = `{
         "dto.GetMeResponse": {
             "type": "object",
             "properties": {
+                "address": {
+                    "type": "string"
+                },
                 "avatar": {
                     "type": "string"
                 },
                 "banner_image_url": {
+                    "type": "string"
+                },
+                "business_name": {
                     "type": "string"
                 },
                 "email": {
@@ -2707,6 +2977,9 @@ const docTemplate = `{
                 },
                 "join_code": {
                     "type": "string"
+                },
+                "manual_positioning": {
+                    "type": "boolean"
                 },
                 "max_party_size": {
                     "type": "integer"
@@ -2829,6 +3102,15 @@ const docTemplate = `{
             "properties": {
                 "billing_cycle": {
                     "type": "string"
+                },
+                "can_custom_branding": {
+                    "type": "boolean"
+                },
+                "can_export_data": {
+                    "type": "boolean"
+                },
+                "can_view_history": {
+                    "type": "boolean"
                 },
                 "cancel_at_period_end": {
                     "type": "boolean"

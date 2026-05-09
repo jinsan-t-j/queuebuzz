@@ -26,6 +26,8 @@ type Host struct {
 	ID                  string          `bson:"_id" json:"id"`
 	PublicID            string          `bson:"public_id" json:"public_id"`
 	Name                string          `bson:"name" json:"name"`
+	BusinessName        string          `bson:"business_name" json:"business_name"`
+	Address             string          `bson:"address" json:"address"`
 	Email               *string         `bson:"email,omitempty" json:"-"`
 	Phone               *string         `bson:"phone,omitempty" json:"-"`
 	SocialAuth          *HostSocialAuth `bson:"social_auth,omitempty" json:"-"`

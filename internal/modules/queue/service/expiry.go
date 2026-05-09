@@ -337,6 +337,13 @@ func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode, host
 		log.Info().Str("queue_id", queueID).Msg("Premium queue entries marked as SKIPPED and PII cleared on expiry")
 	}
 
+	if hostID != "" && s.redisRepo != nil {
+		_ = s.redisRepo.InvalidateHostHistory(ctx, hostID)
+		if q.HostPublicID != nil {
+			_ = s.redisRepo.InvalidateHistorySummary(ctx, *q.HostPublicID)
+		}
+	}
+
 	log.Info().Str("queue_id", queueID).Msg("Queue expired and cleaned up")
 }
 

@@ -11,8 +11,11 @@ import (
 	"queuebuzz/internal/firebase"
 	"queuebuzz/internal/log"
 	"queuebuzz/internal/middlewares"
+	billingprovider "queuebuzz/internal/modules/billing/provider"
+	"queuebuzz/internal/services/email"
 	"queuebuzz/internal/validator"
 
+	"github.com/dodopayments/dodopayments-go/option"
 	swagger "github.com/gofiber/contrib/v3/swaggerui"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/idempotency"
@@ -24,8 +27,26 @@ type App struct {
 	Container *Container
 }
 
-func New(cfg *config.Config, sender firebase.NotificationSender) *App {
-	container := NewContainer(cfg, sender)
+func New(cfg *config.Config, sender firebase.NotificationSender, dodoOpts ...option.RequestOption) *App {
+	var emailProv email.Provider
+	if cfg.IsProduction() {
+		emailProv = &email.BrevoProvider{
+			APIKey:    cfg.BrevoAPIKey,
+			FromEmail: cfg.EmailFrom,
+			FromName:  "QueueBuzz",
+			ReplyTo:   cfg.EmailReplyTo,
+		}
+	} else {
+		emailProv = &email.MailpitProvider{
+			Host:      cfg.MailpitSMTPHost,
+			Port:      cfg.MailpitSMTPPort,
+			FromEmail: cfg.EmailFrom,
+		}
+	}
+
+	billingProv := billingprovider.NewDodoProvider(cfg.DodoAPIKey, cfg.DodoWebhookKey, cfg.IsProduction(), dodoOpts...)
+
+	container := NewContainer(cfg, sender, emailProv, billingProv)
 
 	errHandler := middlewares.NewErrorHandler(cfg)
 
@@ -62,6 +83,9 @@ func New(cfg *config.Config, sender firebase.NotificationSender) *App {
 
 func (a *App) Start() {
 	go a.listenForShutdown()
+
+	// Start background jobs managed by the container
+	a.Container.Start()
 
 	if err := a.Fiber.Listen(":" + a.Container.Config.AppPort); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start server")

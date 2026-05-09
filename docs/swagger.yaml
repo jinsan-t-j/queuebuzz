@@ -141,6 +141,8 @@ definitions:
         type: integer
       collect_emails:
         type: boolean
+      manual_positioning:
+        type: boolean
       max_party_size:
         maximum: 100
         minimum: 1
@@ -233,9 +235,13 @@ definitions:
     type: object
   dto.GetMeResponse:
     properties:
+      address:
+        type: string
       avatar:
         type: string
       banner_image_url:
+        type: string
+      business_name:
         type: string
       email:
         type: string
@@ -303,6 +309,8 @@ definitions:
         type: string
       join_code:
         type: string
+      manual_positioning:
+        type: boolean
       max_party_size:
         type: integer
       name:
@@ -382,6 +390,12 @@ definitions:
     properties:
       billing_cycle:
         type: string
+      can_custom_branding:
+        type: boolean
+      can_export_data:
+        type: boolean
+      can_view_history:
+        type: boolean
       cancel_at_period_end:
         type: boolean
       card_last_4:
@@ -1532,6 +1546,45 @@ paths:
       summary: Get public queue events
       tags:
       - Queue
+  /queue/{id}/history:
+    delete:
+      description: Deletes a single queue's entire history (queue, entries, and related
+        data).
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: History deleted successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete queue history
+      tags:
+      - Queue
   /queue/{id}/live:
     get:
       description: Gets the live queue for the authenticated host.
@@ -1846,6 +1899,104 @@ paths:
       summary: Get dashboard metrics
       tags:
       - Dashboard
+  /queue/history:
+    delete:
+      description: Clears all queue history for the host.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: History cleared successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Clear all history
+      tags:
+      - Queue
+    get:
+      description: Gets the history of all queues for the host.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: History fetched
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get the queues history
+      tags:
+      - Queue
+  /queue/history/bulk:
+    post:
+      description: Deletes multiple queue histories at once.
+      parameters:
+      - description: Array of queue IDs
+        in: body
+        name: ids
+        required: true
+        schema:
+          items:
+            type: string
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: History deleted successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete multiple queue histories
+      tags:
+      - Queue
   /queue/live:
     get:
       description: Gets the live queue for the authenticated host.
@@ -1885,6 +2036,44 @@ paths:
               type: string
             type: object
       summary: Get live queue
+      tags:
+      - Queue
+  /queue/manage/{id}/history:
+    get:
+      description: Gets the history of a queue for the host
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: History fetched
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get the queue history
       tags:
       - Queue
   /queue/slug-check:

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"queuebuzz/internal/log"
+	"sync"
 	"time"
 
 	"queuebuzz/internal/config"
@@ -14,6 +15,7 @@ import (
 	authservice "queuebuzz/internal/modules/auth/service"
 	billingmodule "queuebuzz/internal/modules/billing"
 	billinghttp "queuebuzz/internal/modules/billing/http"
+	billingjobs "queuebuzz/internal/modules/billing/jobs"
 	billingprovider "queuebuzz/internal/modules/billing/provider"
 	billingservice "queuebuzz/internal/modules/billing/service"
 	customermodule "queuebuzz/internal/modules/customer"
@@ -59,11 +61,27 @@ type Container struct {
 	Billing      *billingmodule.Module
 	System       *systemmodule.Module
 	Broker       *sse.Broker
+	EmailSvc     *services.EmailService
 
+	// Jobs
+	posJob             *jobs.PositionJob
+	hostNotifierJob    *jobs.HostNotifierJob
+	caller             *jobs.Caller
+	expiryJob          *jobs.ExpiryJob
+	keyspaceJob        *jobs.KeyspaceJob
+	billingReminderJob *billingjobs.RenewalReminderJob
+
+	ctx    context.Context
 	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
-func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *Container {
+func NewContainer(
+	cfg *config.Config,
+	notifSender firebase.NotificationSender,
+	emailProv email.Provider,
+	billingProv billingprovider.PaymentProvider,
+) *Container {
 	mClient, mongoDB := mongo.Connect(cfg.DBUri, cfg.DBName)
 	rdb := redis.Connect(cfg.RedisURL, cfg.RedisPassword)
 	limiters := middlewares.NewRateLimiters(cfg)
@@ -81,28 +99,9 @@ func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *
 	customerRedisRepo := customerrepo.NewRedisRepository(rdb)
 	queueRedisRepo := queuerepo.NewRedisRepository(rdb)
 
-	// Core services (order matters — later services depend on earlier ones)
 	systemSvc := systemservice.NewSystemService(cfg, mongoDB, rdb)
+	emailSvc := services.NewEmailService(cfg, emailProv, systemSvc)
 
-	// Email provider + service
-	var emailProvider email.Provider
-	if cfg.IsProduction() {
-		emailProvider = &email.BrevoProvider{
-			APIKey:    cfg.BrevoAPIKey,
-			FromEmail: cfg.EmailFrom,
-			FromName:  "QueueBuzz",
-			ReplyTo:   cfg.EmailReplyTo,
-		}
-	} else {
-		emailProvider = &email.MailpitProvider{
-			Host:      cfg.MailpitSMTPHost,
-			Port:      cfg.MailpitSMTPPort,
-			FromEmail: cfg.EmailFrom,
-		}
-	}
-	emailSvc := services.NewEmailService(cfg, emailProvider, systemSvc)
-
-	billingProv := billingprovider.NewDodoProvider(cfg.DodoAPIKey, cfg.DodoWebhookKey, !cfg.IsProduction())
 	billingSvc := billingservice.NewBillingService(mongoDB, rdb, systemSvc, emailSvc, billingProv)
 	billingHandler := billinghttp.NewHandler(billingSvc, billingProv, rdb)
 
@@ -117,34 +116,30 @@ func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *
 		log.Fatal().Err(err).Msg("Failed to initialize R2 storage")
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	broker := sse.NewBroker()
-	notifier := queueservice.NewQueueNotifier(cfg, broker, notifSender, emailSvc, queueCol, entryCol)
+	notifier := queueservice.NewQueueNotifier(ctx, cfg, broker, notifSender, emailSvc, queueCol, entryCol)
 	expirySvc := queueservice.NewExpiryService(rdb, queueCol, entryCol, queueRedisRepo, notifier, billingSvc, systemSvc)
 	posJob := jobs.NewPositionJob(expirySvc)
 	hostNotifierJob := jobs.NewHostNotifierJob(queueSvc, expirySvc)
 	caller := jobs.NewCaller(notifier)
 	expiryJob := jobs.NewExpiryJob(expirySvc)
 	keyspaceJob := jobs.NewKeyspaceJob(rdb, expirySvc)
-	ctx, cancel := context.WithCancel(context.Background())
-	go posJob.Start(ctx)
-	go hostNotifierJob.Start(ctx)
-	go caller.Start(ctx)
-	go expiryJob.Start(ctx)
-	go keyspaceJob.Start(ctx)
-	go emailSvc.Job().Start(ctx)
+	billingReminderJob := billingjobs.NewRenewalReminderJob(billingSvc)
 
 	authHandler := authhttp.NewHandler(cfg, redisSvc, authSvc, socialAuthSvc, magicLinkSvc, otpSvc, emailSvc, hostSvc)
-	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc, r2Svc, emailSvc)
+	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc, billingSvc, r2Svc, emailSvc)
 	queueHandler := queuehttp.NewHandler(cfg, queueSvc, analyticsSvc, authSvc, hostSvc, queueRedisRepo, broker, notifier, posJob, hostNotifierJob, caller, billingSvc, emailSvc)
 	customerSvc := customerservice.New(entryCol, customerRedisRepo, queueSvc)
 	customerHandler := customerhttp.NewHandler(cfg, customerSvc, queueSvc, authSvc, joinCodeSvc, broker, posJob, hostNotifierJob, emailSvc)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 
-	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob, authSvc, queueCol)
-	queueModule.Start(ctx)
+	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob, expiryJob, authSvc, queueCol)
 
 	systemHandler := systemhttp.NewHandler(cfg, systemSvc)
 	systemModule := systemmodule.New(systemHandler)
+
+	billingModule := billingmodule.New(billingHandler, billingSvc, authSvc, billingReminderJob)
 
 	return &Container{
 		Config:       cfg,
@@ -157,20 +152,60 @@ func NewContainer(cfg *config.Config, notifSender firebase.NotificationSender) *
 		Queue:        queueModule,
 		Customer:     customermodule.New(customerHandler, authSvc),
 		Notification: notificationmodule.New(notifHandler),
-		Billing:      billingmodule.New(billingHandler, billingSvc, authSvc),
+		Billing:      billingModule,
 		System:       systemModule,
 		Broker:       broker,
-		cancel:       cancel,
+		EmailSvc:     emailSvc,
+
+		posJob:             posJob,
+		hostNotifierJob:    hostNotifierJob,
+		caller:             caller,
+		expiryJob:          expiryJob,
+		keyspaceJob:        keyspaceJob,
+		billingReminderJob: billingReminderJob,
+
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
+func (c *Container) Start() {
+	log.Info().Msg("Starting background jobs...")
+
+	c.runJob("PositionJob", c.posJob.Start)
+	c.runJob("HostNotifierJob", c.hostNotifierJob.Start)
+	c.runJob("CallerJob", c.caller.Start)
+	c.runJob("ExpiryJob", c.expiryJob.Start)
+	c.runJob("KeyspaceJob", c.keyspaceJob.Start)
+	c.runJob("BillingReminderJob", c.billingReminderJob.Start)
+	c.runJob("EmailJob", c.EmailSvc.Job().Start)
+}
+
+func (c *Container) runJob(name string, fn func(context.Context)) {
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Str("job", name).Msg("Background job panicked")
+			}
+		}()
+		fn(c.ctx)
+	}()
+}
+
 func (c *Container) Shutdown() {
+	log.Info().Msg("Stopping background jobs...")
 	if c.Broker != nil {
 		c.Broker.Shutdown()
 	}
 	if c.cancel != nil {
 		c.cancel()
 	}
+
+	// Wait for all background goroutines to finish
+	c.wg.Wait()
+	log.Info().Msg("All background jobs stopped")
 }
 
 func (c *Container) Cleanup() {

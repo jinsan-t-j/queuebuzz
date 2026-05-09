@@ -29,6 +29,7 @@ type Subscription struct {
 	CardLast4              string             `bson:"card_last4,omitempty" json:"card_last4,omitempty"`
 	CardBrand              string             `bson:"card_brand,omitempty" json:"card_brand,omitempty"`
 	CardExpiry             string             `bson:"card_expiry,omitempty" json:"card_expiry,omitempty"`
+	RenewalReminderSentAt  *time.Time         `bson:"renewal_reminder_sent_at,omitempty" json:"renewal_reminder_sent_at,omitempty"`
 	CreatedAt              time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt              time.Time          `bson:"updated_at" json:"updated_at"`
 }

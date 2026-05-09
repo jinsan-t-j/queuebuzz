@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/modules/queue/service"
 )
 
@@ -30,6 +31,11 @@ func (j *PositionJob) Start(ctx context.Context) {
 }
 
 func (j *PositionJob) Dispatch(queueID string) {
+	if config.Get().IsTesting() {
+		j.expiryService.BroadcastPositionsForQueue(context.Background(), queueID, 0)
+		return
+	}
+
 	select {
 	case j.updateChan <- queueID:
 	default:

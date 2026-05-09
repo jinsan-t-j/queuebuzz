@@ -1,10 +1,11 @@
-package e2e
+package customer
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	qutil "queuebuzz/tests/e2e/queue/utils"
 	"queuebuzz/tests/e2e/util"
 	"sync"
 	"testing"
@@ -17,10 +18,10 @@ func TestCustomer_Join_HappyPath(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, _ := util.CreateQueue(t, s, "Join Test Queue")
+	queueID, _ := qutil.CreateQueue(t, s, "Join Test Queue")
 
 	// Guest joins
-	guestToken := util.JoinQueue(t, s, queueID, "Rajan Kumar")
+	guestToken := qutil.JoinQueue(t, s, queueID, "Rajan Kumar")
 	assert.NotEmpty(t, guestToken)
 
 	// Guest can view public status
@@ -34,7 +35,7 @@ func TestCustomer_ConcurrentJoins(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, _ := util.CreateQueue(t, s, "Concurrent Queue")
+	queueID, _ := qutil.CreateQueue(t, s, "Concurrent Queue")
 
 	const n = 20 // Reduced for speed in E2E, 50 was before
 	var wg sync.WaitGroup

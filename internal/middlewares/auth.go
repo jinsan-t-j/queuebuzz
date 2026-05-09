@@ -60,12 +60,16 @@ func OptionalAuthMiddleware(authService *authservice.AuthService) fiber.Handler 
 	return func(c fiber.Ctx) error {
 		token := c.Cookies("access_token")
 		if token == "" {
+			token = c.Cookies("queuebuzz_host_token")
+		}
+
+		if token == "" {
 			return c.Next()
 		}
 
 		claims, err := authService.VerifyToken(token)
 		if err != nil {
-			return c.SendStatus(fiber.StatusUnauthorized)
+			return c.Next()
 		}
 
 		setAuthLocals(c, claims, token)

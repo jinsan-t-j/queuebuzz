@@ -1,7 +1,8 @@
-package e2e
+package auth
 
 import (
 	"net/http"
+	qutil "queuebuzz/tests/e2e/queue/utils"
 	"queuebuzz/tests/e2e/util"
 	"testing"
 
@@ -14,17 +15,16 @@ func TestAuth_AnonymousHost_HappyPath(t *testing.T) {
 	s.CleanDB()
 
 	// 1. Create queue anonymously
-	queueID, hostToken := util.CreateQueue(t, s, "My First Queue")
+	queueID, hostToken := qutil.CreateQueue(t, s, "My First Queue")
 	assert.NotEmpty(t, queueID)
 	assert.NotEmpty(t, hostToken)
 
-	// Upgrade to premium to access history
-	util.UpgradeToPremium(t, s, queueID)
-
 	// 2. Verify management access (protected by HostOwnerMiddleware)
-	resp, err := util.GET(s, "/api/v1/queue/manage/"+queueID+"/history", util.HostCookie(hostToken))
+	// Anonymous hosts can manage their queue (call, serve, terminate) without billing
+	resp, err := util.GET(s, "/api/v1/queue/manage/"+queueID+"/events", util.HostCookie(hostToken))
 	require.NoError(t, err)
 	defer resp.Body.Close()
+	// SSE endpoint returns 200 with streaming — confirms ownership
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
@@ -32,7 +32,7 @@ func TestAuth_Logout(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	_, hostToken := util.CreateQueue(t, s, "Logout Test")
+	_, hostToken := qutil.CreateQueue(t, s, "Logout Test")
 
 	// Logout
 	resp, err := util.POST(s, "/api/v1/auth/logout", nil, util.HostCookie(hostToken))

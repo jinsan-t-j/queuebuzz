@@ -10,11 +10,14 @@ import (
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/firebase"
 	"queuebuzz/internal/log"
+	"queuebuzz/tests/e2e/billing/providers"
+	"queuebuzz/tests/e2e/database/seeders"
 	"sync"
 	"testing"
 	"time"
 
 	toxiproxy "github.com/Shopify/toxiproxy/v2/client"
+	"github.com/dodopayments/dodopayments-go/option"
 	"github.com/gofiber/fiber/v3"
 	"github.com/ilyakaznacheev/cleanenv"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
@@ -22,12 +25,13 @@ import (
 
 // TestSuite wraps the in-process Fiber app and database handles.
 type TestSuite struct {
-	App     *app.App
-	DB      *mongodriver.Database
-	T       *testing.T
-	BaseURL string
-	Proxy   *toxiproxy.Client
-	Client  *http.Client
+	App      *app.App
+	DB       *mongodriver.Database
+	T        *testing.T
+	BaseURL  string
+	Proxy    *toxiproxy.Client
+	Client   *http.Client
+	DodoMock *providers.DodoMockServer
 }
 
 var (
@@ -35,7 +39,6 @@ var (
 	sharedSuiteOnce sync.Once
 )
 
-// MockSender satisfies firebase.NotificationSender for testing.
 type MockSender struct{}
 
 func (*MockSender) SendToUser(_ context.Context, _, _, _ string, _ map[string]string) error {
@@ -45,23 +48,22 @@ func (*MockSender) SendToMultiple(_ context.Context, _ []string, _, _ string, _ 
 	return nil
 }
 
-// NewTestSuite initializes the shared TestSuite.
 func NewTestSuite(t *testing.T, mongoURI, redisURL string, toxiproxyClient *toxiproxy.Client) *TestSuite {
 	t.Helper()
 	sharedSuiteOnce.Do(func() {
 		sharedSuite = bootApp(t, mongoURI, redisURL, toxiproxyClient)
 	})
 	return &TestSuite{
-		App:     sharedSuite.App,
-		DB:      sharedSuite.DB,
-		T:       t,
-		BaseURL: sharedSuite.BaseURL,
-		Proxy:   sharedSuite.Proxy,
-		Client:  sharedSuite.Client,
+		App:      sharedSuite.App,
+		DB:       sharedSuite.DB,
+		T:        t,
+		BaseURL:  sharedSuite.BaseURL,
+		Proxy:    sharedSuite.Proxy,
+		Client:   sharedSuite.Client,
+		DodoMock: sharedSuite.DodoMock,
 	}
 }
 
-// TeardownSharedSuite shuts down the shared TestSuite.
 func TeardownSharedSuite() {
 	if sharedSuite != nil {
 		sharedSuite.Shutdown()
@@ -72,8 +74,6 @@ func bootApp(t *testing.T, mongoURI, redisURL string, toxiproxyClient *toxiproxy
 	t.Helper()
 
 	cfg := &config.Config{}
-
-	// Load static test environment variables from the first existing path
 	paths := []string{"test.env", "../../test.env", "../../../test.env"}
 	loaded := false
 	for _, p := range paths {
@@ -89,20 +89,22 @@ func bootApp(t *testing.T, mongoURI, redisURL string, toxiproxyClient *toxiproxy
 		log.Error().Msg("Failed to load test.env for E2E tests. Falling back to default config.")
 	}
 
-	// Override with dynamic values from testcontainers and explicit test env
 	cfg.DBUri = mongoURI
 	cfg.RedisURL = redisURL
 	cfg.AppEnv = "test"
-	cfg.DisableRateLimit = true // Always disable rate limits for E2E speed
+	cfg.DisableRateLimit = true
 
 	return BootAppWithConfig(t, cfg, &MockSender{}, toxiproxyClient)
 }
 
-// BootAppWithConfig initializes a new App instance with specific configuration.
 func BootAppWithConfig(t *testing.T, cfg *config.Config, sender firebase.NotificationSender, toxiproxyClient *toxiproxy.Client) *TestSuite {
 	t.Helper()
 
-	a := app.New(cfg, sender)
+	dodoMock := providers.NewDodoMockServer()
+	dodoOpts := []option.RequestOption{option.WithBaseURL(dodoMock.Server.URL)}
+
+	a := app.New(cfg, sender, dodoOpts...)
+	a.Container.Start()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -110,7 +112,6 @@ func BootAppWithConfig(t *testing.T, cfg *config.Config, sender firebase.Notific
 	}
 	baseURL := fmt.Sprintf("http://%s", listener.Addr().String())
 
-	// Wait for server to start using Fiber hooks
 	ready := make(chan struct{})
 	a.Fiber.Hooks().OnListen(func(_ fiber.ListenData) error {
 		close(ready)
@@ -127,7 +128,6 @@ func BootAppWithConfig(t *testing.T, cfg *config.Config, sender firebase.Notific
 
 	select {
 	case <-ready:
-		// Server is listening
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for fiber server to start")
 	}
@@ -138,12 +138,20 @@ func BootAppWithConfig(t *testing.T, cfg *config.Config, sender firebase.Notific
 		T:       t,
 		BaseURL: baseURL,
 		Proxy:   toxiproxyClient,
-		Client:  &http.Client{Timeout: 10 * time.Second},
+		Client: &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		DodoMock: dodoMock,
 	}
 }
 
-// CleanDB drops the test database and flushes Redis.
 func (s *TestSuite) CleanDB() {
+	// Give background jobs a moment to finish before dropping collections
+	time.Sleep(100 * time.Millisecond)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -159,89 +167,17 @@ func (s *TestSuite) CleanDB() {
 		}
 	}
 
+	if s.DodoMock != nil {
+		s.DodoMock.Reset()
+	}
+
 	s.SeedDefaults()
 }
 
-// SeedDefaults populates basic required data like plans and settings.
 func (s *TestSuite) SeedDefaults() {
-	ctx := context.Background()
-	_, _ = s.DB.Collection("billing_plans").InsertOne(ctx, map[string]any{
-		"_id":           "free-v1",
-		"slug":          "free-v1",
-		"tier":          "free",
-		"name":          "Free Forever",
-		"is_free":       true,
-		"country_code":  "",
-		"currency":      "INR",
-		"monthly_price": 0,
-		"yearly_price":  0,
-		"limits": map[string]any{
-			"max_queues_per_month":   1,
-			"max_guests_per_queue":   25,
-			"history_access":         false,
-			"custom_branding":        false,
-			"can_export":             false,
-			"queue_expiry_hours":     24,
-			"can_view_guest_data":    false,
-			"history_retention_days": 7,
-		},
-	})
-
-	_, _ = s.DB.Collection("billing_plans").InsertOne(ctx, map[string]any{
-		"_id":                         "pro-in-v1",
-		"slug":                        "pro-india",
-		"tier":                        "pro",
-		"name":                        "Pro",
-		"is_free":                     false,
-		"country_code":                "IN",
-		"currency":                    "INR",
-		"monthly_price":               49900,
-		"yearly_price":                549900,
-		"provider_monthly_product_id": "prod_pro_monthly",
-		"limits": map[string]any{
-			"max_queues_per_month":   25,
-			"max_guests_per_queue":   100,
-			"history_access":         true,
-			"custom_branding":        false,
-			"can_export":             true,
-			"queue_expiry_hours":     72,
-			"can_view_guest_data":    true,
-			"history_retention_days": 30,
-		},
-	})
-
-	_, _ = s.DB.Collection("billing_plans").InsertOne(ctx, map[string]any{
-		"_id":                         "pro-us-v1",
-		"slug":                        "pro-global",
-		"tier":                        "pro",
-		"name":                        "Pro",
-		"is_free":                     false,
-		"country_code":                "GLOBAL",
-		"currency":                    "USD",
-		"monthly_price":               900,
-		"yearly_price":                10900,
-		"provider_monthly_product_id": "prod_pro_monthly_us",
-		"limits": map[string]any{
-			"max_queues_per_month":   25,
-			"max_guests_per_queue":   100,
-			"history_access":         true,
-			"custom_branding":        false,
-			"can_export":             true,
-			"queue_expiry_hours":     72,
-			"can_view_guest_data":    true,
-			"history_retention_days": 30,
-		},
-	})
-
-	_, _ = s.DB.Collection("system_settings").InsertOne(ctx, map[string]any{
-		"_id":             "global",
-		"slug":            "global",
-		"default_plan_id": "free-v1",
-		"support_email":   "support@test.com",
-	})
+	seeders.SeedDefaults(s.DB)
 }
 
-// Shutdown gracefully stops the Fiber app.
 func (s *TestSuite) Shutdown() {
 	if s.App != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -250,9 +186,11 @@ func (s *TestSuite) Shutdown() {
 			log.Error().Err(err).Msg("Failed to shutdown test suite app")
 		}
 	}
+	if s.DodoMock != nil && s.DodoMock.Server != nil {
+		s.DodoMock.Server.Close()
+	}
 }
 
-// Do executes an HTTP request against the test server.
 func (s *TestSuite) Do(req *http.Request) (*http.Response, error) {
 	return s.Client.Do(req)
 }

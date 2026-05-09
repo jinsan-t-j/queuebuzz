@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	redisdriver "github.com/redis/go-redis/v9"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // Handler exposes HTTP endpoints for the billing module.
@@ -207,15 +209,11 @@ func (h *Handler) HandleWebhook(c fiber.Ctx) error {
 
 	event, err := h.provider.VerifyWebhook(payload, headers)
 	if err != nil {
-		log.Warn().Err(err).Msg("Webhook signature verification failed")
-		return c.SendStatus(fiber.StatusUnauthorized)
+		return fiber.NewError(fiber.StatusUnauthorized, "Webhook signature verification failed: "+err.Error())
 	}
 
-	log.Info().Str("type", event.Type).Str("webhook_id", webhookID).Str("host_id", event.HostID).Msg("Billing webhook received")
-
 	if event.HostID == "" {
-		log.Warn().Str("type", event.Type).Msg("Webhook event has no host_id in metadata, skipping")
-		return c.SendStatus(fiber.StatusOK)
+		return fiber.NewError(fiber.StatusBadRequest, "Webhook event has no host_id in metadata")
 	}
 
 	// Idempotency: use webhook-id (guaranteed unique per delivery by Dodo)
@@ -233,7 +231,7 @@ func (h *Handler) HandleWebhook(c fiber.Ctx) error {
 
 	if err := h.svc.ProcessBillingEvent(c.Context(), event); err != nil {
 		log.Error().Err(err).Str("type", event.Type).Str("host_id", event.HostID).Msg("Failed to process billing event")
-		return c.SendStatus(fiber.StatusInternalServerError)
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to process billing event: "+err.Error())
 	}
 
 	return c.SendStatus(fiber.StatusOK)
@@ -311,7 +309,10 @@ func (h *Handler) GetSubscription(c fiber.Ctx) error {
 
 	sub, err := h.svc.GetSubscription(c.Context(), hostID)
 	if err != nil {
-		return helpers.ErrorResponse{Message: "No subscription found"}.JSON(c, fiber.StatusNotFound)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return helpers.ErrorResponse{Message: "No active subscription found"}.JSON(c, fiber.StatusNotFound)
+		}
+		return helpers.ErrorResponse{Message: "Failed to fetch subscription"}.JSON(c, fiber.StatusInternalServerError)
 	}
 
 	// If card info is missing, trigger a background sync to try and recover it
@@ -322,9 +323,18 @@ func (h *Handler) GetSubscription(c fiber.Ctx) error {
 	// Resolve plan name and tier for the response
 	planName := "Free"
 	planTier := "free"
-	if plan, err := h.svc.GetPlanByID(c.Context(), sub.PlanID); err == nil && plan != nil {
+	canBranding := false
+	canExport := false
+	canHistory := false
+	plan, err := h.svc.GetPlanByID(c.Context(), sub.PlanID)
+	if err == nil && plan != nil {
 		planName = plan.Name
 		planTier = plan.Tier
+		canBranding = plan.Limits.CustomBranding
+		canExport = plan.Limits.CanExport
+		canHistory = plan.Limits.HistoryAccess
+	} else if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Failed to resolve plan details for active subscription")
 	}
 
 	resp := billingdto.SubscriptionResponse{
@@ -335,6 +345,9 @@ func (h *Handler) GetSubscription(c fiber.Ctx) error {
 		CurrentPeriodEnd:  sub.CurrentPeriodEnd,
 		CancelAtPeriodEnd: sub.CancelAtPeriodEnd,
 		CardLast4:         sub.CardLast4,
+		CanCustomBranding: canBranding,
+		CanExportData:     canExport,
+		CanViewHistory:    canHistory,
 		UpdatedAt:         sub.UpdatedAt,
 	}
 
@@ -365,7 +378,7 @@ func (h *Handler) CancelSubscription(c fiber.Ctx) error {
 		return helpers.ErrorResponse{Message: "Invalid request body"}.JSON(c, fiber.StatusBadRequest)
 	}
 
-	if err := h.svc.CancelSubscription(c.Context(), hostID, req.Comment, req.Feedback); err != nil {
+	if err := h.svc.CancelSubscriptionAtPeriodEnd(c.Context(), hostID, req.Comment, req.Feedback); err != nil {
 		return helpers.ErrorResponse{Message: err.Error()}.JSON(c, fiber.StatusBadRequest)
 	}
 

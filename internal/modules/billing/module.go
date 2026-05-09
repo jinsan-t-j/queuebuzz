@@ -4,6 +4,7 @@ import (
 	"queuebuzz/internal/middlewares"
 	authservice "queuebuzz/internal/modules/auth/service"
 	"queuebuzz/internal/modules/billing/http"
+	"queuebuzz/internal/modules/billing/jobs"
 	"queuebuzz/internal/modules/billing/service"
 
 	"github.com/gofiber/fiber/v3"
@@ -13,13 +14,15 @@ type Module struct {
 	Handler     *http.Handler
 	Service     *service.BillingService
 	AuthService *authservice.AuthService
+	ReminderJob *jobs.RenewalReminderJob
 }
 
-func New(handler *http.Handler, service *service.BillingService, authSvc *authservice.AuthService) *Module {
+func New(handler *http.Handler, service *service.BillingService, authSvc *authservice.AuthService, reminderJob *jobs.RenewalReminderJob) *Module {
 	return &Module{
 		Handler:     handler,
 		Service:     service,
 		AuthService: authSvc,
+		ReminderJob: reminderJob,
 	}
 }
 

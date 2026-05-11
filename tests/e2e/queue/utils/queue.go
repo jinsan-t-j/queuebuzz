@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CreateQueue creates a queue and returns its ID and the host token.
-func CreateQueue(t *testing.T, s *setup.TestSuite, name string) (string, string) {
+// CreateQueue creates a queue and returns its ID, join code, and the host token.
+func CreateQueue(t *testing.T, s *setup.TestSuite, name string) (string, string, string) {
 	t.Helper()
 	payload, _ := json.Marshal(map[string]any{"name": name})
 	req, _ := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/queue/p/create", bytes.NewReader(payload))
@@ -26,16 +26,18 @@ func CreateQueue(t *testing.T, s *setup.TestSuite, name string) (string, string)
 
 	data := util.DecodedBody(t, resp)
 	queueID := data["id"].(string)
+	joinCode := data["join_code"].(string)
 	token := util.ExtractCookie(t, resp, "queuebuzz_host_token", true)
-	return queueID, token
+	return queueID, joinCode, token
 }
 
 // JoinQueue joins a queue as a customer and returns the guest token.
-func JoinQueue(t *testing.T, s *setup.TestSuite, queueID, displayName string) string {
+func JoinQueue(t *testing.T, s *setup.TestSuite, queueID, joinCode, displayName string) string {
 	t.Helper()
 	payload, _ := json.Marshal(map[string]any{
 		"display_name": displayName,
 		"fingerprint":  fmt.Sprintf("fp-%s", displayName),
+		"join_code":    joinCode,
 	})
 	req, _ := http.NewRequest(http.MethodPost, s.BaseURL+fmt.Sprintf("/api/v1/customer/entry/join/%s", queueID), bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -74,8 +76,8 @@ func ServeNext(t *testing.T, s *setup.TestSuite, queueID, hostToken string) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-// CreateAuthenticatedQueue creates a queue using a host access token and returns its ID.
-func CreateAuthenticatedQueue(t *testing.T, s *setup.TestSuite, name string, accessToken string) string {
+// CreateAuthenticatedQueue creates a queue using a host access token and returns its ID and join code.
+func CreateAuthenticatedQueue(t *testing.T, s *setup.TestSuite, name string, accessToken string) (string, string) {
 	t.Helper()
 	payload, _ := json.Marshal(map[string]any{"name": name})
 	req, _ := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/queue/p/create", bytes.NewReader(payload))
@@ -88,7 +90,7 @@ func CreateAuthenticatedQueue(t *testing.T, s *setup.TestSuite, name string, acc
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	data := util.DecodedBody(t, resp)
-	return data["id"].(string)
+	return data["id"].(string), data["join_code"].(string)
 }
 
 func TerminateQueue(t *testing.T, s *setup.TestSuite, queueID string, accessToken string) {

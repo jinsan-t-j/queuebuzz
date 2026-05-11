@@ -25,6 +25,7 @@ import (
 type Handler struct {
 	cfg             *config.Config
 	customerService *customerservice.Service
+	recoverySvc     *customerservice.RecoveryService
 	queueService    *queueservice.Service
 	authService     *authservice.AuthService
 	joinCodeService *legacyservices.JoinCodeService
@@ -37,6 +38,7 @@ type Handler struct {
 func NewHandler(
 	cfg *config.Config,
 	customerSvc *customerservice.Service,
+	recoverySvc *customerservice.RecoveryService,
 	queueSvc *queueservice.Service,
 	authSvc *authservice.AuthService,
 	joinCodeSvc *legacyservices.JoinCodeService,
@@ -48,6 +50,7 @@ func NewHandler(
 	return &Handler{
 		cfg:             cfg,
 		customerService: customerSvc,
+		recoverySvc:     recoverySvc,
 		queueService:    queueSvc,
 		authService:     authSvc,
 		joinCodeService: joinCodeSvc,
@@ -201,6 +204,23 @@ func (h *Handler) UpdateEntry(c fiber.Ctx) error {
 
 	h.hostNotifierJob.DispatchUserUpdated(queueID, entryID)
 
+	if req.Email != nil && *req.Email != "" {
+		queue, _ := h.queueService.GetQueue(c.Context(), queueID)
+		queueName := "Your Queue"
+		if queue != nil && queue.Name != "" {
+			queueName = queue.Name
+		}
+		go func(email string, name string) {
+			_ = h.recoverySvc.DispatchRecoveryEmail(
+				context.Background(),
+				entryID,
+				queueID,
+				email,
+				name,
+			)
+		}(*req.Email, queueName)
+	}
+
 	return helpers.NewSuccessResponse("Entry updated successfully", nil).OK(c)
 }
 
@@ -226,6 +246,15 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 		}
 	}
 
+	queue, err := h.queueService.GetQueue(c.Context(), c.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+	}
+
+	if req.JoinCode != queue.JoinCode {
+		return fiber.NewError(fiber.StatusForbidden, "Invalid queue code")
+	}
+
 	if req.Metadata == nil {
 		req.Metadata = make(bson.M)
 	}
@@ -234,7 +263,7 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 	}
 
 	result, err := h.customerService.JoinQueue(c.Context(), queueservice.JoinQueueParams{
-		QueueID:     c.Params("id"),
+		Queue:       queue,
 		FCMToken:    req.FCMToken,
 		Name:        *req.DisplayName,
 		Email:       req.Email,
@@ -253,6 +282,22 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 	entryRecord := queuedto.ToEntryResponse(result.Entry, result.Position)
 	h.hostNotifierJob.DispatchUserJoined(result.QueueID, entryRecord)
 	h.posJob.Dispatch(result.QueueID)
+
+	if result.Email != nil && *result.Email != "" {
+		queueName := "Your Queue"
+		if queue != nil && queue.Name != "" {
+			queueName = queue.Name
+		}
+		go func(email string, name string) {
+			_ = h.recoverySvc.DispatchRecoveryEmail(
+				context.Background(),
+				result.ID,
+				result.QueueID,
+				email,
+				name,
+			)
+		}(*result.Email, queueName)
+	}
 
 	// Mask PII for the public response
 	maskedRecord := entryRecord
@@ -394,6 +439,38 @@ func (h *Handler) RecoverSession(c fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, "Queue entry no longer exists or has expired")
 	}
+
+	response := queuedto.ToEntryResponse(result.Entry, result.Position)
+	return helpers.NewSuccessResponse("Session recovered", response).OK(c)
+}
+
+// RecoverByToken godoc
+// @Summary Recover session by token
+// @Description Recovers a guest session using an email recovery token.
+// @Tags Entry
+// @Produce json
+// @Success 200 {object} queuedto.EntryRecord "Session recovered"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 410 {object} map[string]string "Gone"
+// @Router /entry/recover-by-token [get]
+func (h *Handler) RecoverByToken(c fiber.Ctx) error {
+	token := c.Query("token")
+	if token == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Missing recovery token")
+	}
+
+	entryID, queueID, err := h.recoverySvc.ClaimToken(c.Context(), token)
+	if err != nil {
+		return fiber.NewError(fiber.StatusUnauthorized, err.Error())
+	}
+
+	result, err := h.customerService.RejoinByID(c.Context(), entryID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusGone, "Queue entry no longer exists or has expired")
+	}
+
+	h.issueGuestToken(c, queueID, entryID)
 
 	response := queuedto.ToEntryResponse(result.Entry, result.Position)
 	return helpers.NewSuccessResponse("Session recovered", response).OK(c)

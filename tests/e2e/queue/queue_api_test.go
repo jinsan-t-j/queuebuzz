@@ -22,12 +22,12 @@ func TestQueue_Management_Lifecycle(t *testing.T) {
 	s.CleanDB()
 
 	token, hostID, _ := authutil.RegisterHost(t, s, "Host", "host@test.com", "password")
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Lifecycle Queue", token)
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Lifecycle Queue", token)
 	billing.UpgradeToPremium(t, s, hostID, token)
 
 	// 1. Join some customers
-	qutil.JoinQueue(t, s, queueID, "Customer 1")
-	qutil.JoinQueue(t, s, queueID, "Customer 2")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Customer 1")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Customer 2")
 
 	// 2. Fetch history
 	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/manage/%s/history", queueID), util.HostCookie(token))
@@ -52,8 +52,8 @@ func TestQueue_Management_CrossOwner_Forbidden(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	_, hostToken1 := qutil.CreateQueue(t, s, "Queue A")
-	queueBID, _ := qutil.CreateQueue(t, s, "Queue B")
+	_, _, hostToken1 := qutil.CreateQueue(t, s, "Queue A")
+	queueBID, _, _ := qutil.CreateQueue(t, s, "Queue B")
 
 	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/manage/%s/history", queueBID), util.HostCookie(hostToken1))
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestQueue_Management_Unauthorized(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, _ := qutil.CreateQueue(t, s, "No Auth Queue")
+	queueID, _, _ := qutil.CreateQueue(t, s, "No Auth Queue")
 
 	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/manage/%s/history", queueID))
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestQueue_Settings_Update(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, hostToken := qutil.CreateQueue(t, s, "Settings Queue")
+	queueID, _, hostToken := qutil.CreateQueue(t, s, "Settings Queue")
 
 	// 1. Update settings
 	strictMode := true
@@ -123,7 +123,7 @@ func TestQueue_Delete(t *testing.T) {
 	}
 
 	// 1. Create a queue
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Deletable Queue", token)
+	queueID, _ := qutil.CreateAuthenticatedQueue(t, s, "Deletable Queue", token)
 	assert.Equal(t, 1, getCount())
 
 	// 2. Delete via API
@@ -178,19 +178,19 @@ func TestQueue_BulkDelete(t *testing.T) {
 	}
 
 	// 1. Create multiple queues (one at a time, terminating each to allow next creation)
-	q1 := qutil.CreateAuthenticatedQueue(t, s, "Queue 1", token)
+	q1, _ := qutil.CreateAuthenticatedQueue(t, s, "Queue 1", token)
 	resp, err := util.POST(s, "/api/v1/queue/manage/"+q1+"/terminate", nil, util.AuthCookie(token))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	q2 := qutil.CreateAuthenticatedQueue(t, s, "Queue 2", token)
+	q2, _ := qutil.CreateAuthenticatedQueue(t, s, "Queue 2", token)
 	resp, err = util.POST(s, "/api/v1/queue/manage/"+q2+"/terminate", nil, util.AuthCookie(token))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	q3 := qutil.CreateAuthenticatedQueue(t, s, "Queue 3", token)
+	q3, _ := qutil.CreateAuthenticatedQueue(t, s, "Queue 3", token)
 	resp, err = util.POST(s, "/api/v1/queue/manage/"+q3+"/terminate", nil, util.AuthCookie(token))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -221,7 +221,7 @@ func TestQueue_Terminate_InvalidatesCache(t *testing.T) {
 
 	ctx := context.Background()
 	token, hostID, _ := authutil.RegisterHost(t, s, "Terminator", "terminate@test.com", "password")
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Terminatable Queue", token)
+	queueID, _ := qutil.CreateAuthenticatedQueue(t, s, "Terminatable Queue", token)
 
 	// 1. Populate history and summary caches via API
 	resp, err := util.GET(s, "/api/v1/queue/history?filter=all", util.AuthCookie(token))

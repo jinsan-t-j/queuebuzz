@@ -160,7 +160,8 @@ func (n *QueueNotifier) PublishWaitingCount(queueID string, count int64) {
 func (n *QueueNotifier) NotifyQueueEnded(entryID, queueName string) {
 	// 1. Send External Notifications (Push/Email) - pocket buzz is still needed!
 	n.notifyEntry(entryID, "Queue Ended", fmt.Sprintf("The host has closed the session for %s. We've skipped your entry.", queueName), map[string]string{
-		"event": events.EventQueueEnded,
+		"event":      events.EventQueueEnded,
+		"queue_name": queueName,
 	})
 }
 

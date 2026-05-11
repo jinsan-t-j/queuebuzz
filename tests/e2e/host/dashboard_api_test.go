@@ -59,7 +59,7 @@ func TestDashboard_WithActiveQueue(t *testing.T) {
 	// Use the host token to create a queue (optional, but good for linking)
 	// Wait, CreateQueue in util.go uses anonymous creation.
 	// Let's create a queue using the host token.
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Active Dashboard Queue", hostToken)
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Active Dashboard Queue", hostToken)
 
 	// 2. Fetch dashboard
 	resp, err := util.GET(s, "/api/v1/queue/dashboard", util.AuthCookie(hostToken))
@@ -75,7 +75,7 @@ func TestDashboard_WithActiveQueue(t *testing.T) {
 	assert.Equal(t, "Active Dashboard Queue", activeQueue["queueName"])
 
 	// 4. Join a customer and serve them
-	qutil.JoinQueue(t, s, queueID, "Customer 1")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Customer 1")
 	qutil.ServeNext(t, s, queueID, hostToken)
 
 	// 5. Fetch dashboard again
@@ -97,9 +97,9 @@ func TestHistory_List_And_Summary(t *testing.T) {
 	hostToken, hostID, _ := authutil.RegisterHost(t, s, "History Host", email, "password123")
 	billing.UpgradeToPremium(t, s, hostID, hostToken)
 
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Historical Queue", hostToken)
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Historical Queue", hostToken)
 
-	qutil.JoinQueue(t, s, queueID, "Guest")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Guest")
 	qutil.ServeNext(t, s, queueID, hostToken)
 
 	// Terminate queue to make it historical
@@ -135,7 +135,7 @@ func TestHistory_Pagination_And_Filtering(t *testing.T) {
 	// Create 3 historical queues
 	queues := []string{"Queue Alpha", "Queue Beta", "Queue Gamma"}
 	for _, name := range queues {
-		qid := qutil.CreateAuthenticatedQueue(t, s, name, hostToken)
+		qid, _ := qutil.CreateAuthenticatedQueue(t, s, name, hostToken)
 		util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/terminate", qid), nil, util.AuthCookie(hostToken))
 	}
 

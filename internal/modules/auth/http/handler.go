@@ -171,13 +171,15 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 	var phone string
 	var claimQueueID string
 	var redirectURL string
+
 	token := c.Query("token")
-	reqPhone := c.Query("phone")
-	otp := c.Query("otp")
 
 	if token != "" {
 		payload, err := h.magicLinkService.VerifyMagicLink(c.Context(), token)
 		if err != nil {
+			if c.Accepts("application/json") != "" {
+				return fiber.NewError(fiber.StatusUnauthorized, "invalid or expired token")
+			}
 			u, _ := url.Parse(h.cfg.AuthCallbackURL)
 			u.Path = "/error"
 			u.RawQuery = url.Values{
@@ -191,21 +193,8 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 		email = payload.Email
 		claimQueueID = payload.ClaimQueueID
 		redirectURL = payload.RedirectURL
-	} else if reqPhone != "" && otp != "" {
-		if err := h.otpService.VerifyOTP(c.Context(), reqPhone, otp); err != nil {
-			u, _ := url.Parse(h.cfg.AuthCallbackURL)
-			u.Path = "/error"
-			u.RawQuery = url.Values{
-				"title":       {"Verification Error"},
-				"error":       {"invalid_otp"},
-				"description": {"The OTP code you entered is incorrect or has expired."},
-				"action_text": {"Back to Login"},
-			}.Encode()
-			return c.Redirect().To(u.String())
-		}
-		phone = reqPhone
 	} else {
-		return fiber.NewError(fiber.StatusBadRequest, "provide token or phone+otp")
+		return fiber.NewError(fiber.StatusBadRequest, "Token not found")
 	}
 
 	host, created, err := h.hostService.FindOrCreateHost(c.Context(), email, phone)
@@ -235,6 +224,7 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 		u.RawQuery = q.Encode()
 		targetURL = u.String()
 	}
+
 	return c.Redirect().To(targetURL)
 }
 

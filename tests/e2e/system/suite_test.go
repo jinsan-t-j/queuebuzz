@@ -7,6 +7,6 @@ import (
 )
 
 func Suite(t *testing.T) *setup.TestSuite {
-	mongoURI, redisURL, _ := testenv.Setup()
-	return setup.NewTestSuite(t, mongoURI, redisURL, nil)
+	mongoURI, redisURL, mailpitURL := testenv.Setup()
+	return setup.NewTestSuite(t, mongoURI, redisURL, mailpitURL, nil)
 }

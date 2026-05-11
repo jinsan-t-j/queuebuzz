@@ -101,6 +101,7 @@ func NewContainer(
 
 	systemSvc := systemservice.NewSystemService(cfg, mongoDB, rdb)
 	emailSvc := services.NewEmailService(cfg, emailProv, systemSvc)
+	recoverySvc := customerservice.NewRecoveryService(rdb, entryCol, emailSvc, cfg.RecoveryHMACSecret, cfg.FrontendURL)
 
 	billingSvc := billingservice.NewBillingService(mongoDB, rdb, systemSvc, emailSvc, billingProv)
 	billingHandler := billinghttp.NewHandler(billingSvc, billingProv, rdb)
@@ -131,7 +132,7 @@ func NewContainer(
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc, billingSvc, r2Svc, emailSvc)
 	queueHandler := queuehttp.NewHandler(cfg, queueSvc, analyticsSvc, authSvc, hostSvc, queueRedisRepo, broker, notifier, posJob, hostNotifierJob, caller, billingSvc, emailSvc)
 	customerSvc := customerservice.New(entryCol, customerRedisRepo, queueSvc)
-	customerHandler := customerhttp.NewHandler(cfg, customerSvc, queueSvc, authSvc, joinCodeSvc, broker, posJob, hostNotifierJob, emailSvc)
+	customerHandler := customerhttp.NewHandler(cfg, customerSvc, recoverySvc, queueSvc, authSvc, joinCodeSvc, broker, posJob, hostNotifierJob, emailSvc)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 
 	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob, expiryJob, authSvc, queueCol)

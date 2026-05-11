@@ -2,8 +2,10 @@ package testenv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -18,34 +20,33 @@ var (
 	mongoURI   string
 	redisURI   string
 	mailpitURL string
-	once       sync.Once
 	cleanup    func()
+	setupOnce  sync.Once
 )
 
 func Setup() (string, string, string) {
-	once.Do(func() {
-		ctx := context.Background()
-		var terminators []func(context.Context, ...testcontainers.TerminateOption) error
+	setupOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
 
-		// Start MongoDB
-		mongoC, err := mongodb.Run(ctx, "mongo:6.0")
+		var terminators []func(context.Context) error
+
+		mongodbContainer, err := mongodb.Run(ctx, "mongo:6.0")
 		if err == nil {
-			mongoURI, _ = mongoC.ConnectionString(ctx)
-			terminators = append(terminators, mongoC.Terminate)
-		} else {
-			mongoURI = "mongodb://localhost:27017"
+			mongoURI, _ = mongodbContainer.ConnectionString(ctx)
+			terminators = append(terminators, func(ctx context.Context) error {
+				return mongodbContainer.Terminate(ctx)
+			})
 		}
 
-		// Start Redis
-		redisC, err := redis.Run(ctx, "redis:7-alpine")
+		redisContainer, err := redis.Run(ctx, "redis:7-alpine")
 		if err == nil {
-			redisURI, _ = redisC.ConnectionString(ctx)
-			terminators = append(terminators, redisC.Terminate)
-		} else {
-			redisURI = "redis://localhost:6379"
+			redisURI, _ = redisContainer.ConnectionString(ctx)
+			terminators = append(terminators, func(ctx context.Context) error {
+				return redisContainer.Terminate(ctx)
+			})
 		}
 
-		// Start Minio
 		minioC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
 				Image:        "minio/minio",
@@ -60,10 +61,16 @@ func Setup() (string, string, string) {
 			Started: true,
 		})
 		if err == nil {
-			terminators = append(terminators, minioC.Terminate)
+			terminators = append(terminators, func(ctx context.Context) error {
+				return minioC.Terminate(ctx)
+			})
 			minioHost, _ := minioC.Host(ctx)
+			if minioHost == "localhost" {
+				minioHost = "127.0.0.1"
+			}
 			minioPort, _ := minioC.MappedPort(ctx, "9000")
 			r2Endpoint := "http://" + minioHost + ":" + minioPort.Port()
+			fmt.Printf("DEBUG: R2_ENDPOINT set to: %s\n", r2Endpoint)
 
 			os.Setenv("R2_ACCESS_KEY_ID", "minioadmin")
 			os.Setenv("R2_SECRET_ACCESS_KEY", "minioadmin")
@@ -93,7 +100,9 @@ func Setup() (string, string, string) {
 			Started: true,
 		})
 		if err == nil {
-			terminators = append(terminators, mailpitC.Terminate)
+			terminators = append(terminators, func(ctx context.Context) error {
+				return mailpitC.Terminate(ctx)
+			})
 			mailHost, _ := mailpitC.Host(ctx)
 			mailPort, _ := mailpitC.MappedPort(ctx, "1025")
 			mailAPIPort, _ := mailpitC.MappedPort(ctx, "8025")
@@ -109,6 +118,11 @@ func Setup() (string, string, string) {
 			}
 		}
 	})
+
+	// Ensure environment variables are set for the current process even if once.Do was already called
+	if mailpitURL != "" {
+		os.Setenv("MAILPIT_API_URL", mailpitURL)
+	}
 
 	return mongoURI, redisURI, mailpitURL
 }

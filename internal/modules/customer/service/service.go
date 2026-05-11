@@ -60,10 +60,11 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 	defer cancel()
 
 	// 1. Validate Queue Status
-	queue, err := s.queueService.GetQueue(ctx, params.QueueID)
-	if err != nil {
-		return nil, fmt.Errorf("queue not found")
+	queue := params.Queue
+	if queue == nil {
+		return nil, fmt.Errorf("queue context required")
 	}
+
 	if queue.Status != constants.QueueStatusActive && queue.Status != constants.QueueStatusPaused {
 		return nil, fmt.Errorf("queue is not active")
 	}
@@ -74,7 +75,7 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 	// 2. Duplicate Check
 	if params.Email != nil && *params.Email != "" {
 		count, _ := s.entryCol.CountDocuments(ctx, bson.M{
-			"queue_id": params.QueueID,
+			"queue_id": queue.ID,
 			"status":   bson.M{"$in": []string{constants.EntryStatusWaiting, constants.EntryStatusCalled, constants.EntryStatusIdle}},
 			"email":    *params.Email,
 		})
@@ -85,7 +86,7 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 
 	// 4. Delegate Creation
 	entry := queuedomain.Entry{
-		QueueID:     params.QueueID,
+		QueueID:     queue.ID,
 		Name:        params.Name,
 		Email:       params.Email,
 		Phone:       params.Phone,

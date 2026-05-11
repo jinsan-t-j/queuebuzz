@@ -19,7 +19,7 @@ func TestQueue_StrictMode(t *testing.T) {
 	token, _, _ := authutil.RegisterHost(t, s, "Strict Host", "strict@test.com", "password")
 
 	// Create queue first
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Strict Queue", token)
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Strict Queue", token)
 
 	// Enable strict mode via PATCH
 	patchPayload := map[string]any{"strict_queue_mode": true}
@@ -29,8 +29,8 @@ func TestQueue_StrictMode(t *testing.T) {
 	assert.Equal(t, http.StatusOK, patchResp.StatusCode)
 
 	// Add 2 guests
-	qutil.JoinQueue(t, s, queueID, "Guest 1")
-	qutil.JoinQueue(t, s, queueID, "Guest 2")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Guest 1")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Guest 2")
 
 	// Call Guest 1
 	callResp, err := util.POST(s, "/api/v1/queue/manage/"+queueID+"/call", nil, util.AuthCookie(token))
@@ -80,11 +80,17 @@ func TestQueue_ManualPositioning(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, util.DecodeJSON(resp, &body))
-	queueID := body["data"].(map[string]any)["id"].(string)
+	data := body["data"].(map[string]any)
+	queueID := data["id"].(string)
+	joinCode := data["join_code"].(string)
 	resp.Body.Close()
 
 	// Join Guest — position should be 0 (manual positioning skips sorted set)
-	guestResp, err := util.POST(s, "/api/v1/customer/entry/join/"+queueID, map[string]any{"display_name": "Manual Guest"})
+	guestPayload := map[string]any{
+		"display_name": "Manual Guest",
+		"join_code":    joinCode,
+	}
+	guestResp, err := util.POST(s, "/api/v1/customer/entry/join/"+queueID, guestPayload)
 	require.NoError(t, err)
 	defer guestResp.Body.Close()
 

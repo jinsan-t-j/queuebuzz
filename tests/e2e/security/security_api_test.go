@@ -82,8 +82,8 @@ func TestSecurity_CrossOwner_Rejected(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	_, hostToken1 := qutil.CreateQueue(t, s, "Queue A")
-	queueBID, _ := qutil.CreateQueue(t, s, "Queue B")
+	_, _, hostToken1 := qutil.CreateQueue(t, s, "Queue A")
+	queueBID, _, _ := qutil.CreateQueue(t, s, "Queue B")
 
 	resp, err := util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/terminate", queueBID), nil, util.HostCookie(hostToken1))
 	require.NoError(t, err)
@@ -114,13 +114,14 @@ func TestSecurity_Join_NoPIILeak(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, _ := qutil.CreateQueue(t, s, "PII Test")
+	queueID, joinCode, _ := qutil.CreateQueue(t, s, "PII Test")
 
 	payload := map[string]any{
 		"display_name": "Test User",
 		"email":        "user@secret.com",
 		"phone":        "9999999999",
 		"fingerprint":  "fp-pii",
+		"join_code":    joinCode,
 	}
 	resp, err := util.POST(s, fmt.Sprintf("/api/v1/customer/entry/join/%s", queueID), payload)
 	require.NoError(t, err)

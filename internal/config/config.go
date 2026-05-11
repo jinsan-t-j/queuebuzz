@@ -62,8 +62,9 @@ type Config struct {
 	R2PublicURL       string `env:"R2_PUBLIC_URL" env-required:"true"`
 
 	// Security
-	SystemAPISecret string `env:"SYSTEM_API_SECRET" env-required:"true"`
-	SupportEmail    string `env:"SUPPORT_EMAIL" env-default:"support@queuebuzz.app"`
+	SystemAPISecret    string `env:"SYSTEM_API_SECRET" env-required:"true"`
+	SupportEmail       string `env:"SUPPORT_EMAIL" env-default:"support@queuebuzz.app"`
+	RecoveryHMACSecret string `env:"RECOVERY_HMAC_SECRET" env-required:"true"`
 
 	// Testing
 	DisableRateLimit bool `env:"DISABLE_RATE_LIMIT" env-default:"false"`

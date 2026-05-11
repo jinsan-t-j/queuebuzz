@@ -127,7 +127,16 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		req.AvgServiceMins = &defaultMins
 	}
 
-	isUserSlug := helpers.DerefString(req.Slug) != ""
+	hasUserSlug := helpers.DerefString(req.Slug) != ""
+
+	if hasUserSlug {
+		role, _ := c.Locals("role").(string)
+		if role != constants.RoleRegisteredHost {
+			return fiber.NewError(fiber.StatusForbidden,
+				"Custom queue URLs require a QueueBuzz account. Sign up free to unlock this feature.")
+		}
+	}
+
 	slug := strings.ToLower(helpers.DerefString(req.Slug))
 	if slug == "" {
 		slug = helpers.GenerateSlug()
@@ -164,9 +173,13 @@ func (h *Handler) Create(c fiber.Ctx) error {
 			break
 		}
 
+		if strings.Contains(err.Error(), "invalid slug format") || strings.Contains(err.Error(), "slug is reserved") {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+
 		// Handle duplicate key/collision (E11000)
 		if strings.Contains(err.Error(), "E11000") || strings.Contains(err.Error(), "duplicate") {
-			if isUserSlug {
+			if hasUserSlug {
 				return fiber.NewError(fiber.StatusConflict, "This custom slug is already taken. Please choose another one.")
 			}
 
@@ -226,6 +239,9 @@ func (h *Handler) CheckSlug(c fiber.Ctx) error {
 
 	available, err := h.Service.CheckSlugAvailability(c.Context(), slug)
 	if err != nil {
+		if strings.Contains(err.Error(), "invalid slug format") {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to check slug availability")
 	}
 
@@ -414,7 +430,7 @@ func (h *Handler) PauseQueue(c fiber.Ctx) error {
 
 // Update godoc
 // @Summary Update queue settings
-// @Description Updates the queue settings for the host (name, avg service mins, recovery email).
+// @Description Updates the queue settings for the host (name, avg service mins).
 // @Tags Queue
 // @Produce json
 // @Param id path string true "Queue ID"

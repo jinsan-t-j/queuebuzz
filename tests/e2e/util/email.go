@@ -67,3 +67,76 @@ func ClearMailpit(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodDelete, mailpitURL+"/api/v1/messages", nil)
 	http.DefaultClient.Do(req)
 }
+
+// GetLatestEmailBody returns the combined text/html body for the latest email
+// matching the recipient and optional subject fragment.
+func GetLatestEmailBody(t *testing.T, toEmail, subjectFragment string) string {
+	t.Helper()
+	mailpitURL := os.Getenv("MAILPIT_API_URL")
+	if mailpitURL == "" {
+		return ""
+	}
+
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/search?query=to:%s", mailpitURL, toEmail))
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Messages []struct {
+			ID      string `json:"ID"`
+			Subject string `json:"Subject"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ""
+	}
+
+	for _, msg := range result.Messages {
+		if subjectFragment != "" && !strings.Contains(strings.ToLower(msg.Subject), strings.ToLower(subjectFragment)) {
+			continue
+		}
+
+		bodyResp, err := http.Get(fmt.Sprintf("%s/api/v1/message/%s", mailpitURL, msg.ID))
+		if err != nil {
+			continue
+		}
+		defer bodyResp.Body.Close()
+
+		var body struct {
+			Text string `json:"Text"`
+			HTML string `json:"HTML"`
+		}
+		if err := json.NewDecoder(bodyResp.Body).Decode(&body); err != nil {
+			continue
+		}
+
+		return body.Text + "\n" + body.HTML
+	}
+
+	return ""
+}
+
+// ExtractTokenFromEmailBody returns the first token value found after the given marker.
+func ExtractTokenFromEmailBody(t *testing.T, toEmail, subjectFragment, marker string) string {
+	t.Helper()
+	body := GetLatestEmailBody(t, toEmail, subjectFragment)
+	if body == "" {
+		return ""
+	}
+
+	idx := strings.Index(body, marker)
+	if idx == -1 {
+		return ""
+	}
+
+	token := body[idx+len(marker):]
+	for i, r := range token {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' && r != '.' {
+			return token[:i]
+		}
+	}
+
+	return token
+}

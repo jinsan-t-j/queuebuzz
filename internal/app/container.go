@@ -91,8 +91,6 @@ func NewContainer(
 	hostCol := mongoDB.Collection("hosts")
 
 	redisSvc := services.NewRedisService(rdb)
-	joinCodeSvc := services.NewJoinCodeService(rdb)
-
 	authSvc := authservice.NewAuthService(cfg.JWTPrivateKey, cfg.JWTPublicKey, redisSvc)
 	socialAuthSvc := authservice.NewSocialAuthService(cfg, redisSvc)
 
@@ -132,7 +130,7 @@ func NewContainer(
 	hostHandler := hosthttp.NewHandler(cfg, authSvc, redisSvc, hostSvc, queueSvc, billingSvc, r2Svc, emailSvc)
 	queueHandler := queuehttp.NewHandler(cfg, queueSvc, analyticsSvc, authSvc, hostSvc, queueRedisRepo, broker, notifier, posJob, hostNotifierJob, caller, billingSvc, emailSvc)
 	customerSvc := customerservice.New(entryCol, customerRedisRepo, queueSvc)
-	customerHandler := customerhttp.NewHandler(cfg, customerSvc, recoverySvc, queueSvc, authSvc, joinCodeSvc, broker, posJob, hostNotifierJob, emailSvc)
+	customerHandler := customerhttp.NewHandler(cfg, customerSvc, recoverySvc, queueSvc, authSvc, broker, posJob, hostNotifierJob, emailSvc)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 
 	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob, expiryJob, authSvc, queueCol)

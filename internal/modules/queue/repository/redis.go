@@ -101,6 +101,23 @@ func (r *RedisRepository) ReleaseJoinCode(ctx context.Context, code string) erro
 	return r.rdb.Del(ctx, key).Err()
 }
 
+// ResolveJoinCode looks up a join code in Redis and returns the associated queue ID.
+func (r *RedisRepository) ResolveJoinCode(ctx context.Context, code string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	key := fmt.Sprintf("joincode:%s", code)
+	queueID, err := r.rdb.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve join code: %w", err)
+	}
+
+	return queueID, nil
+}
+
 func (r *RedisRepository) ReleaseJoinCodesBulk(ctx context.Context, codes []string) error {
 	if len(codes) == 0 {
 		return nil

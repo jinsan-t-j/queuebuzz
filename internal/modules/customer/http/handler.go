@@ -28,7 +28,6 @@ type Handler struct {
 	recoverySvc     *customerservice.RecoveryService
 	queueService    *queueservice.Service
 	authService     *authservice.AuthService
-	joinCodeService *legacyservices.JoinCodeService
 	broker          *sse.Broker
 	posJob          *queueresource.PositionJob
 	hostNotifierJob *queueresource.HostNotifierJob
@@ -41,7 +40,6 @@ func NewHandler(
 	recoverySvc *customerservice.RecoveryService,
 	queueSvc *queueservice.Service,
 	authSvc *authservice.AuthService,
-	joinCodeSvc *legacyservices.JoinCodeService,
 	broker *sse.Broker,
 	posJob *queueresource.PositionJob,
 	hostNotifierJob *queueresource.HostNotifierJob,
@@ -53,7 +51,6 @@ func NewHandler(
 		recoverySvc:     recoverySvc,
 		queueService:    queueSvc,
 		authService:     authSvc,
-		joinCodeService: joinCodeSvc,
 		broker:          broker,
 		posJob:          posJob,
 		hostNotifierJob: hostNotifierJob,
@@ -305,40 +302,6 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 	maskedRecord.Phone = helpers.MaskPhone(entryRecord.Phone)
 
 	return helpers.NewSuccessResponse("Successfully joined the queue", maskedRecord).Created(c)
-}
-
-// JoinByCode godoc
-// @Summary Join queue by code
-// @Description Joins the queue using a 6-character code.
-// @Tags Entry
-// @Produce json
-// @Success 200 {object} queuedto.EntryRecord "Successfully joined the queue"
-// @Failure 400 {object} map[string]string "Error response"
-// @Failure 401 {object} map[string]string "Error response"
-// @Failure 500 {object} map[string]string "Error response"
-// @Router /entry/join-by-code/{code} [get]
-func (h *Handler) JoinByCode(c fiber.Ctx) error {
-	code := c.Params("code")
-	queueID, err := h.joinCodeService.ResolveJoinCode(c.Context(), code)
-	if err != nil || queueID == "" {
-		// Fallback to database
-		queue, dbErr := h.queueService.GetQueueByJoinCode(c.Context(), code)
-		if dbErr == nil && queue != nil {
-			queueID = queue.ID
-		} else {
-			return fiber.NewError(fiber.StatusNotFound, "Invalid or expired queue code")
-		}
-	}
-
-	queue, err := h.queueService.GetQueue(c.Context(), queueID)
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Queue not found")
-	}
-
-	return helpers.NewSuccessResponse("Queue found", fiber.Map{
-		"queue_id":   queue.ID,
-		"queue_name": queue.Name,
-	}).OK(c)
 }
 
 // ConfirmArrived godoc

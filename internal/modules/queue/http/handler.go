@@ -285,6 +285,58 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 	return helpers.NewSuccessResponse("Live queue fetched", h.toQueueResponse(c.Context(), *queue)).OK(c)
 }
 
+// FindQueue godoc
+// @Summary Find a queue by id/slug or join code
+// @Description Finds the queue using an ID/slug or a 6-character code.
+// @Tags Queue
+// @Produce json
+// @Param id query string false "Queue ID or Slug"
+// @Param code query string false "Join Code"
+// @Success 200 {object} helpers.SuccessResponse{Data=map[string]interface{}} "Queue found"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 404 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/p/find [get]
+func (h *Handler) FindQueue(c fiber.Ctx) error {
+	id := c.Query("id")
+	code := c.Query("code")
+
+	var queue *domain.Queue
+	var err error
+
+	if code != "" {
+		queueID, err := h.RedisRepo.ResolveJoinCode(c.Context(), code)
+		if err != nil || queueID == "" {
+			// Fallback to database
+			queue, err = h.Service.GetQueueByJoinCode(c.Context(), code)
+			if err != nil || queue == nil {
+				return fiber.NewError(fiber.StatusNotFound, "Invalid or expired queue code")
+			}
+		} else {
+			queue, err = h.Service.GetQueue(c.Context(), queueID)
+			if err != nil {
+				return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+			}
+		}
+
+		if id != "" && queue.ID != id && queue.Slug != id {
+			return fiber.NewError(fiber.StatusNotFound, "Invalid code for this queue")
+		}
+	} else if id != "" {
+		queue, err = h.Service.GetLiveQueueByID(c.Context(), id)
+		if err != nil || queue == nil {
+			return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+		}
+	} else {
+		return fiber.NewError(fiber.StatusBadRequest, "must provide id or code")
+	}
+
+	return helpers.NewSuccessResponse("Queue found", fiber.Map{
+		"queue_id":   queue.ID,
+		"queue_name": queue.Name,
+	}).OK(c)
+}
+
 // GetLiveQueueByID godoc
 // @Summary Get live queue by ID
 // @Description Gets the live queue for the authenticated host.

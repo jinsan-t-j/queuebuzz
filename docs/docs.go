@@ -904,6 +904,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/entry/recover-by-token": {
+            "get": {
+                "description": "Recovers a guest session using an email recovery token.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Entry"
+                ],
+                "summary": "Recover session by token",
+                "responses": {
+                    "200": {
+                        "description": "Session recovered",
+                        "schema": {
+                            "$ref": "#/definitions/dto.EntryRecord"
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/entry/recover-session": {
             "get": {
                 "description": "Recovers the session for the currently authenticated entry.",
@@ -1683,7 +1730,7 @@ const docTemplate = `{
         },
         "/queue/{id}": {
             "patch": {
-                "description": "Updates the queue settings for the host (name, avg service mins, recovery email).",
+                "description": "Updates the queue settings for the host (name, avg service mins).",
                 "produces": [
                     "application/json"
                 ],
@@ -2742,7 +2789,7 @@ const docTemplate = `{
                 },
                 "slug": {
                     "type": "string",
-                    "maxLength": 20,
+                    "maxLength": 30,
                     "minLength": 3
                 }
             }
@@ -3208,7 +3255,7 @@ const docTemplate = `{
                 },
                 "slug": {
                     "type": "string",
-                    "maxLength": 20,
+                    "maxLength": 30,
                     "minLength": 3
                 },
                 "strict_queue_mode": {

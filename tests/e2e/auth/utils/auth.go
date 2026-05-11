@@ -124,7 +124,7 @@ func GetMagicLinkToken(t *testing.T, mailpitURL, toEmail string) string {
 	token := body[idx+len(start):]
 	// Cut off at first non-alphanumeric/dot/dash character
 	for i, char := range token {
-		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '.' || char == '-') {
+		if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '.' && char != '-' {
 			return token[:i]
 		}
 	}

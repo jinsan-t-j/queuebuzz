@@ -118,6 +118,19 @@ func (r *RedisRepository) ResolveJoinCode(ctx context.Context, code string) (str
 	return queueID, nil
 }
 
+// SetJoinCode explicitly stores a join code mapping for a given queue ID.
+func (r *RedisRepository) SetJoinCode(ctx context.Context, code string, queueID string, ttl time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if ttl <= 0 {
+		ttl = time.Duration(constants.DefaultQueueExpiryH+constants.JoinCodeTTLExtraH) * time.Hour
+	}
+
+	key := fmt.Sprintf("joincode:%s", code)
+	return r.rdb.Set(ctx, key, queueID, ttl).Err()
+}
+
 func (r *RedisRepository) ReleaseJoinCodesBulk(ctx context.Context, codes []string) error {
 	if len(codes) == 0 {
 		return nil

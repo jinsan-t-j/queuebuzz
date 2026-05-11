@@ -285,19 +285,19 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 	return helpers.NewSuccessResponse("Live queue fetched", h.toQueueResponse(c.Context(), *queue)).OK(c)
 }
 
-// FindQueue godoc
-// @Summary Find a queue by id/slug or join code
-// @Description Finds the queue using an ID/slug or a 6-character code.
+// FindActiveQueueByIDOrSlugOrCode godoc
+// @Summary Find a queue by id/slug/code or join code
+// @Description Finds the queue using an ID/slug/code or a 6-character code.
 // @Tags Queue
 // @Produce json
 // @Param id query string false "Queue ID or Slug"
 // @Param code query string false "Join Code"
-// @Success 200 {object} helpers.SuccessResponse{Data=map[string]interface{}} "Queue found"
+// @Success 200 {object} helpers.SuccessResponse{Data=dto.QueueRecord} "Queue found"
 // @Failure 400 {object} map[string]string "Error response"
 // @Failure 404 {object} map[string]string "Error response"
 // @Failure 500 {object} map[string]string "Error response"
 // @Router /queue/p/find [get]
-func (h *Handler) FindQueue(c fiber.Ctx) error {
+func (h *Handler) FindActiveQueueByIDOrSlugOrCode(c fiber.Ctx) error {
 	id := c.Query("id")
 	code := c.Query("code")
 
@@ -307,11 +307,18 @@ func (h *Handler) FindQueue(c fiber.Ctx) error {
 	if code != "" {
 		queueID, err := h.RedisRepo.ResolveJoinCode(c.Context(), code)
 		if err != nil || queueID == "" {
-			// Fallback to database
-			queue, err = h.Service.GetQueueByJoinCode(c.Context(), code)
-			if err != nil || queue == nil {
+			// Fallback to database for join code
+			queue, err = h.Service.GetActiveQueueByJoinCode(c.Context(), code)
+
+			if queue == nil {
+				if err != nil {
+					return fiber.NewError(fiber.StatusNotFound, err.Error())
+				}
 				return fiber.NewError(fiber.StatusNotFound, "Invalid or expired queue code")
 			}
+
+			ttl := time.Until(queue.ExpiresAt) + (time.Duration(constants.JoinCodeTTLExtraH) * time.Hour)
+			_ = h.RedisRepo.SetJoinCode(c.Context(), code, queue.ID, ttl)
 		} else {
 			queue, err = h.Service.GetQueue(c.Context(), queueID)
 			if err != nil {
@@ -331,10 +338,7 @@ func (h *Handler) FindQueue(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "must provide id or code")
 	}
 
-	return helpers.NewSuccessResponse("Queue found", fiber.Map{
-		"queue_id":   queue.ID,
-		"queue_name": queue.Name,
-	}).OK(c)
+	return helpers.NewSuccessResponse("Live queue found", h.toQueueResponse(c.Context(), *queue)).OK(c)
 }
 
 // GetLiveQueueByID godoc

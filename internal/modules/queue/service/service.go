@@ -243,7 +243,11 @@ func (s *Service) GetQueue(ctx context.Context, queueID string) (*domain.Queue, 
 	defer cancel()
 
 	var queue domain.Queue
-	if err := s.queueCol.FindOne(ctx, bson.M{"_id": queueID}).Decode(&queue); err != nil {
+	if err := s.queueCol.FindOne(ctx, bson.M{
+		"_id":        queueID,
+		"status":     bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+		"expires_at": bson.M{"$gt": time.Now()},
+	}).Decode(&queue); err != nil {
 		return nil, err
 	}
 	return &queue, nil
@@ -890,11 +894,17 @@ func (s *Service) GetLiveQueueByID(ctx context.Context, queueID string) (*domain
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var queue domain.Queue
-	if err := s.queueCol.FindOne(ctx, bson.M{
-		"_id":        queueID,
+
+	filter := bson.M{
+		"$or": []bson.M{
+			{"_id": queueID},
+			{"slug": queueID},
+		},
 		"status":     bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
 		"expires_at": bson.M{"$gt": time.Now()},
-	}).Decode(&queue); err != nil {
+	}
+
+	if err := s.queueCol.FindOne(ctx, filter).Decode(&queue); err != nil {
 		if err == mongodriver.ErrNoDocuments {
 			return nil, nil
 		}
@@ -903,7 +913,7 @@ func (s *Service) GetLiveQueueByID(ctx context.Context, queueID string) (*domain
 	return &queue, nil
 }
 
-func (s *Service) GetQueueByJoinCode(ctx context.Context, joinCode string) (*domain.Queue, error) {
+func (s *Service) GetActiveQueueByJoinCode(ctx context.Context, joinCode string) (*domain.Queue, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var queue domain.Queue

@@ -1081,37 +1081,6 @@ paths:
       summary: Finish service (Guest self-serve)
       tags:
       - Entry
-  /entry/join-by-code/{code}:
-    get:
-      description: Joins the queue using a 6-character code.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Successfully joined the queue
-          schema:
-            $ref: '#/definitions/dto.EntryRecord'
-        "400":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Error response
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Join queue by code
-      tags:
-      - Entry
   /entry/join/{id}:
     post:
       description: Joins the queue using a queue ID.
@@ -2104,6 +2073,51 @@ paths:
               type: string
             type: object
       summary: Get the queue history
+      tags:
+      - Queue
+  /queue/p/find:
+    get:
+      description: Finds the queue using an ID/slug/code or a 6-character code.
+      parameters:
+      - description: Queue ID or Slug
+        in: query
+        name: id
+        type: string
+      - description: Join Code
+        in: query
+        name: code
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Queue found
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  $ref: '#/definitions/dto.QueueRecord'
+              type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Find a queue by id/slug/code or join code
       tags:
       - Queue
   /queue/slug-check:

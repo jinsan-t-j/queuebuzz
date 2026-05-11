@@ -91,6 +91,13 @@ func GET(s *setup.TestSuite, path string, cookies ...*http.Cookie) (*http.Respon
 	return s.Do(req)
 }
 
+// GETWithAuth sends a GET request with an access token cookie.
+func GETWithAuth(s *setup.TestSuite, path string, token string) (*http.Response, error) {
+	req, _ := http.NewRequest(http.MethodGet, s.BaseURL+path, nil)
+	req.AddCookie(AuthCookie(token))
+	return s.Do(req)
+}
+
 // PATCH sends a JSON PATCH request.
 func PATCH(s *setup.TestSuite, path string, body any, cookies ...*http.Cookie) (*http.Response, error) {
 	b, _ := json.Marshal(body)
@@ -99,6 +106,15 @@ func PATCH(s *setup.TestSuite, path string, body any, cookies ...*http.Cookie) (
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
+	return s.Do(req)
+}
+
+// PATCHWithAuth sends a JSON PATCH request with an access token cookie.
+func PATCHWithAuth(s *setup.TestSuite, path string, body any, token string) (*http.Response, error) {
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPatch, s.BaseURL+path, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(AuthCookie(token))
 	return s.Do(req)
 }
 

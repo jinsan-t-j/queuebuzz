@@ -17,7 +17,7 @@ func TestSSE_HostStream_ReceivesEvent(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, hostToken := qutil.CreateQueue(t, s, "SSE Host Queue")
+	queueID, joinCode, hostToken := qutil.CreateQueue(t, s, "SSE Host Queue")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -28,7 +28,7 @@ func TestSSE_HostStream_ReceivesEvent(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	qutil.JoinQueue(t, s, queueID, "SSE Customer")
+	qutil.JoinQueue(t, s, queueID, joinCode, "SSE Customer")
 
 	// Wait for the joined or queue_update event, skipping initial snapshot events
 	found := false
@@ -50,7 +50,7 @@ func TestSSE_PublicStream_ReceivesEvent(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, _ := qutil.CreateQueue(t, s, "SSE Public Queue")
+	queueID, joinCode, _ := qutil.CreateQueue(t, s, "SSE Public Queue")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -61,7 +61,7 @@ func TestSSE_PublicStream_ReceivesEvent(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	qutil.JoinQueue(t, s, queueID, "Public SSE Customer")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Public SSE Customer")
 
 	// Wait for the waiting_count_updated event, skipping initial snapshot
 	found := false
@@ -83,7 +83,7 @@ func TestSSE_Unauthorized(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, _ := qutil.CreateQueue(t, s, "SSE Auth Queue")
+	queueID, _, _ := qutil.CreateQueue(t, s, "SSE Auth Queue")
 
 	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/manage/%s/events", queueID))
 	require.NoError(t, err)
@@ -95,8 +95,8 @@ func TestSSE_BroadcastIsolation(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID1, hostToken1 := qutil.CreateQueue(t, s, "SSE Isolation 1")
-	queueID2, _ := qutil.CreateQueue(t, s, "SSE Isolation 2")
+	queueID1, _, hostToken1 := qutil.CreateQueue(t, s, "SSE Isolation 1")
+	queueID2, joinCode2, _ := qutil.CreateQueue(t, s, "SSE Isolation 2")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -118,7 +118,7 @@ drain:
 		}
 	}
 
-	qutil.JoinQueue(t, s, queueID2, "Queue2 Customer")
+	qutil.JoinQueue(t, s, queueID2, joinCode2, "Queue2 Customer")
 
 	select {
 	case ev := <-ch:
@@ -133,8 +133,8 @@ func TestSSE_Concurrent_IsolatedTopics(t *testing.T) {
 	s.CleanDB()
 
 	// 1. Create two queues
-	q1, _ := qutil.CreateQueue(t, s, "Queue 1")
-	q2, _ := qutil.CreateQueue(t, s, "Queue 2")
+	q1, jc1, _ := qutil.CreateQueue(t, s, "Queue 1")
+	q2, _, _ := qutil.CreateQueue(t, s, "Queue 2")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -151,7 +151,7 @@ func TestSSE_Concurrent_IsolatedTopics(t *testing.T) {
 	<-ch2
 
 	// 3. Join Q1 only
-	qutil.JoinQueue(t, s, q1, "Customer for Q1")
+	qutil.JoinQueue(t, s, q1, jc1, "Customer for Q1")
 
 	// 4. Verify Q1 gets event, Q2 doesn't (isolation)
 	select {

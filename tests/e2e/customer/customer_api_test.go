@@ -18,10 +18,10 @@ func TestCustomer_Join_HappyPath(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, _ := qutil.CreateQueue(t, s, "Join Test Queue")
+	queueID, joinCode, _ := qutil.CreateQueue(t, s, "Join Test Queue")
 
 	// Guest joins
-	guestToken := qutil.JoinQueue(t, s, queueID, "Rajan Kumar")
+	guestToken := qutil.JoinQueue(t, s, queueID, joinCode, "Rajan Kumar")
 	assert.NotEmpty(t, guestToken)
 
 	// Guest can view public status
@@ -35,7 +35,7 @@ func TestCustomer_ConcurrentJoins(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	queueID, _ := qutil.CreateQueue(t, s, "Concurrent Queue")
+	queueID, joinCode, _ := qutil.CreateQueue(t, s, "Concurrent Queue")
 
 	const n = 20 // Reduced for speed in E2E, 50 was before
 	var wg sync.WaitGroup
@@ -48,6 +48,7 @@ func TestCustomer_ConcurrentJoins(t *testing.T) {
 			payload, _ := json.Marshal(map[string]any{
 				"display_name": fmt.Sprintf("User%d", idx),
 				"fingerprint":  fmt.Sprintf("fp-user-%d", idx),
+				"join_code":    joinCode,
 			})
 			req, _ := http.NewRequest(http.MethodPost, s.BaseURL+fmt.Sprintf("/api/v1/customer/entry/join/%s", queueID), bytes.NewReader(payload))
 			req.Header.Set("Content-Type", "application/json")

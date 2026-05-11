@@ -127,7 +127,16 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		req.AvgServiceMins = &defaultMins
 	}
 
-	isUserSlug := helpers.DerefString(req.Slug) != ""
+	hasUserSlug := helpers.DerefString(req.Slug) != ""
+
+	if hasUserSlug {
+		role, _ := c.Locals("role").(string)
+		if role != constants.RoleRegisteredHost {
+			return fiber.NewError(fiber.StatusForbidden,
+				"Custom queue URLs require a QueueBuzz account. Sign up free to unlock this feature.")
+		}
+	}
+
 	slug := strings.ToLower(helpers.DerefString(req.Slug))
 	if slug == "" {
 		slug = helpers.GenerateSlug()
@@ -164,9 +173,13 @@ func (h *Handler) Create(c fiber.Ctx) error {
 			break
 		}
 
+		if strings.Contains(err.Error(), "invalid slug format") || strings.Contains(err.Error(), "slug is reserved") {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+
 		// Handle duplicate key/collision (E11000)
 		if strings.Contains(err.Error(), "E11000") || strings.Contains(err.Error(), "duplicate") {
-			if isUserSlug {
+			if hasUserSlug {
 				return fiber.NewError(fiber.StatusConflict, "This custom slug is already taken. Please choose another one.")
 			}
 
@@ -226,6 +239,9 @@ func (h *Handler) CheckSlug(c fiber.Ctx) error {
 
 	available, err := h.Service.CheckSlugAvailability(c.Context(), slug)
 	if err != nil {
+		if strings.Contains(err.Error(), "invalid slug format") {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to check slug availability")
 	}
 
@@ -267,6 +283,62 @@ func (h *Handler) GetLiveQueue(c fiber.Ctx) error {
 	}
 
 	return helpers.NewSuccessResponse("Live queue fetched", h.toQueueResponse(c.Context(), *queue)).OK(c)
+}
+
+// FindActiveQueueByIDOrSlugOrCode godoc
+// @Summary Find a queue by id/slug/code or join code
+// @Description Finds the queue using an ID/slug/code or a 6-character code.
+// @Tags Queue
+// @Produce json
+// @Param id query string false "Queue ID or Slug"
+// @Param code query string false "Join Code"
+// @Success 200 {object} helpers.SuccessResponse{Data=dto.QueueRecord} "Queue found"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 404 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/p/find [get]
+func (h *Handler) FindActiveQueueByIDOrSlugOrCode(c fiber.Ctx) error {
+	id := c.Query("id")
+	code := c.Query("code")
+
+	var queue *domain.Queue
+	var err error
+
+	if code != "" {
+		queueID, err := h.RedisRepo.ResolveJoinCode(c.Context(), code)
+		if err != nil || queueID == "" {
+			// Fallback to database for join code
+			queue, err = h.Service.GetActiveQueueByJoinCode(c.Context(), code)
+
+			if queue == nil {
+				if err != nil {
+					return fiber.NewError(fiber.StatusNotFound, err.Error())
+				}
+				return fiber.NewError(fiber.StatusNotFound, "Invalid or expired queue code")
+			}
+
+			ttl := time.Until(queue.ExpiresAt) + (time.Duration(constants.JoinCodeTTLExtraH) * time.Hour)
+			_ = h.RedisRepo.SetJoinCode(c.Context(), code, queue.ID, ttl)
+		} else {
+			queue, err = h.Service.GetQueue(c.Context(), queueID)
+			if err != nil {
+				return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+			}
+		}
+
+		if id != "" && queue.ID != id && queue.Slug != id {
+			return fiber.NewError(fiber.StatusNotFound, "Invalid code for this queue")
+		}
+	} else if id != "" {
+		queue, err = h.Service.GetLiveQueueByID(c.Context(), id)
+		if err != nil || queue == nil {
+			return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+		}
+	} else {
+		return fiber.NewError(fiber.StatusBadRequest, "must provide id or code")
+	}
+
+	return helpers.NewSuccessResponse("Live queue found", h.toQueueResponse(c.Context(), *queue)).OK(c)
 }
 
 // GetLiveQueueByID godoc
@@ -414,7 +486,7 @@ func (h *Handler) PauseQueue(c fiber.Ctx) error {
 
 // Update godoc
 // @Summary Update queue settings
-// @Description Updates the queue settings for the host (name, avg service mins, recovery email).
+// @Description Updates the queue settings for the host (name, avg service mins).
 // @Tags Queue
 // @Produce json
 // @Param id path string true "Queue ID"

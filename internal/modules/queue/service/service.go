@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,6 +25,20 @@ import (
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
+
+// slugRegex enforces lowercase alphanumeric + hyphens, 3-30 chars,
+// must start and end with alphanumeric.
+var slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$`)
+
+var reservedSlugs = map[string]bool{
+	"admin": true, "api": true, "app": true, "auth": true,
+	"billing": true, "checkout": true, "dashboard": true,
+	"guest-host": true, "help": true, "history": true,
+	"join": true, "login": true, "pricing": true,
+	"queue": true, "recover": true, "settings": true,
+	"signup": true, "support": true, "terms": true,
+	"privacy": true, "status": true, "waiting": true,
+}
 
 type Service struct {
 	queueCol     *mongodriver.Collection
@@ -65,7 +80,7 @@ type CreateQueueParams struct {
 }
 
 type JoinQueueParams struct {
-	QueueID     string
+	Queue       *domain.Queue
 	Name        string
 	Email       *string
 	Phone       *string
@@ -106,6 +121,14 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		params.AvgServiceMins = constants.DefaultAvgServiceMins
 	}
 
+	slug := strings.ToLower(strings.TrimSpace(params.Slug))
+	if !IsValidSlug(slug) {
+		return nil, fmt.Errorf("invalid slug format: must be 3-30 lowercase alphanumeric characters or hyphens")
+	}
+	if reservedSlugs[slug] {
+		return nil, fmt.Errorf("slug is reserved")
+	}
+
 	now := time.Now()
 
 	allowParty := params.AllowPartyJoining != nil && *params.AllowPartyJoining
@@ -134,7 +157,7 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		HostID:            params.HostID,
 		HostPublicID:      params.HostPublicID,
 		Name:              params.Name,
-		Slug:              params.Slug,
+		Slug:              slug,
 		AvgServiceMins:    params.AvgServiceMins,
 		AllowPartyJoining: allowParty,
 		MaxPartySize:      maxParty,
@@ -194,6 +217,15 @@ func (s *Service) CheckSlugAvailability(ctx context.Context, slug string) (bool,
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	slug = strings.ToLower(strings.TrimSpace(slug))
+
+	if !IsValidSlug(slug) {
+		return false, fmt.Errorf("invalid slug format: must be 3-30 lowercase alphanumeric characters or hyphens")
+	}
+	if reservedSlugs[slug] {
+		return false, nil
+	}
+
 	count, err := s.queueCol.CountDocuments(ctx, bson.M{"slug": slug})
 	if err != nil {
 		return false, err
@@ -201,12 +233,21 @@ func (s *Service) CheckSlugAvailability(ctx context.Context, slug string) (bool,
 	return count == 0, nil
 }
 
+// IsValidSlug checks slug format without DB lookup.
+func IsValidSlug(slug string) bool {
+	return slugRegex.MatchString(slug)
+}
+
 func (s *Service) GetQueue(ctx context.Context, queueID string) (*domain.Queue, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	var queue domain.Queue
-	if err := s.queueCol.FindOne(ctx, bson.M{"_id": queueID}).Decode(&queue); err != nil {
+	if err := s.queueCol.FindOne(ctx, bson.M{
+		"_id":        queueID,
+		"status":     bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+		"expires_at": bson.M{"$gt": time.Now()},
+	}).Decode(&queue); err != nil {
 		return nil, err
 	}
 	return &queue, nil
@@ -853,11 +894,17 @@ func (s *Service) GetLiveQueueByID(ctx context.Context, queueID string) (*domain
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var queue domain.Queue
-	if err := s.queueCol.FindOne(ctx, bson.M{
-		"_id":        queueID,
+
+	filter := bson.M{
+		"$or": []bson.M{
+			{"_id": queueID},
+			{"slug": queueID},
+		},
 		"status":     bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
 		"expires_at": bson.M{"$gt": time.Now()},
-	}).Decode(&queue); err != nil {
+	}
+
+	if err := s.queueCol.FindOne(ctx, filter).Decode(&queue); err != nil {
 		if err == mongodriver.ErrNoDocuments {
 			return nil, nil
 		}
@@ -866,7 +913,7 @@ func (s *Service) GetLiveQueueByID(ctx context.Context, queueID string) (*domain
 	return &queue, nil
 }
 
-func (s *Service) GetQueueByJoinCode(ctx context.Context, joinCode string) (*domain.Queue, error) {
+func (s *Service) GetActiveQueueByJoinCode(ctx context.Context, joinCode string) (*domain.Queue, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var queue domain.Queue

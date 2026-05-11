@@ -19,11 +19,11 @@ func TestResilience_ReadYourWrites_Consistent(t *testing.T) {
 
 	// Register host (full lifecycle) and upgrade to pro for history access
 	token, hostID, _ := authutil.RegisterHost(t, s, "Consistency Host", "consistency@test.com", "password")
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Consistency Queue", token)
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Consistency Queue", token)
 	billing.UpgradeToPremium(t, s, hostID, token)
 
 	// Write: Join
-	qutil.JoinQueue(t, s, queueID, "Resilient User")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Resilient User")
 
 	// Read: Check history (must be immediately visible)
 	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/manage/%s/history", queueID), util.AuthCookie(token))

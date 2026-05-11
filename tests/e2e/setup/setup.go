@@ -25,13 +25,14 @@ import (
 
 // TestSuite wraps the in-process Fiber app and database handles.
 type TestSuite struct {
-	App      *app.App
-	DB       *mongodriver.Database
-	T        *testing.T
-	BaseURL  string
-	Proxy    *toxiproxy.Client
-	Client   *http.Client
-	DodoMock *providers.DodoMockServer
+	App        *app.App
+	DB         *mongodriver.Database
+	T          *testing.T
+	BaseURL    string
+	MailpitURL string
+	Proxy      *toxiproxy.Client
+	Client     *http.Client
+	DodoMock   *providers.DodoMockServer
 }
 
 var (
@@ -48,19 +49,26 @@ func (*MockSender) SendToMultiple(_ context.Context, _ []string, _, _ string, _ 
 	return nil
 }
 
-func NewTestSuite(t *testing.T, mongoURI, redisURL string, toxiproxyClient *toxiproxy.Client) *TestSuite {
+func NewTestSuite(t *testing.T, mongoURI, redisURL, mailpitURL string, toxiproxyClient *toxiproxy.Client) *TestSuite {
 	t.Helper()
 	sharedSuiteOnce.Do(func() {
-		sharedSuite = bootApp(t, mongoURI, redisURL, toxiproxyClient)
+		sharedSuite = bootApp(t, mongoURI, redisURL, mailpitURL, toxiproxyClient)
 	})
+
+	// Ensure MAILPIT_API_URL is set for the current process
+	if mailpitURL != "" {
+		os.Setenv("MAILPIT_API_URL", mailpitURL)
+	}
+
 	return &TestSuite{
-		App:      sharedSuite.App,
-		DB:       sharedSuite.DB,
-		T:        t,
-		BaseURL:  sharedSuite.BaseURL,
-		Proxy:    sharedSuite.Proxy,
-		Client:   sharedSuite.Client,
-		DodoMock: sharedSuite.DodoMock,
+		App:        sharedSuite.App,
+		DB:         sharedSuite.DB,
+		T:          t,
+		BaseURL:    sharedSuite.BaseURL,
+		MailpitURL: sharedSuite.MailpitURL,
+		Proxy:      sharedSuite.Proxy,
+		Client:     sharedSuite.Client,
+		DodoMock:   sharedSuite.DodoMock,
 	}
 }
 
@@ -70,7 +78,7 @@ func TeardownSharedSuite() {
 	}
 }
 
-func bootApp(t *testing.T, mongoURI, redisURL string, toxiproxyClient *toxiproxy.Client) *TestSuite {
+func bootApp(t *testing.T, mongoURI, redisURL, mailpitURL string, toxiproxyClient *toxiproxy.Client) *TestSuite {
 	t.Helper()
 
 	cfg := &config.Config{}
@@ -89,12 +97,17 @@ func bootApp(t *testing.T, mongoURI, redisURL string, toxiproxyClient *toxiproxy
 		log.Error().Msg("Failed to load test.env for E2E tests. Falling back to default config.")
 	}
 
+	// Always read env to override config with container-provided URIs
+	_ = cleanenv.ReadEnv(cfg)
+
 	cfg.DBUri = mongoURI
 	cfg.RedisURL = redisURL
 	cfg.AppEnv = "test"
 	cfg.DisableRateLimit = true
 
-	return BootAppWithConfig(t, cfg, &MockSender{}, toxiproxyClient)
+	ts := BootAppWithConfig(t, cfg, &MockSender{}, toxiproxyClient)
+	ts.MailpitURL = mailpitURL
+	return ts
 }
 
 func BootAppWithConfig(t *testing.T, cfg *config.Config, sender firebase.NotificationSender, toxiproxyClient *toxiproxy.Client) *TestSuite {
@@ -103,14 +116,17 @@ func BootAppWithConfig(t *testing.T, cfg *config.Config, sender firebase.Notific
 	dodoMock := providers.NewDodoMockServer()
 	dodoOpts := []option.RequestOption{option.WithBaseURL(dodoMock.Server.URL)}
 
-	a := app.New(cfg, sender, dodoOpts...)
-	a.Container.Start()
-
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	baseURL := fmt.Sprintf("http://%s", listener.Addr().String())
+
+	cfg.AppURL = baseURL
+	cfg.FrontendURL = baseURL
+
+	a := app.New(cfg, sender, dodoOpts...)
+	a.Container.Start()
 
 	ready := make(chan struct{})
 	a.Fiber.Hooks().OnListen(func(_ fiber.ListenData) error {

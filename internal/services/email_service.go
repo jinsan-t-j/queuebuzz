@@ -147,7 +147,7 @@ func (s *EmailService) SendBuzzFallback(toEmail, ticketNo, queueName, queueID st
 	data := map[string]interface{}{
 		"TicketNo":  ticketNo,
 		"QueueName": queueName,
-		"Link":      fmt.Sprintf("%s/q/%s/waiting", s.cfg.AppURL, queueID),
+		"Link":      fmt.Sprintf("%s/q/%s/waiting", s.cfg.FrontendURL, queueID),
 		"Year":      time.Now().Year(),
 	}
 
@@ -157,6 +157,23 @@ func (s *EmailService) SendBuzzFallback(toEmail, ticketNo, queueName, queueID st
 	}
 
 	s.job.Dispatch(toEmail, "It's your turn! 🎉", html)
+	return nil
+}
+
+// SendSessionRecovery sends a one-time queue recovery email to a guest.
+func (s *EmailService) SendSessionRecovery(toEmail, queueName, link string) error {
+	data := map[string]interface{}{
+		"QueueName": queueName,
+		"Link":      link,
+		"Year":      time.Now().Year(),
+	}
+
+	html, err := s.renderTemplate("session_recovery.gohtml", data)
+	if err != nil {
+		return err
+	}
+
+	s.job.Dispatch(toEmail, "Recover your queue position — QueueBuzz", html)
 	return nil
 }
 
@@ -282,7 +299,7 @@ func (s *EmailService) SendPaymentFailed(toEmail, planName, billingCycle string)
 func (s *EmailService) SendSubscriptionCancelled(toEmail, planName string) error {
 	data := map[string]interface{}{
 		"PlanName":    planName,
-		"PricingLink": fmt.Sprintf("%s/pricing", s.cfg.AppURL),
+		"PricingLink": fmt.Sprintf("%s/pricing", s.cfg.FrontendURL),
 		"Year":        time.Now().Year(),
 	}
 

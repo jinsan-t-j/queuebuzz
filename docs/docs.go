@@ -810,53 +810,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/entry/join-by-code/{code}": {
-            "get": {
-                "description": "Joins the queue using a 6-character code.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Entry"
-                ],
-                "summary": "Join queue by code",
-                "responses": {
-                    "200": {
-                        "description": "Successfully joined the queue",
-                        "schema": {
-                            "$ref": "#/definitions/dto.EntryRecord"
-                        }
-                    },
-                    "400": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error response",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/entry/join/{id}": {
             "post": {
                 "description": "Joins the queue using a queue ID.",
@@ -894,6 +847,53 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/entry/recover-by-token": {
+            "get": {
+                "description": "Recovers a guest session using an email recovery token.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Entry"
+                ],
+                "summary": "Recover session by token",
+                "responses": {
+                    "200": {
+                        "description": "Session recovered",
+                        "schema": {
+                            "$ref": "#/definitions/dto.EntryRecord"
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1622,6 +1622,79 @@ const docTemplate = `{
                 }
             }
         },
+        "/queue/p/find": {
+            "get": {
+                "description": "Finds the queue using an ID/slug/code or a 6-character code.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Find a queue by id/slug/code or join code",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue ID or Slug",
+                        "name": "id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Join Code",
+                        "name": "code",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Queue found",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/helpers.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "Data": {
+                                            "$ref": "#/definitions/dto.QueueRecord"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/queue/slug-check": {
             "get": {
                 "description": "Checks whether a queue slug is unique and available.",
@@ -1683,7 +1756,7 @@ const docTemplate = `{
         },
         "/queue/{id}": {
             "patch": {
-                "description": "Updates the queue settings for the host (name, avg service mins, recovery email).",
+                "description": "Updates the queue settings for the host (name, avg service mins).",
                 "produces": [
                     "application/json"
                 ],
@@ -2742,7 +2815,7 @@ const docTemplate = `{
                 },
                 "slug": {
                     "type": "string",
-                    "maxLength": 20,
+                    "maxLength": 30,
                     "minLength": 3
                 }
             }
@@ -3208,7 +3281,7 @@ const docTemplate = `{
                 },
                 "slug": {
                     "type": "string",
-                    "maxLength": 20,
+                    "maxLength": 30,
                     "minLength": 3
                 },
                 "strict_queue_mode": {

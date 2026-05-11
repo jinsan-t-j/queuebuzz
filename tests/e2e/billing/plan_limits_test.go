@@ -36,7 +36,7 @@ func TestPlanLimits_MonthlyQueueQuota_Free(t *testing.T) {
 
 	token, _, _ := authutil.RegisterHost(t, s, "Quota Host", "quota@test.com", "password")
 
-	q1 := qutil.CreateAuthenticatedQueue(t, s, "First Queue", token)
+	q1, _ := qutil.CreateAuthenticatedQueue(t, s, "First Queue", token)
 	qutil.TerminateQueue(t, s, q1, token)
 
 	payload := map[string]any{"name": "Over Quota Queue"}
@@ -76,9 +76,9 @@ func TestPlanLimits_MonthlyQueueQuota_Pro(t *testing.T) {
 	UpgradeToProPlan(t, s, hostID, token)
 
 	// Pro plan allows 25 queues per month. Create 2 queues via API.
-	q1 := qutil.CreateAuthenticatedQueue(t, s, "Queue 1", token)
+	q1, _ := qutil.CreateAuthenticatedQueue(t, s, "Queue 1", token)
 	qutil.TerminateQueue(t, s, q1, token)
-	q2 := qutil.CreateAuthenticatedQueue(t, s, "Queue 2", token)
+	q2, _ := qutil.CreateAuthenticatedQueue(t, s, "Queue 2", token)
 	qutil.TerminateQueue(t, s, q2, token)
 
 	payload := map[string]any{"name": "Pro Queue 3"}
@@ -97,11 +97,14 @@ func TestPlanLimits_GuestCapacity_Free(t *testing.T) {
 	s.CleanDB()
 
 	token, _, _ := authutil.RegisterHost(t, s, "GuestCap Host", "gcap@test.com", "password")
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Cap Queue", token)
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Cap Queue", token)
 
 	// Fill queue to free limit (25 guests) using the public join path
 	for i := 1; i <= 25; i++ {
-		payload := map[string]any{"name": fmt.Sprintf("Guest %d", i)}
+		payload := map[string]any{
+			"name":      fmt.Sprintf("Guest %d", i),
+			"join_code": joinCode,
+		}
 		resp, err := util.POST(s, "/api/v1/queue/p/"+queueID+"/join", payload)
 		require.NoError(t, err)
 		resp.Body.Close()
@@ -109,7 +112,10 @@ func TestPlanLimits_GuestCapacity_Free(t *testing.T) {
 	}
 
 	// 26th guest should be blocked
-	payload := map[string]any{"name": "Overflow Guest"}
+	payload := map[string]any{
+		"name":      "Overflow Guest",
+		"join_code": joinCode,
+	}
 	resp, err := util.POST(s, "/api/v1/queue/p/"+queueID+"/join", payload)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -128,11 +134,14 @@ func TestPlanLimits_GuestCapacity_Pro(t *testing.T) {
 	token, hostID, _ := authutil.RegisterHost(t, s, "ProCap Host", "pcap@test.com", "password")
 
 	UpgradeToProPlan(t, s, hostID, token)
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Pro Cap Queue", token)
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Pro Cap Queue", token)
 
 	// Fill 26 guests (over free limit, under pro limit of 100)
 	for i := 1; i <= 26; i++ {
-		payload := map[string]any{"name": fmt.Sprintf("ProGuest %d", i)}
+		payload := map[string]any{
+			"name":      fmt.Sprintf("ProGuest %d", i),
+			"join_code": joinCode,
+		}
 		resp, err := util.POST(s, "/api/v1/queue/p/"+queueID+"/join", payload)
 		require.NoError(t, err)
 		resp.Body.Close()
@@ -140,7 +149,10 @@ func TestPlanLimits_GuestCapacity_Pro(t *testing.T) {
 	}
 
 	// 27th guest should still be allowed (pro allows 100)
-	payload := map[string]any{"name": "ProGuest 27"}
+	payload := map[string]any{
+		"name":      "ProGuest 27",
+		"join_code": joinCode,
+	}
 	resp, err := util.POST(s, "/api/v1/queue/p/"+queueID+"/join", payload)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -155,8 +167,8 @@ func TestPlanLimits_HistoryAccess_FreeBlocked(t *testing.T) {
 	s.CleanDB()
 
 	token, _, _ := authutil.RegisterHost(t, s, "FreeHist Host", "freehist@test.com", "password")
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Hist Queue", token)
-	qutil.JoinQueue(t, s, queueID, "HistGuest")
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Hist Queue", token)
+	qutil.JoinQueue(t, s, queueID, joinCode, "HistGuest")
 
 	resp, err := util.GET(s, "/api/v1/queue/manage/"+queueID+"/history", util.AuthCookie(token))
 	require.NoError(t, err)
@@ -176,8 +188,8 @@ func TestPlanLimits_HistoryAccess_ProAllowed(t *testing.T) {
 	token, hostID, _ := authutil.RegisterHost(t, s, "ProHist Host", "prohist@test.com", "password")
 
 	UpgradeToProPlan(t, s, hostID, token)
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Pro Hist Queue", token)
-	qutil.JoinQueue(t, s, queueID, "ProHistGuest")
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Pro Hist Queue", token)
+	qutil.JoinQueue(t, s, queueID, joinCode, "ProHistGuest")
 
 	resp, err := util.GET(s, "/api/v1/queue/manage/"+queueID+"/history", util.AuthCookie(token))
 	require.NoError(t, err)
@@ -296,7 +308,7 @@ func TestPlanLimits_CancelSubscription_FreeLimitsRestore(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp3.StatusCode, "after cancellation, list should still be allowed")
 
 	// History detail should be blocked
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Test Queue", token)
+	queueID, _ := qutil.CreateAuthenticatedQueue(t, s, "Test Queue", token)
 	resp4, err := util.GET(s, "/api/v1/queue/manage/"+queueID+"/history", util.AuthCookie(token))
 	require.NoError(t, err)
 	defer resp4.Body.Close()
@@ -310,11 +322,14 @@ func TestPlanLimits_CancelSubscription_GuestCapResets(t *testing.T) {
 	token, hostID, _ := authutil.RegisterHost(t, s, "CapReset Host", "capreset@test.com", "password")
 
 	UpgradeToProPlan(t, s, hostID, token)
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Cap Reset Queue", token)
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Cap Reset Queue", token)
 
 	// Fill 26 guests (over free cap of 25, under pro cap of 100)
 	for i := 1; i <= 26; i++ {
-		payload := map[string]any{"name": fmt.Sprintf("ResetGuest %d", i)}
+		payload := map[string]any{
+			"name":      fmt.Sprintf("ResetGuest %d", i),
+			"join_code": joinCode,
+		}
 		resp, err := util.POST(s, "/api/v1/queue/p/"+queueID+"/join", payload)
 		require.NoError(t, err)
 		resp.Body.Close()
@@ -339,16 +354,22 @@ func TestPlanLimits_CancelSubscription_GuestCapResets(t *testing.T) {
 	s.App.Container.Redis.Del(context.Background(), "billing:host_plan:"+hostID)
 
 	// New queue as free host — cap should be 25
-	queueID2 := qutil.CreateAuthenticatedQueue(t, s, "Post Cancel Queue", token)
+	queueID2, joinCode2 := qutil.CreateAuthenticatedQueue(t, s, "Post Cancel Queue", token)
 	for i := 1; i <= 25; i++ {
-		payload := map[string]any{"name": fmt.Sprintf("NewGuest %d", i)}
+		payload := map[string]any{
+			"name":      fmt.Sprintf("NewGuest %d", i),
+			"join_code": joinCode2,
+		}
 		resp, err := util.POST(s, "/api/v1/queue/p/"+queueID2+"/join", payload)
 		require.NoError(t, err)
 		resp.Body.Close()
 	}
 
 	// 26th guest should be blocked on the new queue
-	payload := map[string]any{"name": "Blocked Guest"}
+	payload := map[string]any{
+		"name":      "Blocked Guest",
+		"join_code": joinCode2,
+	}
 	// after cancellation, free guest limit should apply
 	var joinResp *http.Response
 	for i := 0; i < 10; i++ {

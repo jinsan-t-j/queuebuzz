@@ -32,12 +32,12 @@ func TestQueue_Expiry(t *testing.T) {
 	}
 
 	// 1. Create a queue
-	queueID := qutil.CreateAuthenticatedQueue(t, s, "Expirable Queue", token)
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Expirable Queue", token)
 	assert.Equal(t, 1, getCount(), "Quota should be 1 after creation")
 
 	// 2. Add some entries (to verify cleanup)
-	qutil.JoinQueue(t, s, queueID, "Customer 1")
-	qutil.JoinQueue(t, s, queueID, "Customer 2")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Customer 1")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Customer 2")
 
 	// Verify Redis keys exist
 	exists, _ := s.App.Container.Redis.Exists(ctx, fmt.Sprintf("queue_positions:%s", queueID)).Result()

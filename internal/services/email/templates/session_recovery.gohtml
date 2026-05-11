@@ -1,0 +1,17 @@
+{{define "title"}}Recover your queue position{{end}}
+
+{{define "content"}}
+<h1 style="font-size: 24px; margin-top: 0;">Recover your queue position</h1>
+<p style="line-height: 1.6; margin: 16px 0;">
+    You're still in line for <strong>{{.QueueName}}</strong>.
+    Click below to reclaim your spot from any device.
+</p>
+<div style="text-align: center;">
+    <a href="{{.Link}}" style="display: inline-block; background-color: #00E5A0; color: #1A0A2E !important; padding: 12px 32px; border-radius: 100px; text-decoration: none; font-weight: bold; margin: 24px 0;">Reclaim My Spot</a>
+</div>
+<p style="line-height: 1.6; margin: 16px 0;">
+    This link is single-use and expires in 2 hours. If you didn't join a queue, you can ignore this email.
+</p>
+{{end}}
+
+{{template "layout" .}}

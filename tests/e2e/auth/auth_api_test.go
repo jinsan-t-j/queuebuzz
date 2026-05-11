@@ -15,7 +15,7 @@ func TestAuth_AnonymousHost_HappyPath(t *testing.T) {
 	s.CleanDB()
 
 	// 1. Create queue anonymously
-	queueID, hostToken := qutil.CreateQueue(t, s, "My First Queue")
+	queueID, _, hostToken := qutil.CreateQueue(t, s, "My First Queue")
 	assert.NotEmpty(t, queueID)
 	assert.NotEmpty(t, hostToken)
 
@@ -32,7 +32,7 @@ func TestAuth_Logout(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	_, hostToken := qutil.CreateQueue(t, s, "Logout Test")
+	_, _, hostToken := qutil.CreateQueue(t, s, "Logout Test")
 
 	// Logout
 	resp, err := util.POST(s, "/api/v1/auth/logout", nil, util.HostCookie(hostToken))

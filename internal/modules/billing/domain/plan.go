@@ -11,6 +11,7 @@ type PlanLimit struct {
 	QueueExpiryHours     int  `bson:"queue_expiry_hours" json:"queue_expiry_hours"`
 	CanViewGuestData     bool `bson:"can_view_guest_data" json:"can_view_guest_data"`
 	HistoryRetentionDays int  `bson:"history_retention_days" json:"history_retention_days"`
+	AllowGeoLock         bool `bson:"allow_geo_lock" json:"allow_geo_lock"`
 }
 
 type Plan struct {

@@ -85,7 +85,7 @@ func (s *BillingService) downgradeHostTier(ctx context.Context, hostID string) e
 }
 
 func (s *BillingService) handleNoSubscription(ctx context.Context, hostID string) (*domain.Plan, error) {
-	p, err := s.getStandardFreePlan(ctx)
+	p, err := s.GetStandardFreePlan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch default plan: %w", err)
 	}
@@ -1057,7 +1057,7 @@ func generateInvoiceNumber() string {
 	return fmt.Sprintf("QB-%s-%s", now.Format("20060102"), uuid.New().String()[:6])
 }
 
-func (s *BillingService) getStandardFreePlan(ctx context.Context) (*domain.Plan, error) {
+func (s *BillingService) GetStandardFreePlan(ctx context.Context) (*domain.Plan, error) {
 	var plan domain.Plan
 	opts := options.FindOne().SetSort(bson.M{"created_at": -1})
 	err := s.plansCol.FindOne(ctx, bson.M{"tier": "free", "is_free": true}, opts).Decode(&plan)

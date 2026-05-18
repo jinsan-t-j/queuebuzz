@@ -120,11 +120,16 @@ func TestBilling_CurrentPlan(t *testing.T) {
 	s := Suite(t)
 	s.CleanDB()
 
-	t.Run("Unauthenticated returns 401", func(t *testing.T) {
+	t.Run("Unauthenticated returns 200 with default free plan", func(t *testing.T) {
 		resp, err := util.GET(s, "/api/v1/billing/current-plan")
 		require.NoError(t, err)
 		defer resp.Body.Close()
-		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		data := util.DecodedBody(t, resp)
+		assert.NotEmpty(t, data["plan"])
+		planMap := data["plan"].(map[string]any)
+		assert.Equal(t, "free", planMap["tier"])
 	})
 
 	t.Run("Authenticated no subscription returns free", func(t *testing.T) {

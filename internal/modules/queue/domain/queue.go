@@ -22,6 +22,10 @@ type Queue struct {
 	ManualPositioning bool          `bson:"manual_positioning" json:"manual_positioning"`
 	StrictQueueMode   bool          `bson:"strict_queue_mode" json:"strict_queue_mode"`
 	CollectEmails     bool          `bson:"collect_emails" json:"collect_emails"`
+	IsGeoLocked       bool          `bson:"is_geo_locked" json:"is_geo_locked"`
+	Latitude          float64       `bson:"latitude" json:"latitude"`
+	Longitude         float64       `bson:"longitude" json:"longitude"`
+	GeoRadiusMeters   float64       `bson:"geo_radius_meters" json:"geo_radius_meters"`
 	HostFCMToken      *string       `bson:"host_fcm_token" json:"-"`
 	HostFCMUpdatedAt  time.Time     `bson:"host_fcm_updated_at" json:"-"`
 	CreatedAt         time.Time     `bson:"created_at" json:"created_at"`

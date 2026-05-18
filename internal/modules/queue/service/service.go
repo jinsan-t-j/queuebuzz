@@ -77,6 +77,10 @@ type CreateQueueParams struct {
 	MaxPartySize      *int
 	ManualPositioning *bool
 	CollectEmails     *bool
+	IsGeoLocked       *bool
+	Latitude          *float64
+	Longitude         *float64
+	GeoRadiusMeters   *float64
 }
 
 type JoinQueueParams struct {
@@ -152,6 +156,18 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		}
 	}
 
+	geoLocked := params.IsGeoLocked != nil && *params.IsGeoLocked
+	var lat, lng, rad float64
+	if params.Latitude != nil {
+		lat = *params.Latitude
+	}
+	if params.Longitude != nil {
+		lng = *params.Longitude
+	}
+	if params.GeoRadiusMeters != nil {
+		rad = *params.GeoRadiusMeters
+	}
+
 	queue := domain.Queue{
 		ID:                uuid.New().String(),
 		HostID:            params.HostID,
@@ -163,6 +179,10 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		MaxPartySize:      maxParty,
 		ManualPositioning: params.ManualPositioning != nil && *params.ManualPositioning,
 		CollectEmails:     params.CollectEmails != nil && *params.CollectEmails,
+		IsGeoLocked:       geoLocked,
+		Latitude:          lat,
+		Longitude:         lng,
+		GeoRadiusMeters:   rad,
 		Status:            constants.QueueStatusActive,
 		CreatedAt:         now,
 		UpdatedAt:         now,
@@ -1433,4 +1453,19 @@ func (s *Service) DeleteQueuesBulk(ctx context.Context, hostID string, queueIDs 
 	}
 
 	return nil
+}
+
+func (s *Service) IsQueueCapacityExceeded(ctx context.Context, queueID string) (bool, error) {
+	queue, err := s.GetQueue(ctx, queueID)
+	if err != nil {
+		return false, err
+	}
+
+	hostID := ""
+	if queue.HostID != nil {
+		hostID = *queue.HostID
+	}
+
+	currentCount, _ := s.GetWaitingCount(ctx, queueID)
+	return s.billingSvc.IsLimitExceeded(ctx, hostID, "guests", int(currentCount+1))
 }

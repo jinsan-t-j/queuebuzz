@@ -33,8 +33,9 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	group.Post("/webhook", m.Handler.HandleWebhook)
 
 	auth := middlewares.HostAuthMiddleware(m.AuthService)
+	optionalAuth := middlewares.OptionalAuthMiddleware(m.AuthService)
 	group.Post("/checkout", auth, m.Handler.GetCheckoutURL)
-	group.Get("/current-plan", auth, m.Handler.GetCurrentPlan)
+	group.Get("/current-plan", optionalAuth, m.Handler.GetCurrentPlan)
 
 	// Subscription management (authenticated)
 	group.Get("/subscription", auth, m.Handler.GetSubscription)

@@ -1,6 +1,9 @@
 package queue
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	authutil "queuebuzz/tests/e2e/auth/utils"
 	qutil "queuebuzz/tests/e2e/queue/utils"
@@ -98,4 +101,64 @@ func TestQueue_ManualPositioning(t *testing.T) {
 	require.NoError(t, util.DecodeJSON(guestResp, &guestData))
 	assert.Equal(t, float64(0), guestData["data"].(map[string]any)["position"],
 		"manual positioning should report position 0 from API")
+}
+
+func TestJoinQueue_CapacityExceeded(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	// 1. Register a host (starts on Free plan with limit of 25 guests per queue)
+	token, _, _ := authutil.RegisterHost(t, s, "Capacity Host", "caphost@test.com", "password")
+
+	// 2. Create queue
+	payload := map[string]any{
+		"name": "Limited Capacity Queue",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest(http.MethodPost, s.BaseURL+"/api/v1/queue/p/create", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(util.AuthCookie(token))
+
+	resp, err := s.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	data := util.DecodedBody(t, resp)
+	queueID := data["id"].(string)
+	joinCode := data["join_code"].(string)
+
+	// 3. Join 25 guests (up to the free tier capacity limit)
+	for i := 1; i <= 25; i++ {
+		joinPayload := map[string]any{
+			"display_name": fmt.Sprintf("Guest %d", i),
+			"fingerprint":  fmt.Sprintf("fingerprint-%d", i),
+			"join_code":    joinCode,
+		}
+		joinBody, _ := json.Marshal(joinPayload)
+		req, _ = http.NewRequest(http.MethodPost, s.BaseURL+fmt.Sprintf("/api/v1/customer/entry/join/%s", queueID), bytes.NewReader(joinBody))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err = s.Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+	}
+
+	// 4. Try to join 26th guest (should be rejected with 403 Forbidden and QUEUE_FULL error code)
+	joinPayload := map[string]any{
+		"display_name": "Guest 26",
+		"fingerprint":  "fingerprint-26",
+		"join_code":    joinCode,
+	}
+	joinBody, _ := json.Marshal(joinPayload)
+	req, _ = http.NewRequest(http.MethodPost, s.BaseURL+fmt.Sprintf("/api/v1/customer/entry/join/%s", queueID), bytes.NewReader(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = s.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	var errBody map[string]any
+	require.NoError(t, util.DecodeJSON(resp, &errBody))
+	assert.Equal(t, "QUEUE_FULL", errBody["code"])
 }

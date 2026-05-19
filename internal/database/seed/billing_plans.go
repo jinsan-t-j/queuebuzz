@@ -38,6 +38,7 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				QueueExpiryHours:     24,
 				CanViewGuestData:     false,
 				HistoryRetentionDays: 7,
+				AllowGeoLock:         false,
 			},
 			CreatedAt: time.Now(),
 		},
@@ -64,6 +65,7 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				QueueExpiryHours:     72, // 3 days
 				CanViewGuestData:     true,
 				HistoryRetentionDays: 0,
+				AllowGeoLock:         true,
 			},
 			CreatedAt: time.Now(),
 		},
@@ -90,6 +92,7 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				QueueExpiryHours:     72,
 				CanViewGuestData:     true,
 				HistoryRetentionDays: 0,
+				AllowGeoLock:         true,
 			},
 			CreatedAt: time.Now(),
 		},
@@ -116,6 +119,7 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				QueueExpiryHours:     168, // 1 week
 				CanViewGuestData:     true,
 				HistoryRetentionDays: 0,
+				AllowGeoLock:         true,
 			},
 			CreatedAt: time.Now(),
 		},
@@ -142,6 +146,7 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				QueueExpiryHours:     168,
 				CanViewGuestData:     true,
 				HistoryRetentionDays: 0, // Unlimited
+				AllowGeoLock:         true,
 			},
 			CreatedAt: time.Now(),
 		},
@@ -166,6 +171,7 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				QueueExpiryHours:     720,
 				CanViewGuestData:     true,
 				HistoryRetentionDays: 0,
+				AllowGeoLock:         true,
 			},
 			CreatedAt: time.Now(),
 		},

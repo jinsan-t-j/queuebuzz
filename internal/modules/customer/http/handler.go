@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"queuebuzz/internal/config"
@@ -246,6 +247,25 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 	queue, err := h.queueService.GetQueue(c.Context(), c.Params("id"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+	}
+
+	// Limit customer joining based on host's subscription plan limit
+	exceeded, err := h.queueService.IsQueueCapacityExceeded(c.Context(), queue.ID)
+	if err == nil && exceeded {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "This queue is currently full. Please contact the business owner or try again later.",
+			"code":  "QUEUE_FULL",
+		})
+	}
+
+	if queue.IsGeoLocked {
+		if req.Latitude == nil || req.Longitude == nil {
+			return fiber.NewError(fiber.StatusBadRequest, "Location access is required to join this queue.")
+		}
+		distance := helpers.CalculateDistance(*req.Latitude, *req.Longitude, queue.Latitude, queue.Longitude)
+		if distance > queue.GeoRadiusMeters {
+			return fiber.NewError(fiber.StatusForbidden, fmt.Sprintf("You are outside the allowed radius to join this queue. Business location check failed (distance: %.1fm, allowed radius: %.1fm).", distance, queue.GeoRadiusMeters))
+		}
 	}
 
 	if req.JoinCode != queue.JoinCode {

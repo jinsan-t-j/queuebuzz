@@ -29,5 +29,6 @@ type SubscriptionResponse struct {
 	CanCustomBranding bool      `json:"can_custom_branding"`
 	CanExportData     bool      `json:"can_export_data"`
 	CanViewHistory    bool      `json:"can_view_history"`
+	AllowGeoLock      bool      `json:"allow_geo_lock"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }

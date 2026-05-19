@@ -191,11 +191,6 @@ const docTemplate = `{
         },
         "/api/v1/billing/current-plan": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "Returns the active billing plan with feature limits, current usage counters,",
                 "produces": [
                     "application/json"
@@ -2636,6 +2631,9 @@ const docTemplate = `{
         "domain.PlanLimit": {
             "type": "object",
             "properties": {
+                "allow_geo_lock": {
+                    "type": "boolean"
+                },
                 "can_export": {
                     "type": "boolean"
                 },
@@ -2799,6 +2797,20 @@ const docTemplate = `{
                 },
                 "collect_emails": {
                     "type": "boolean"
+                },
+                "geo_radius_meters": {
+                    "type": "number",
+                    "maximum": 10000,
+                    "minimum": 10
+                },
+                "is_geo_locked": {
+                    "type": "boolean"
+                },
+                "latitude": {
+                    "type": "number"
+                },
+                "longitude": {
+                    "type": "number"
                 },
                 "manual_positioning": {
                     "type": "boolean"
@@ -3039,6 +3051,9 @@ const docTemplate = `{
                 "expires_at": {
                     "type": "string"
                 },
+                "geo_radius_meters": {
+                    "type": "number"
+                },
                 "host_banner_image_url": {
                     "type": "string"
                 },
@@ -3048,8 +3063,17 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "is_geo_locked": {
+                    "type": "boolean"
+                },
                 "join_code": {
                     "type": "string"
+                },
+                "latitude": {
+                    "type": "number"
+                },
+                "longitude": {
+                    "type": "number"
                 },
                 "manual_positioning": {
                     "type": "boolean"
@@ -3173,6 +3197,9 @@ const docTemplate = `{
         "dto.SubscriptionResponse": {
             "type": "object",
             "properties": {
+                "allow_geo_lock": {
+                    "type": "boolean"
+                },
                 "billing_cycle": {
                     "type": "string"
                 },
@@ -3264,6 +3291,20 @@ const docTemplate = `{
                 },
                 "collect_emails": {
                     "type": "boolean"
+                },
+                "geo_radius_meters": {
+                    "type": "number",
+                    "maximum": 10000,
+                    "minimum": 10
+                },
+                "is_geo_locked": {
+                    "type": "boolean"
+                },
+                "latitude": {
+                    "type": "number"
+                },
+                "longitude": {
+                    "type": "number"
                 },
                 "max_party_size": {
                     "type": "integer",

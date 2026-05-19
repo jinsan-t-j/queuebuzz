@@ -109,7 +109,6 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 			_, err := s.hostCol.UpdateOne(ctx, bson.M{"_id": host.ID}, bson.M{"$set": bson.M{
 				"last_seen":                        now,
 				"social_auth." + identity.Provider: providerAuth,
-				"social_auth." + identity.Provider + ".last_login_at": now,
 			}})
 			if err != nil {
 				return nil, false, err

@@ -152,6 +152,20 @@ func (h *Handler) Create(c fiber.Ctx) error {
 		req.MaxPartySize = &defaultVal
 	}
 
+	if req.IsGeoLocked != nil && *req.IsGeoLocked {
+		role, _ := c.Locals("role").(string)
+		if role != constants.RoleRegisteredHost {
+			return fiber.NewError(fiber.StatusForbidden, "Geo-Lockdown is a premium feature. Please sign up or sign in to upgrade.")
+		}
+		plan, err := h.BillingSvc.GetHostPlan(c.Context(), hostID)
+		if err != nil || !plan.Limits.AllowGeoLock {
+			return fiber.NewError(fiber.StatusForbidden, "Geo-Lockdown is a premium feature. Please upgrade your plan to unlock this feature.")
+		}
+		if req.Latitude == nil || req.Longitude == nil {
+			return fiber.NewError(fiber.StatusBadRequest, "Coordinates (latitude and longitude) are required when enabling Geo-Lockdown.")
+		}
+	}
+
 	var queue *domain.Queue
 	var err error
 	maxRetries := 3
@@ -167,6 +181,10 @@ func (h *Handler) Create(c fiber.Ctx) error {
 			MaxPartySize:      req.MaxPartySize,
 			ManualPositioning: req.ManualPositioning,
 			CollectEmails:     req.CollectEmails,
+			IsGeoLocked:       req.IsGeoLocked,
+			Latitude:          req.Latitude,
+			Longitude:         req.Longitude,
+			GeoRadiusMeters:   req.GeoRadiusMeters,
 		})
 
 		if err == nil {
@@ -529,6 +547,28 @@ func (h *Handler) Update(c fiber.Ctx) error {
 
 	if req.Notes != nil {
 		updates["notes"] = *req.Notes
+	}
+
+	if req.IsGeoLocked != nil {
+		role, _ := c.Locals("role").(string)
+		if role != constants.RoleRegisteredHost {
+			return fiber.NewError(fiber.StatusForbidden, "Geo-Lockdown is a premium feature. Please sign up or sign in to upgrade.")
+		}
+		hostID, _ := c.Locals("host_id").(string)
+		plan, err := h.BillingSvc.GetHostPlan(c.Context(), hostID)
+		if err != nil || !plan.Limits.AllowGeoLock {
+			return fiber.NewError(fiber.StatusForbidden, "Geo-Lockdown is a premium feature. Please upgrade your plan to unlock this feature.")
+		}
+		updates["is_geo_locked"] = *req.IsGeoLocked
+	}
+	if req.Latitude != nil {
+		updates["latitude"] = *req.Latitude
+	}
+	if req.Longitude != nil {
+		updates["longitude"] = *req.Longitude
+	}
+	if req.GeoRadiusMeters != nil {
+		updates["geo_radius_meters"] = *req.GeoRadiusMeters
 	}
 
 	if len(updates) == 0 {

@@ -27,6 +27,7 @@ func SeedDefaults(db *mongo.Database) {
 			"queue_expiry_hours":     24,
 			"can_view_guest_data":    false,
 			"history_retention_days": 7,
+			"allow_geo_lock":         false,
 		},
 	})
 
@@ -50,6 +51,7 @@ func SeedDefaults(db *mongo.Database) {
 			"queue_expiry_hours":     72,
 			"can_view_guest_data":    true,
 			"history_retention_days": 30,
+			"allow_geo_lock":         true,
 		},
 	})
 
@@ -73,6 +75,7 @@ func SeedDefaults(db *mongo.Database) {
 			"queue_expiry_hours":     72,
 			"can_view_guest_data":    true,
 			"history_retention_days": 30,
+			"allow_geo_lock":         true,
 		},
 	})
 
@@ -96,6 +99,7 @@ func SeedDefaults(db *mongo.Database) {
 			"queue_expiry_hours":     168,
 			"can_view_guest_data":    true,
 			"history_retention_days": 365,
+			"allow_geo_lock":         true,
 		},
 	})
 

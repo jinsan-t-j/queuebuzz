@@ -247,13 +247,16 @@ func (h *Handler) HandleWebhook(c fiber.Ctx) error {
 //
 // @Tags         Billing
 // @Produce      json
-// @Security     BearerAuth
 // @Success      200 {object} helpers.SuccessResponse{data=billingdto.PlanResponse}
 // @Router       /api/v1/billing/current-plan [get]
 func (h *Handler) GetCurrentPlan(c fiber.Ctx) error {
 	hostID, _ := c.Locals("host_id").(string)
 	if hostID == "" {
-		return helpers.ErrorResponse{Message: "Authentication required"}.JSON(c, fiber.StatusUnauthorized)
+		plan, err := h.svc.GetStandardFreePlan(c.Context())
+		if err != nil {
+			return helpers.ErrorResponse{Message: "Failed to get default free plan"}.JSON(c, fiber.StatusInternalServerError)
+		}
+		return helpers.NewSuccessResponse("", billingdto.PlanResponse{Plan: plan}).OK(c)
 	}
 
 	plan, err := h.svc.GetHostPlan(c.Context(), hostID)
@@ -326,6 +329,7 @@ func (h *Handler) GetSubscription(c fiber.Ctx) error {
 	canBranding := false
 	canExport := false
 	canHistory := false
+	allowGeoLock := false
 	plan, err := h.svc.GetPlanByID(c.Context(), sub.PlanID)
 	if err == nil && plan != nil {
 		planName = plan.Name
@@ -333,6 +337,7 @@ func (h *Handler) GetSubscription(c fiber.Ctx) error {
 		canBranding = plan.Limits.CustomBranding
 		canExport = plan.Limits.CanExport
 		canHistory = plan.Limits.HistoryAccess
+		allowGeoLock = plan.Limits.AllowGeoLock
 	} else if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Failed to resolve plan details for active subscription")
 	}
@@ -348,6 +353,7 @@ func (h *Handler) GetSubscription(c fiber.Ctx) error {
 		CanCustomBranding: canBranding,
 		CanExportData:     canExport,
 		CanViewHistory:    canHistory,
+		AllowGeoLock:      allowGeoLock,
 		UpdatedAt:         sub.UpdatedAt,
 	}
 

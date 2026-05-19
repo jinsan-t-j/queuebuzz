@@ -6,23 +6,27 @@ import (
 )
 
 type QueueRecord struct {
-	ID                  string `json:"id"`
-	Name                string `json:"name"`
-	JoinCode            string `json:"join_code"`
-	Slug                string `json:"slug"`
-	Status              string `json:"status"`
-	AvgServiceMins      int    `json:"avg_service_mins"`
-	AllowPartyJoining   bool   `json:"allow_party_joining"`
-	MaxPartySize        int    `json:"max_party_size"`
-	ManualPositioning   bool   `json:"manual_positioning"`
-	StrictQueueMode     bool   `json:"strict_queue_mode"`
-	CollectEmails       bool   `json:"collect_emails"`
-	Notes               string `json:"notes,omitempty"`
-	HostProfileImageURL string `json:"host_profile_image_url,omitempty"`
-	HostBannerImageURL  string `json:"host_banner_image_url,omitempty"`
-	CreatedAt           string `json:"created_at"`
-	UpdatedAt           string `json:"updated_at"`
-	ExpiresAt           string `json:"expires_at"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	JoinCode            string  `json:"join_code"`
+	Slug                string  `json:"slug"`
+	Status              string  `json:"status"`
+	AvgServiceMins      int     `json:"avg_service_mins"`
+	AllowPartyJoining   bool    `json:"allow_party_joining"`
+	MaxPartySize        int     `json:"max_party_size"`
+	ManualPositioning   bool    `json:"manual_positioning"`
+	StrictQueueMode     bool    `json:"strict_queue_mode"`
+	CollectEmails       bool    `json:"collect_emails"`
+	Notes               string  `json:"notes,omitempty"`
+	HostProfileImageURL string  `json:"host_profile_image_url,omitempty"`
+	HostBannerImageURL  string  `json:"host_banner_image_url,omitempty"`
+	IsGeoLocked         bool    `json:"is_geo_locked"`
+	Latitude            float64 `json:"latitude"`
+	Longitude           float64 `json:"longitude"`
+	GeoRadiusMeters     float64 `json:"geo_radius_meters"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
+	ExpiresAt           string  `json:"expires_at"`
 }
 
 type QueueStatus struct {
@@ -187,6 +191,10 @@ func ToQueueResponse(queue domain.Queue, profileImg, bannerImg string) QueueReco
 		Notes:               queue.Notes,
 		HostProfileImageURL: profileImg,
 		HostBannerImageURL:  bannerImg,
+		IsGeoLocked:         queue.IsGeoLocked,
+		Latitude:            queue.Latitude,
+		Longitude:           queue.Longitude,
+		GeoRadiusMeters:     queue.GeoRadiusMeters,
 		CreatedAt:           queue.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:           queue.UpdatedAt.Format(time.RFC3339),
 		ExpiresAt:           queue.ExpiresAt.Format(time.RFC3339),

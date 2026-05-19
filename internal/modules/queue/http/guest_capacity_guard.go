@@ -1,6 +1,7 @@
 package http
 
 import (
+	"queuebuzz/internal/constants"
 	"queuebuzz/internal/modules/billing/service"
 	queueservice "queuebuzz/internal/modules/queue/service"
 
@@ -21,6 +22,16 @@ func GuestCapacityGuard(billingSvc *service.BillingService, queueSvc *queueservi
 		queue, err := queueSvc.GetQueue(c.Context(), queueID)
 		if err != nil {
 			return c.Next() // Service will handle 404
+		}
+
+		if queue.Status == constants.QueueStatusPaused {
+			isHost := c.Locals("host_id") != nil
+			if !isHost {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+					"error": "This queue is currently not accepting new entries. Please check again later.",
+					"code":  "QUEUE_PAUSED",
+				})
+			}
 		}
 
 		hostID := ""

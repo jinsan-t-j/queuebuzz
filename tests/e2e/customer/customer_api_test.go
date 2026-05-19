@@ -82,3 +82,36 @@ func TestCustomer_PublicStatus_NotFound(t *testing.T) {
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
+
+func TestCustomer_Join_PausedQueue(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	// 1. Create a queue
+	queueID, joinCode, hostToken := qutil.CreateQueue(t, s, "Paused Test Queue")
+
+	// 2. Pause the queue via Host API
+	resp, err := util.POST(s, fmt.Sprintf("/api/v1/queue/manage/%s/pause", queueID), nil, util.HostCookie(hostToken))
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// 3. Try to join as customer - should fail with 403 Forbidden and QUEUE_PAUSED error code
+	payload, _ := json.Marshal(map[string]any{
+		"display_name": "Rajan Kumar",
+		"fingerprint":  "fp-rajan",
+		"join_code":    joinCode,
+	})
+	req, _ := http.NewRequest(http.MethodPost, s.BaseURL+fmt.Sprintf("/api/v1/customer/entry/join/%s", queueID), bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err = s.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	var errBody map[string]any
+	require.NoError(t, util.DecodeJSON(resp, &errBody))
+	assert.Equal(t, "QUEUE_PAUSED", errBody["code"])
+}

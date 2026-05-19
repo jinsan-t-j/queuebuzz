@@ -34,6 +34,8 @@ definitions:
     type: object
   domain.PlanLimit:
     properties:
+      allow_geo_lock:
+        type: boolean
       can_export:
         type: boolean
       can_view_guest_data:
@@ -141,6 +143,16 @@ definitions:
         type: integer
       collect_emails:
         type: boolean
+      geo_radius_meters:
+        maximum: 10000
+        minimum: 10
+        type: number
+      is_geo_locked:
+        type: boolean
+      latitude:
+        type: number
+      longitude:
+        type: number
       manual_positioning:
         type: boolean
       max_party_size:
@@ -301,14 +313,22 @@ definitions:
         type: string
       expires_at:
         type: string
+      geo_radius_meters:
+        type: number
       host_banner_image_url:
         type: string
       host_profile_image_url:
         type: string
       id:
         type: string
+      is_geo_locked:
+        type: boolean
       join_code:
         type: string
+      latitude:
+        type: number
+      longitude:
+        type: number
       manual_positioning:
         type: boolean
       max_party_size:
@@ -388,6 +408,8 @@ definitions:
     type: object
   dto.SubscriptionResponse:
     properties:
+      allow_geo_lock:
+        type: boolean
       billing_cycle:
         type: string
       can_custom_branding:
@@ -450,6 +472,16 @@ definitions:
         type: integer
       collect_emails:
         type: boolean
+      geo_radius_meters:
+        maximum: 10000
+        minimum: 10
+        type: number
+      is_geo_locked:
+        type: boolean
+      latitude:
+        type: number
+      longitude:
+        type: number
       max_party_size:
         maximum: 100
         minimum: 1
@@ -630,8 +662,6 @@ paths:
                 data:
                   $ref: '#/definitions/dto.PlanResponse'
               type: object
-      security:
-      - BearerAuth: []
       summary: Get current plan
       tags:
       - Billing

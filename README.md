@@ -1,16 +1,48 @@
 # QueueBuzz Backend
 
-QueueBuzz is a modern, high-performance virtual queue management platform API. It allows hosts to create proximity-based queues and users to join them seamlessly via location verification and WebSocket-driven real-time updates.
+QueueBuzz is a modern, high-performance virtual queue management platform API. It allows hosts to create proximity-based queues and users to join them seamlessly via location verification, SSE-driven real-time updates, and automated notifications.
 
 ## Features
 
-- **Queue Management**: Create queues, manage sizes, set geofences (location radius), and process entries.
-- **Host Authentication**: Supports anonymous queues with token-based ownership, as well as registered host accounts using passwordless auth (OTP & Magic Links via Resend).
-- **Proximity & Geofencing**: Validates user location before allowing them to join a queue.
-- **Real-Time Updates**: WebSocket hub to broadcast queue changes to connected clients instantly.
-- **Push Notifications**: Firebase Cloud Messaging (FCM) integration to notify waiting users when it's their turn.
-- **Robust Security**: Rate limiting (Redis-backed), RS256 JWT authentication, structured CORS, and strict HTTP security headers.
-- **Automatic Expiry**: Redis keyspace listeners and cron fallbacks to automatically clean up expired queues and delete personally identifiable information (PII).
+### 🔐 Authentication & Security
+- **Multi-Method Auth**: Passwordless login (Magic Links & OTP), Social Login (Google, Facebook), and Anonymous guest sessions.
+- **Token Management**: RS256 JWT implementation with automatic token rotation and refresh logic.
+- **Security Hardening**: Rate limiting (Redis-backed), CORS protection, strict security headers, and an active email blocklist to prevent spam.
+
+### 📋 Queue Management
+- **Smart Discovery**: Join queues via unique IDs, custom slugs, or simple 6-digit Join Codes.
+- **Host Controls**: Call next guest (or specific guest), mark as served, pause/resume/terminate queues.
+- **Advanced Ordering**: 
+  - **Manual Position Reordering**: Drag-and-drop support (via API) for manual guest priority.
+  - **Strict Queue Mode**: Lock the queue order to prevent accidental skips.
+- **Capacity Management**: Configurable guest limits per session based on host billing tier.
+- **Session Notes**: Rich-text or plain-text notes for every active queue session.
+
+### 👤 Customer Experience
+- **Position Tracking**: Real-time position and estimated wait time updates.
+- **Session Recovery**: Claim guest positions from recovery emails or persistent browser tokens.
+- **Presence Verification**: Proximity-aware "Arrived" confirmation and "Still Here" check-ins to prevent ghost entries.
+- **Service Completion**: Guests can signal when their service is finished.
+
+### 📊 Analytics & Insights
+- **Host Dashboard**: High-level summaries of served today, average wait times, and peak usage hours.
+- **Historical Data**: Comprehensive history logs with bulk deletion and cleanup controls.
+- **Data Export**: Support for exporting served guest lists to CSV/Excel formats (Premium).
+
+### 💳 Billing & Subscriptions
+- **Multi-Tier Plans**: Free, Pro, Elite, and Enterprise tiers with varying limits (Queues, Guests, History).
+- **Payment Integration**: Webhook-driven status updates, self-serve checkout URL generation, and subscription cancellation.
+- **Renewal Reminders**: Automated background jobs to notify users before subscription expiry.
+
+### 🔔 Notifications & Real-Time
+- **Real-Time Streams**: Server-Sent Events (SSE) for both host and guest updates, ensuring zero-latency status changes.
+- **Push Notifications**: Firebase Cloud Messaging (FCM) integration for mobile push alerts when it's the guest's turn.
+- **Transactional Emails**: Automated recovery, reporting, and account emails via Brevo/Resend.
+- **Queue Broadcast**: Hosts can send instant notifications to all waiting guests in an active session.
+
+### 🧹 Maintenance & Cleanup
+- **Automatic Expiry**: Redis keyspace listeners and cron fallbacks to close inactive queues.
+- **PII Protection**: Automated cleanup jobs to delete personally identifiable information after the retention period expires.
 
 ## Tech Stack
 
@@ -18,16 +50,41 @@ QueueBuzz is a modern, high-performance virtual queue management platform API. I
 - **Framework**: [Fiber v3](https://docs.gofiber.io/)
 - **Database**: MongoDB (via `mongo-driver/v2`)
 - **Caching & Pub/Sub**: Redis (via `go-redis/v9`)
-- **Email**: Resend API
+- **Email**: Brevo API (Transactional)
 - **Push Notifications**: Firebase Admin SDK
+- **Logging**: Zerolog with structured JSON output
 - **Containerization**: Docker (multi-stage to `distroless/static-debian12`)
 
-## Prerequisites
+## Structure
 
-- Go 1.25 or higher
-- Docker and Docker Compose (for local database & cache)
-- `make` utility
-- [Air](https://github.com/cosmtrek/air) (for live reloading during development)
+```text
+.
+├── cmd/                 # Application entry point (main.go)
+├── internal/            # Private application code
+│   ├── app/             # Application bootstrap, router, & container (DI)
+│   ├── config/          # Environment configuration loading
+│   ├── constants/       # Global constants & error codes
+│   ├── database/        # Connection adapters (Mongo, Redis)
+│   ├── exceptions/      # Standardized error handling
+│   ├── firebase/        # FCM provider implementation
+│   ├── helpers/         # Response utilities & common helpers
+│   ├── log/             # Structured logging setup
+│   ├── middlewares/     # Auth, Rate-limiting, CORS, Capacity guards
+│   ├── modules/         # Feature-based domain logic
+│   │   ├── auth/        # Social, OTP, Magic Link auth
+│   │   ├── billing/     # Plans, Subscriptions, Webhooks
+│   │   ├── customer/    # Guest actions & recovery
+│   │   ├── host/        # Host profile & account management
+│   │   ├── notification/# FCM, SSE, & Email services
+│   │   ├── queue/       # Core queue logic & management
+│   │   └── system/      # Health, configuration, & maintenance
+│   ├── sse/             # Server-Sent Events hub
+│   ├── services/        # Shared cross-module services
+│   └── validator/       # Custom request validation logic
+├── Dockerfile           # Production container definition
+├── docker-compose.yml   # Local infrastructure (Mongo, Redis)
+└── Makefile             # Build & development tooling
+```
 
 ## Getting Started
 
@@ -40,7 +97,7 @@ cd queuebuzz
 
 ### 2. Environment Configuration
 
-Create a `.env` file in the root directory and populate it based on `internal/config/config.go`:
+Create a `.env` file based on the config structure:
 
 ```env
 PORT=8080
@@ -52,7 +109,6 @@ DB_NAME=queuebuzz
 
 # Redis
 REDIS_URL=redis://localhost:6379
-REDIS_PASSWORD=
 
 # JWT RS256 (PEM encoded strings)
 JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
@@ -61,18 +117,12 @@ JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
 # Firebase (Service Account JSON)
 FIREBASE_CREDENTIALS='{"type": "service_account", ...}'
 
-# Resend (Email)
-RESEND_API_KEY=re_YOUR_KEY_HERE
-EMAIL_FROM=noreply@queuebuzz.com
-EMAIL_REPLY_TO=support@queuebuzz.com
-
-# CORS
-ALLOWED_ORIGIN=http://localhost:3000
+# Brevo (Email)
+BREVO_API_KEY=xkeysib-YOUR_KEY_HERE
+EMAIL_FROM=noreply@queuebuzz.app
 ```
 
 ### 3. Start Infrastructure
-
-Start the local MongoDB and Redis instances using Docker Compose:
 
 ```bash
 docker compose up -d mongo redis
@@ -80,63 +130,29 @@ docker compose up -d mongo redis
 
 ### 4. Run the Server
 
-You can run the application with hot-reloading using `make`:
-
 ```bash
 make dev
-```
-
-Alternatively, to just build and run:
-```bash
-make build
-./tmp/main
 ```
 
 ## Available Make Commands
 
 - `make dev` - Run the app with `air` hot-reload.
 - `make build` - Compile the Go binary to `./tmp/main`.
-- `make test` - Run tests with the race detector enabled.
-- `make vet` - Run Go linting/vet checks.
-- `make swagger` - Generate Swagger documentation files (requires `swag` CLI).
-- `make docker` - Build the production Docker image.
-- `make clean` - Remove binaries and generated docs.
+- `make test` - Run tests with the race detector.
+- `make swagger` - Generate Swagger documentation.
+- `make docker` - Build production Docker image.
 
 ## API Documentation
 
-The API uses Swagger for documentation. Make sure to generate the docs:
+The API uses Swagger. Access it at `/swagger/index.html` after generating:
 
 ```bash
 make swagger
 ```
 
-## Structure
-
-```text
-.
-├── cmd/             # Application entry point (main.go)
-├── internal/        # Private application code
-│   ├── app/         # Application bootstrap & dependency injection
-│   ├── config/      # Environment configuration loading
-│   ├── constants/   # Application-wide constants
-│   ├── db/          # Database connection adapters (Mongo, Redis)
-│   ├── handlers/    # HTTP/REST request handlers
-│   ├── helpers/     # Standardized responses and utilities
-│   ├── log/         # Logging configuration (zerolog)
-│   ├── middlewares/ # Fiber middlewares (Auth, Route-limiting, CORS, etc.)
-│   ├── models/      # MongoDB structures and domain logic
-│   ├── providers/   # Validation logic
-│   ├── routes/      # Fiber route registration
-│   ├── services/    # Business logic & external service integrations
-│   └── ws/          # WebSocket hub / client implementation
-├── Dockerfile       # Container definition
-├── docker-compose.yml # Local development infrastructure
-└── Makefile         # Build tooling
-```
-
 ## CI/CD
 
-The project includes GitHub Actions workflows mapped in `.github/workflows/`:
-- **Lint & Test**: Reusable workflow triggered by both staging and production pipelines. Runs `go vet`, `go build`, and tests.
-- **Stage**: Triggers on pushes to the `stage` branch. Builds and pushes the Docker container to GHCR tagged as `stage`.
-- **Production**: Triggers on GitHub Releases (`published`). Builds and pushes to GHCR tagged as `latest` and the respective release tag version.
+Workflows in `.github/workflows/`:
+- **Lint & Test**: Runs on every pull request.
+- **Stage**: Deploys to staging on pushes to `stage`.
+- **Production**: Deploys to production on tagged releases.

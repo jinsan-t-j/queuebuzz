@@ -65,7 +65,11 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 		return nil, fmt.Errorf("queue context required")
 	}
 
-	if queue.Status != constants.QueueStatusActive && queue.Status != constants.QueueStatusPaused {
+	if queue.Status == constants.QueueStatusPaused {
+		return nil, exceptions.NewAppException(403, "This queue is currently not accepting new entries. Please check again later.")
+	}
+
+	if queue.Status != constants.QueueStatusActive {
 		return nil, fmt.Errorf("queue is not active")
 	}
 	if time.Now().After(queue.ExpiresAt) {

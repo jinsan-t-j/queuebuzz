@@ -249,6 +249,13 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Queue not found")
 	}
 
+	if queue.Status == constants.QueueStatusPaused {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "This queue is currently not accepting new entries. Please check again later.",
+			"code":  "QUEUE_PAUSED",
+		})
+	}
+
 	// Limit customer joining based on host's subscription plan limit
 	exceeded, err := h.queueService.IsQueueCapacityExceeded(c.Context(), queue.ID)
 	if err == nil && exceeded {

@@ -248,3 +248,39 @@ func TestQueue_Terminate_InvalidatesCache(t *testing.T) {
 	exists, _ = s.App.Container.Redis.Exists(ctx, summaryKey).Result()
 	assert.Equal(t, int64(0), exists, "History summary cache should be invalidated after termination")
 }
+
+func TestQueue_GetPublicStatus(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	token, _, _ := authutil.RegisterHost(t, s, "Status Host", "statushost@test.com", "password")
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Status Queue", token)
+
+	// Join a customer to check PII fields are omitted in public status
+	qutil.JoinQueue(t, s, queueID, joinCode, "Customer PII")
+
+	// 1. Success case
+	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/p/%s/public-status", queueID))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body map[string]any
+	require.NoError(t, util.DecodeJSON(resp, &body))
+	data := body["data"].(map[string]any)
+	assert.Equal(t, queueID, data["queue"].(map[string]any)["id"])
+
+	entries := data["entries"].([]any)
+	assert.NotEmpty(t, entries)
+	firstEntry := entries[0].(map[string]any)
+	assert.Equal(t, "Customer PII", firstEntry["name"])
+	assert.Nil(t, firstEntry["email"])
+	assert.Nil(t, firstEntry["phone"])
+
+	// 2. Not Found case
+	nonexistentID := uuid.New().String()
+	nfResp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/p/%s/public-status", nonexistentID))
+	require.NoError(t, err)
+	defer nfResp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, nfResp.StatusCode)
+}

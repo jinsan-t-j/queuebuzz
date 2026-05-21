@@ -5,42 +5,49 @@ QueueBuzz is a modern, high-performance virtual queue management platform API. I
 ## Features
 
 ### 🔐 Authentication & Security
+
 - **Multi-Method Auth**: Passwordless login (Magic Links & OTP), Social Login (Google, Facebook), and Anonymous guest sessions.
 - **Token Management**: RS256 JWT implementation with automatic token rotation and refresh logic.
 - **Security Hardening**: Rate limiting (Redis-backed), CORS protection, strict security headers, and an active email blocklist to prevent spam.
 
 ### 📋 Queue Management
+
 - **Smart Discovery**: Join queues via unique IDs, custom slugs, or simple 6-digit Join Codes.
 - **Host Controls**: Call next guest (or specific guest), mark as served, pause/resume/terminate queues.
-- **Advanced Ordering**: 
+- **Advanced Ordering**:
   - **Manual Position Reordering**: Drag-and-drop support (via API) for manual guest priority.
   - **Strict Queue Mode**: Lock the queue order to prevent accidental skips.
 - **Capacity Management**: Configurable guest limits per session based on host billing tier.
 - **Session Notes**: Rich-text or plain-text notes for every active queue session.
 
 ### 👤 Customer Experience
+
 - **Position Tracking**: Real-time position and estimated wait time updates.
 - **Session Recovery**: Claim guest positions from recovery emails or persistent browser tokens.
 - **Presence Verification**: Proximity-aware "Arrived" confirmation and "Still Here" check-ins to prevent ghost entries.
 - **Service Completion**: Guests can signal when their service is finished.
 
 ### 📊 Analytics & Insights
+
 - **Host Dashboard**: High-level summaries of served today, average wait times, and peak usage hours.
 - **Historical Data**: Comprehensive history logs with bulk deletion and cleanup controls.
 - **Data Export**: Support for exporting served guest lists to CSV/Excel formats (Premium).
 
 ### 💳 Billing & Subscriptions
+
 - **Multi-Tier Plans**: Free, Pro, Elite, and Enterprise tiers with varying limits (Queues, Guests, History).
 - **Payment Integration**: Webhook-driven status updates, self-serve checkout URL generation, and subscription cancellation.
 - **Renewal Reminders**: Automated background jobs to notify users before subscription expiry.
 
 ### 🔔 Notifications & Real-Time
+
 - **Real-Time Streams**: Server-Sent Events (SSE) for both host and guest updates, ensuring zero-latency status changes.
 - **Push Notifications**: Firebase Cloud Messaging (FCM) integration for mobile push alerts when it's the guest's turn.
 - **Transactional Emails**: Automated recovery, reporting, and account emails via Brevo/Resend.
 - **Queue Broadcast**: Hosts can send instant notifications to all waiting guests in an active session.
 
 ### 🧹 Maintenance & Cleanup
+
 - **Automatic Expiry**: Redis keyspace listeners and cron fallbacks to close inactive queues.
 - **PII Protection**: Automated cleanup jobs to delete personally identifiable information after the retention period expires.
 
@@ -119,7 +126,7 @@ FIREBASE_CREDENTIALS='{"type": "service_account", ...}'
 
 # Brevo (Email)
 BREVO_API_KEY=xkeysib-YOUR_KEY_HERE
-EMAIL_FROM=noreply@queuebuzz.app
+EMAIL_FROM=noreply@queuebuzz.com
 ```
 
 ### 3. Start Infrastructure
@@ -153,6 +160,7 @@ make swagger
 ## CI/CD
 
 Workflows in `.github/workflows/`:
+
 - **Lint & Test**: Runs on every pull request.
 - **Stage**: Deploys to staging on pushes to `stage`.
 - **Production**: Deploys to production on tagged releases.

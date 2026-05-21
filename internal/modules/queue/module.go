@@ -53,6 +53,7 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 	public.Get("/find", limiters.Join, m.QueueHandler.FindActiveQueueByIDOrSlugOrCode)
 	public.Post("/create", middlewares.OptionalAuthMiddleware(m.authService), queuehttp.CreateQueueGuard(m.QueueHandler.BillingSvc, m.QueueHandler.Service), m.QueueHandler.Create)
 	public.Get("/:id/live", m.QueueHandler.GetLiveQueueByID)
+	public.Get("/:id/public-status", m.QueueHandler.GetPublicStatus)
 	public.Post("/:id/join", queuehttp.GuestCapacityGuard(m.QueueHandler.BillingSvc, m.QueueHandler.Service), m.QueueHandler.AddEntry)
 	public.Get("/:id/events", m.QueueHandler.PublicEvents)
 

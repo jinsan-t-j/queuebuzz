@@ -389,6 +389,51 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 	return helpers.NewSuccessResponse("Live queue fetched", h.toQueueResponse(c.Context(), *queue)).OK(c)
 }
 
+// GetPublicStatus godoc
+// @Summary Get public queue status
+// @Description Gets public queue status along with active entries (masked).
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Success 200 {object} helpers.SuccessResponse{Data=map[string]interface{}}
+// @Failure 404 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/p/{id}/public-status [get]
+func (h *Handler) GetPublicStatus(c fiber.Ctx) error {
+	queueID := c.Params("id")
+	queue, err := h.Service.GetLiveQueueByID(c.Context(), queueID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	if queue == nil {
+		return fiber.NewError(fiber.StatusNotFound, "live queue not found")
+	}
+
+	entries, err := h.Service.GetQueueEntries(c.Context(), queue.ID,
+		constants.EntryStatusWaiting,
+		constants.EntryStatusCalled,
+		constants.EntryStatusArrived,
+		constants.EntryStatusIdle,
+	)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	entryResponses := dto.ToEntryResponses(entries)
+	for i := range entryResponses {
+		entryResponses[i].Email = nil
+		entryResponses[i].Phone = nil
+		if queue.ManualPositioning {
+			entryResponses[i].Position = 0
+		}
+	}
+
+	return helpers.NewSuccessResponse("Public status fetched", fiber.Map{
+		"queue":   h.toQueueResponse(c.Context(), *queue),
+		"entries": entryResponses,
+	}).OK(c)
+}
+
 // Events godoc
 // @Summary Get live queue events
 // @Description Gets the live queue events for the authenticated host.

@@ -154,11 +154,17 @@ func TestSSE_Concurrent_IsolatedTopics(t *testing.T) {
 	qutil.JoinQueue(t, s, q1, jc1, "Customer for Q1")
 
 	// 4. Verify Q1 gets event, Q2 doesn't (isolation)
-	select {
-	case ev := <-ch1:
-		assert.Equal(t, "waiting_count_updated", ev.Event)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for event on Q1")
+	found := false
+	timeout := time.After(2 * time.Second)
+	for !found {
+		select {
+		case ev := <-ch1:
+			if ev.Event == "waiting_count_updated" {
+				found = true
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for event on Q1")
+		}
 	}
 
 	select {

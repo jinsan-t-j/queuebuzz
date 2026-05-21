@@ -59,9 +59,24 @@ func entryTopic(entryID string) string { return "entry:" + entryID }
 // pubTopic returns the public SSE topic key ("queue_public:{id}").
 func pubTopic(queueID string) string { return "queue_public:" + queueID }
 
-// PublishEntryUpdate notifies the host that a user joined the queue.
+// PublishEntryUpdate notifies the host that a user joined/left the queue.
 func (n *QueueNotifier) PublishEntryUpdate(queueID string, entry dto.EntryRecord) {
 	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserJoined, entry)))
+
+	// Strip PII for public channel
+	publicEntry := entry
+	publicEntry.Email = nil
+	publicEntry.Phone = nil
+
+	// Check manual positioning to conditionally hide position
+	var q domain.Queue
+	dbCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := n.queueCol.FindOne(dbCtx, bson.M{"_id": queueID}).Decode(&q); err == nil && q.ManualPositioning {
+		publicEntry.Position = 0
+	}
+
+	n.publish(pubTopic(queueID), events.Wrap(sse.NewMessage(events.EventUserJoined, publicEntry)))
 
 	// Notify Host
 	n.notifyHost(queueID, "New Guest Joined", fmt.Sprintf("%s is now waiting with ticket %s", entry.Name, entry.TicketNo), map[string]string{
@@ -89,7 +104,9 @@ func (n *QueueNotifier) PublishQueueStatus(queueID, status string) {
 }
 
 func (n *QueueNotifier) PublishUserCalled(queueID, entryID, status string) {
-	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserCalled, events.UserStatusData{ID: entryID, Status: status})))
+	msg := events.Wrap(sse.NewMessage(events.EventUserCalled, events.UserStatusData{ID: entryID, Status: status}))
+	n.publish(queueID, msg)
+	n.publish(pubTopic(queueID), msg)
 	n.PublishEntryStatusChanged(entryID, status)
 
 	// Notify Guest
@@ -101,7 +118,9 @@ func (n *QueueNotifier) PublishUserCalled(queueID, entryID, status string) {
 }
 
 func (n *QueueNotifier) PublishUserStatus(queueID, entryID, status string) {
-	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserStatusChanged, events.UserStatusData{ID: entryID, Status: status})))
+	msg := events.Wrap(sse.NewMessage(events.EventUserStatusChanged, events.UserStatusData{ID: entryID, Status: status}))
+	n.publish(queueID, msg)
+	n.publish(pubTopic(queueID), msg)
 	n.PublishEntryStatusChanged(entryID, status)
 
 	// If user left, notify host
@@ -123,11 +142,13 @@ func (n *QueueNotifier) PublishUserStatus(queueID, entryID, status string) {
 }
 
 func (n *QueueNotifier) PublishUserArrived(queueID, entryID, name, ticketNo string) {
-	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserArrived, events.UserArrivedData{
+	msg := events.Wrap(sse.NewMessage(events.EventUserArrived, events.UserArrivedData{
 		ID:           entryID,
 		Name:         name,
 		TicketNumber: ticketNo,
-	})))
+	}))
+	n.publish(queueID, msg)
+	n.publish(pubTopic(queueID), msg)
 
 	// Notify Host
 	n.notifyHost(queueID, "Guest Arrived!", fmt.Sprintf("%s (%s) has arrived.", name, ticketNo), map[string]string{

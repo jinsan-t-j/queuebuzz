@@ -63,7 +63,7 @@ type Config struct {
 
 	// Security
 	SystemAPISecret    string `env:"SYSTEM_API_SECRET" env-required:"true"`
-	SupportEmail       string `env:"SUPPORT_EMAIL" env-default:"support@queuebuzz.app"`
+	SupportEmail       string `env:"SUPPORT_EMAIL" env-default:"support@queuebuzz.com"`
 	RecoveryHMACSecret string `env:"RECOVERY_HMAC_SECRET" env-required:"true"`
 
 	// Testing

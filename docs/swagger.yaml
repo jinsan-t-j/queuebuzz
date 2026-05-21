@@ -2105,6 +2105,43 @@ paths:
       summary: Get the queue history
       tags:
       - Queue
+  /queue/p/{id}/public-status:
+    get:
+      description: Gets public queue status along with active entries (masked).
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  additionalProperties: true
+                  type: object
+              type: object
+        "404":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get public queue status
+      tags:
+      - Queue
   /queue/p/find:
     get:
       description: Finds the queue using an ID/slug/code or a 6-character code.

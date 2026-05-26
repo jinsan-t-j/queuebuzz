@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"queuebuzz/internal/validator"
+
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/gofiber/fiber/v3"
@@ -132,17 +134,31 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 	}
 	name := host.Name
 
+	var settingsRes *dto.HostSettingsResponse
+	if host.Settings != nil {
+		settingsRes = &dto.HostSettingsResponse{
+			DefaultQueueName:   host.Settings.DefaultQueueName,
+			AvgServiceMins:     host.Settings.AvgServiceMins,
+			EmailNotifications: host.Settings.EmailNotifications,
+			PushNotifications:  host.Settings.PushNotifications,
+			CollectEmails:      host.Settings.CollectEmails,
+		}
+	}
+
 	return helpers.NewSuccessResponse("", dto.GetMeResponse{
 		ID:              host.ID,
 		PublicID:        host.PublicID,
+		Slug:            host.Slug,
 		Name:            name,
 		BusinessName:    host.BusinessName,
 		Address:         host.Address,
 		Email:           email,
+		Phone:           helpers.DerefString(host.Phone),
 		Tier:            host.Tier,
 		Avatar:          "",
 		ProfileImageURL: helpers.DerefString(host.ProfileImageURL),
 		BannerImageURL:  helpers.DerefString(host.BannerImageURL),
+		Settings:        settingsRes,
 	}).OK(c)
 }
 
@@ -163,39 +179,115 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
-	var updates = make(bson.M)
+	var req dto.UpdateMeRequest
 	contentType := c.Get("Content-Type")
 
 	// 1. Parse Primary Payload
 	if strings.Contains(contentType, fiber.MIMEApplicationJSON) {
-		if err := c.Bind().JSON(&updates); err != nil {
+		if err := c.Bind().JSON(&req); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 		}
 	} else if strings.Contains(contentType, fiber.MIMEMultipartForm) {
-		// Handle multipart form fields
 		form, err := c.MultipartForm()
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "failed to parse form data")
 		}
-		for k, v := range form.Value {
-			if len(v) > 0 {
-				if k == "settings" {
-					var settings bson.M
-					if err := json.Unmarshal([]byte(v[0]), &settings); err == nil {
-						updates["settings"] = settings
-					}
-				} else {
-					updates[k] = v[0]
-				}
+		if v := form.Value["name"]; len(v) > 0 {
+			req.Name = &v[0]
+		}
+		if v := form.Value["business_name"]; len(v) > 0 {
+			req.BusinessName = &v[0]
+		}
+		if v := form.Value["address"]; len(v) > 0 {
+			req.Address = &v[0]
+		}
+		if v := form.Value["phone"]; len(v) > 0 {
+			req.Phone = &v[0]
+		}
+		if v := form.Value["profile_image_url"]; len(v) > 0 {
+			req.ProfileImageURL = &v[0]
+		}
+		if v := form.Value["banner_image_url"]; len(v) > 0 {
+			req.BannerImageURL = &v[0]
+		}
+		if v := form.Value["slug"]; len(v) > 0 {
+			req.Slug = &v[0]
+		}
+		if v := form.Value["settings"]; len(v) > 0 {
+			var settings dto.HostSettingsRequest
+			if err := json.Unmarshal([]byte(v[0]), &settings); err == nil {
+				req.Settings = &settings
+			} else {
+				return fiber.NewError(fiber.StatusBadRequest, "invalid settings format")
 			}
 		}
 	}
 
-	// Filter internal fields
-	delete(updates, "_id")
-	delete(updates, "id")
-	delete(updates, "public_id")
-	delete(updates, "created_at")
+	// Check if phone is explicitly cleared before validation to bypass E.164 validation
+	clearPhone := false
+	if req.Phone != nil && *req.Phone == "" {
+		req.Phone = nil
+		clearPhone = true
+	}
+
+	// 2. Validate parsed struct
+	val := validator.New()
+	if err := val.Validate(&req); err != nil {
+		return err
+	}
+
+	// 3. Map validated request to updates map
+	var updates = make(bson.M)
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.BusinessName != nil {
+		updates["business_name"] = *req.BusinessName
+	}
+	if req.Address != nil {
+		updates["address"] = *req.Address
+	}
+	if req.Phone != nil {
+		updates["phone"] = *req.Phone
+	} else if clearPhone {
+		updates["phone"] = nil
+	}
+	if req.Slug != nil {
+		updates["slug"] = *req.Slug
+	}
+	if req.ProfileImageURL != nil {
+		if *req.ProfileImageURL == "" {
+			updates["profile_image_url"] = nil
+		} else {
+			updates["profile_image_url"] = *req.ProfileImageURL
+		}
+	}
+	if req.BannerImageURL != nil {
+		if *req.BannerImageURL == "" {
+			updates["banner_image_url"] = nil
+		} else {
+			updates["banner_image_url"] = *req.BannerImageURL
+		}
+	}
+	if req.Settings != nil {
+		settingsMap := make(bson.M)
+		if req.Settings.DefaultQueueName != nil {
+			settingsMap["default_queue_name"] = *req.Settings.DefaultQueueName
+		}
+		if req.Settings.AvgServiceMins != nil {
+			settingsMap["avg_service_mins"] = *req.Settings.AvgServiceMins
+		}
+		if req.Settings.EmailNotifications != nil {
+			settingsMap["email_notifications"] = *req.Settings.EmailNotifications
+		}
+		if req.Settings.PushNotifications != nil {
+			settingsMap["push_notifications"] = *req.Settings.PushNotifications
+		}
+		if req.Settings.CollectEmails != nil {
+			settingsMap["collect_emails"] = *req.Settings.CollectEmails
+		}
+		updates["settings"] = settingsMap
+	}
 
 	const maxImageBytes = 1024 * 1024 // 1MB
 	ctx := c.Context()
@@ -271,7 +363,7 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 	}
 
 	if err := h.hostService.UpdateHost(ctx, hostID, updates); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "failed to update profile")
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
 	return helpers.NewSuccessResponse("Profile updated successfully", nil).OK(c)

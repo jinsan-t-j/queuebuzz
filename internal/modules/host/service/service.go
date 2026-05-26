@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"queuebuzz/internal/constants"
@@ -165,7 +167,57 @@ func (s *Service) ClaimQueue(ctx context.Context, queueID, hostID, publicID stri
 	return err
 }
 
+var slugRegex = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var reservedSlugs = map[string]bool{
+	"api":      true,
+	"admin":    true,
+	"queue":    true,
+	"host":     true,
+	"billing":  true,
+	"pricing":  true,
+	"status":   true,
+	"live":     true,
+	"login":    true,
+	"register": true,
+}
+
 func (s *Service) UpdateHost(ctx context.Context, id string, updates bson.M) error {
+	if slugVal, ok := updates["slug"]; ok {
+		if slugStr, ok := slugVal.(string); ok && slugStr != "" {
+			slug := strings.ToLower(strings.TrimSpace(slugStr))
+			if len(slug) < 3 || len(slug) > 30 || !slugRegex.MatchString(slug) {
+				return fmt.Errorf("invalid slug format: must be 3-30 lowercase alphanumeric characters or hyphens")
+			}
+			if reservedSlugs[slug] {
+				return fmt.Errorf("this custom slug is reserved and cannot be used")
+			}
+
+			// Ensure unique slug across hosts
+			count, err := s.hostCol.CountDocuments(ctx, bson.M{
+				"_id":  bson.M{"$ne": id},
+				"slug": slug,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to validate slug uniqueness: %w", err)
+			}
+			if count > 0 {
+				return fmt.Errorf("this custom slug is already taken by another business")
+			}
+
+			// Ensure no collision with active queues' slugs
+			qCount, err := s.queueCol.CountDocuments(ctx, bson.M{"slug": slug, "status": constants.QueueStatusActive})
+			if err != nil {
+				return fmt.Errorf("failed to validate slug uniqueness against queues: %w", err)
+			}
+			if qCount > 0 {
+				return fmt.Errorf("this custom slug is already in use by an active queue")
+			}
+
+			// Write the normalized/sanitized slug back
+			updates["slug"] = slug
+		}
+	}
+
 	_, err := s.hostCol.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": updates})
 	return err
 }

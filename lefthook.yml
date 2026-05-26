@@ -15,6 +15,11 @@ pre-commit:
 
 pre-push:
   commands:
-    # 4. Rigorous pre-push check (runs full suite with race detector and coverage)
+    # Unit + integration tests with race detector and coverage (excludes e2e which needs Docker)
     test-coverage:
-      run: go test -v -race -coverpkg=./internal/... -coverprofile=coverage.out -covermode=atomic ./...
+      run: >-
+        go test -v -race
+        -coverpkg=./internal/...
+        -coverprofile=coverage.out
+        -covermode=atomic
+        $(go list ./... | grep -v 'tests/e2e')

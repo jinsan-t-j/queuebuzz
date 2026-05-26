@@ -116,16 +116,40 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 		state = c.FormValue("state")
 	}
 	if code == "" || state == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "missing social auth callback parameters")
+		u, _ := url.Parse(h.cfg.AuthCallbackURL)
+		u.Path = "/error"
+		u.RawQuery = url.Values{
+			"title":       {"Authentication Error"},
+			"error":       {"missing_parameters"},
+			"description": {"Missing social auth callback parameters."},
+			"action_text": {"Try Login Again"},
+		}.Encode()
+		return c.Redirect().To(u.String())
 	}
 
 	identity, err := h.socialAuthService.CompleteAuth(c.Context(), provider, code, state)
 	if err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized, err.Error())
+		u, _ := url.Parse(h.cfg.AuthCallbackURL)
+		u.Path = "/error"
+		u.RawQuery = url.Values{
+			"title":       {"Authentication Error"},
+			"error":       {"auth_failed"},
+			"description": {err.Error()},
+			"action_text": {"Try Login Again"},
+		}.Encode()
+		return c.Redirect().To(u.String())
 	}
 	host, created, err := h.hostService.FindOrCreateHostBySocial(c.Context(), identity)
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		u, _ := url.Parse(h.cfg.AuthCallbackURL)
+		u.Path = "/error"
+		u.RawQuery = url.Values{
+			"title":       {"Account Error"},
+			"error":       {"account_creation_failed"},
+			"description": {err.Error()},
+			"action_text": {"Try Login Again"},
+		}.Encode()
+		return c.Redirect().To(u.String())
 	}
 
 	if created && host.Email != nil {
@@ -133,7 +157,15 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 	}
 	accessToken, refreshToken, accessExp, refreshExp, err := h.authService.IssueTokenPair(c.Context(), host.ID, host.PublicID)
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		u, _ := url.Parse(h.cfg.AuthCallbackURL)
+		u.Path = "/error"
+		u.RawQuery = url.Values{
+			"title":       {"Session Error"},
+			"error":       {"token_issuance_failed"},
+			"description": {err.Error()},
+			"action_text": {"Try Login Again"},
+		}.Encode()
+		return c.Redirect().To(u.String())
 	}
 	h.setAuthCookies(c, accessToken, refreshToken, accessExp, refreshExp)
 

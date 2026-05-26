@@ -2887,8 +2887,7 @@ const docTemplate = `{
                 },
                 "slug": {
                     "type": "string",
-                    "maxLength": 30,
-                    "minLength": 3
+                    "maxLength": 30
                 }
             }
         },
@@ -3030,10 +3029,19 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "phone": {
+                    "type": "string"
+                },
                 "profile_image_url": {
                     "type": "string"
                 },
                 "public_id": {
+                    "type": "string"
+                },
+                "settings": {
+                    "$ref": "#/definitions/dto.HostSettingsResponse"
+                },
+                "slug": {
                     "type": "string"
                 },
                 "tier": {
@@ -3060,6 +3068,49 @@ const docTemplate = `{
                 },
                 "value": {
                     "type": "integer"
+                }
+            }
+        },
+        "dto.HostSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "avg_service_mins": {
+                    "type": "integer",
+                    "maximum": 60,
+                    "minimum": 1
+                },
+                "collect_emails": {
+                    "type": "boolean"
+                },
+                "default_queue_name": {
+                    "type": "string",
+                    "maxLength": 50
+                },
+                "email_notifications": {
+                    "type": "boolean"
+                },
+                "push_notifications": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "dto.HostSettingsResponse": {
+            "type": "object",
+            "properties": {
+                "avg_service_mins": {
+                    "type": "integer"
+                },
+                "collect_emails": {
+                    "type": "boolean"
+                },
+                "default_queue_name": {
+                    "type": "string"
+                },
+                "email_notifications": {
+                    "type": "boolean"
+                },
+                "push_notifications": {
+                    "type": "boolean"
                 }
             }
         },
@@ -3318,15 +3369,32 @@ const docTemplate = `{
         "dto.UpdateMeRequest": {
             "type": "object",
             "properties": {
-                "email": {
+                "address": {
+                    "type": "string",
+                    "maxLength": 200
+                },
+                "banner_image_url": {
                     "type": "string"
                 },
+                "business_name": {
+                    "type": "string",
+                    "maxLength": 100
+                },
                 "name": {
+                    "type": "string",
+                    "maxLength": 50
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "profile_image_url": {
                     "type": "string"
                 },
                 "settings": {
-                    "type": "object",
-                    "additionalProperties": true
+                    "$ref": "#/definitions/dto.HostSettingsRequest"
+                },
+                "slug": {
+                    "type": "string"
                 }
             }
         },
@@ -3382,8 +3450,7 @@ const docTemplate = `{
                 },
                 "slug": {
                     "type": "string",
-                    "maxLength": 30,
-                    "minLength": 3
+                    "maxLength": 30
                 },
                 "strict_queue_mode": {
                     "type": "boolean"

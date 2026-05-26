@@ -239,7 +239,16 @@ func (s *ExpiryService) BroadcastPositionsForQueue(ctx context.Context, queueID 
 		return
 	}
 
-	s.notifier.PublishWaitingCount(queueID, int64(len(ids)))
+	var q struct {
+		AvgServiceMins int `bson:"avg_service_mins"`
+	}
+	_ = s.queueCol.FindOne(opCtx, bson.M{"_id": queueID}).Decode(&q)
+	avgServiceMins := q.AvgServiceMins
+	if avgServiceMins <= 0 {
+		avgServiceMins = 5
+	}
+
+	s.notifier.PublishWaitingCount(queueID, int64(len(ids)), avgServiceMins)
 
 	if len(ids) > 0 {
 		s.notifier.PublishPositionUpdates(ids)

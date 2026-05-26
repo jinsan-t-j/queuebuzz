@@ -14,16 +14,20 @@ type StructValidator struct {
 
 func New() *StructValidator {
 	v := validator.New()
-
 	_ = v.RegisterValidation("slug", func(fl validator.FieldLevel) bool {
-		return slugRegex.MatchString(fl.Field().String())
+		val := fl.Field().String()
+		if val == "" {
+			return true
+		}
+		if len(val) < 3 || len(val) > 30 {
+			return false
+		}
+		return slugRegex.MatchString(val)
 	})
-
 	return &StructValidator{
 		Validator: v,
 	}
 }
-
 func (v *StructValidator) Validate(out any) error {
 	return v.Validator.Struct(out)
 }

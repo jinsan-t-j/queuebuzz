@@ -7,19 +7,19 @@ pre-commit:
     # 1. Clean dependencies (vital for Go repos)
     tidy:
       run: go mod tidy && git add go.mod go.sum
-    
+
     # 2. Comprehensive linting (applies --fix automatically)
     lint:
       glob: "*.go"
       run: golangci-lint run --fix && git add {staged_files}
-    
-    # 3. Quick test (excludes long-running or race-detectable tests)
-    test:
-      glob: "*.go"
-      run: go test -v ./...
 
 pre-push:
   commands:
-    # 4. Rigorous pre-push check (runs full suite with race detector and coverage)
+    # Unit + integration tests with race detector and coverage (excludes e2e which needs Docker)
     test-coverage:
-      run: go test -v -race -coverpkg=./internal/... -coverprofile=coverage.out -covermode=atomic ./...
+      run: >-
+        go test -v -race
+        -coverpkg=./internal/...
+        -coverprofile=coverage.out
+        -covermode=atomic
+        $(go list ./... | grep -v 'tests/e2e')

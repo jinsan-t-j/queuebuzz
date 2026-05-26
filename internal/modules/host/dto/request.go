@@ -5,8 +5,21 @@ type RegisterRequest struct {
 	Phone *string `json:"phone" validate:"omitempty,e164"`
 }
 
+type HostSettingsRequest struct {
+	DefaultQueueName   *string `json:"default_queue_name,omitempty" validate:"omitempty,max=50"`
+	AvgServiceMins     *int    `json:"avg_service_mins,omitempty" validate:"omitempty,min=1,max=60"`
+	EmailNotifications *bool   `json:"email_notifications,omitempty"`
+	PushNotifications  *bool   `json:"push_notifications,omitempty"`
+	CollectEmails      *bool   `json:"collect_emails,omitempty"`
+}
+
 type UpdateMeRequest struct {
-	Name     *string                `json:"name,omitempty"`
-	Email    *string                `json:"email,omitempty"`
-	Settings map[string]interface{} `json:"settings,omitempty"`
+	Name            *string              `json:"name,omitempty" validate:"omitempty,max=50"`
+	BusinessName    *string              `json:"business_name,omitempty" validate:"omitempty,max=100"`
+	Address         *string              `json:"address,omitempty" validate:"omitempty,max=200"`
+	Phone           *string              `json:"phone,omitempty" validate:"omitempty,e164"`
+	ProfileImageURL *string              `json:"profile_image_url,omitempty"`
+	BannerImageURL  *string              `json:"banner_image_url,omitempty"`
+	Slug            *string              `json:"slug,omitempty" validate:"omitempty,slug"`
+	Settings        *HostSettingsRequest `json:"settings,omitempty" validate:"omitempty"`
 }

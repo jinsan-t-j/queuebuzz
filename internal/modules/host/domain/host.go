@@ -25,6 +25,7 @@ type HostSettings struct {
 type Host struct {
 	ID                  string          `bson:"_id" json:"id"`
 	PublicID            string          `bson:"public_id" json:"public_id"`
+	Slug                string          `bson:"slug" json:"slug"`
 	Name                string          `bson:"name" json:"name"`
 	BusinessName        string          `bson:"business_name" json:"business_name"`
 	Address             string          `bson:"address" json:"address"`

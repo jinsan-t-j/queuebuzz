@@ -72,6 +72,9 @@ func (p *DodoProvider) CreateCheckoutSession(req CheckoutRequest) (*CheckoutResp
 			ReturnURL: dodopayments.F(req.SuccessURL),
 			CancelURL: dodopayments.F(req.CancelURL),
 			Metadata:  dodopayments.F(metadata),
+			FeatureFlags: dodopayments.F(dodopayments.CheckoutSessionFlagsParam{
+				AllowDiscountCode: dodopayments.F(true),
+			}),
 		},
 	}
 

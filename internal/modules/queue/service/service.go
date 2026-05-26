@@ -275,6 +275,8 @@ func (s *Service) GetQueue(ctx context.Context, queueID string) (*domain.Queue, 
 
 func (s *Service) TerminateQueue(ctx context.Context, queueID string) ([]domain.Entry, error) {
 	now := time.Now()
+	queue, qErr := s.GetQueue(ctx, queueID)
+
 	update := bson.M{
 		"$set": bson.M{
 			"status":     constants.QueueStatusClosed,
@@ -309,7 +311,9 @@ func (s *Service) TerminateQueue(ctx context.Context, queueID string) ([]domain.
 	// 2. Update queue status
 	_, err = s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, update)
 	if err == nil {
-		s.invalidateHostSummaryByQueueID(ctx, queueID)
+		if qErr == nil && queue != nil && queue.HostPublicID != nil {
+			_ = s.redisRepo.InvalidateHistorySummary(ctx, *queue.HostPublicID)
+		}
 
 		// 3. Mark unserved entries as SKIPPED
 		if len(unserved) > 0 {
@@ -323,7 +327,6 @@ func (s *Service) TerminateQueue(ctx context.Context, queueID string) ([]domain.
 		}
 
 		// 4. Clean up Redis keys
-		queue, qErr := s.GetQueue(ctx, queueID)
 		if qErr == nil && queue != nil {
 			_ = s.redisRepo.DeleteQueueKeys(ctx, queueID)
 			if queue.JoinCode != "" {
@@ -332,13 +335,6 @@ func (s *Service) TerminateQueue(ctx context.Context, queueID string) ([]domain.
 		}
 	}
 	return unserved, err
-}
-
-func (s *Service) invalidateHostSummaryByQueueID(ctx context.Context, queueID string) {
-	queue, err := s.GetQueue(ctx, queueID)
-	if err == nil && queue != nil && queue.HostPublicID != nil {
-		_ = s.redisRepo.InvalidateHistorySummary(ctx, *queue.HostPublicID)
-	}
 }
 
 func (s *Service) PauseQueue(ctx context.Context, queueID string) error {
@@ -926,6 +922,28 @@ func (s *Service) GetLiveQueueByID(ctx context.Context, queueID string) (*domain
 
 	if err := s.queueCol.FindOne(ctx, filter).Decode(&queue); err != nil {
 		if err == mongodriver.ErrNoDocuments {
+			hostsCol := s.queueCol.Database().Collection("hosts")
+			var host struct {
+				ID       string `bson:"_id"`
+				PublicID string `bson:"public_id"`
+			}
+			hostFilter := bson.M{
+				"$or": []bson.M{
+					{"_id": queueID},
+					{"public_id": queueID},
+					{"slug": queueID},
+				},
+			}
+			if err := hostsCol.FindOne(ctx, hostFilter).Decode(&host); err == nil {
+				var liveQueue domain.Queue
+				if err := s.queueCol.FindOne(ctx, bson.M{
+					"host_public_id": host.PublicID,
+					"status":         bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+					"expires_at":     bson.M{"$gt": time.Now()},
+				}).Decode(&liveQueue); err == nil {
+					return &liveQueue, nil
+				}
+			}
 			return nil, nil
 		}
 		return nil, err

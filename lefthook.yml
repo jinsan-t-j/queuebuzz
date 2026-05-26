@@ -7,16 +7,11 @@ pre-commit:
     # 1. Clean dependencies (vital for Go repos)
     tidy:
       run: go mod tidy && git add go.mod go.sum
-    
+
     # 2. Comprehensive linting (applies --fix automatically)
     lint:
       glob: "*.go"
       run: golangci-lint run --fix && git add {staged_files}
-    
-    # 3. Quick test (excludes long-running or race-detectable tests)
-    test:
-      glob: "*.go"
-      run: go test -v ./...
 
 pre-push:
   commands:

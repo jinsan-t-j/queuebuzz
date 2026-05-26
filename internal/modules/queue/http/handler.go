@@ -625,6 +625,8 @@ func (h *Handler) Update(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
+	h.PosJob.Dispatch(queueID)
+
 	return helpers.NewSuccessResponse("Queue updated", h.toQueueResponse(c.Context(), *queue)).OK(c)
 }
 
@@ -666,6 +668,9 @@ func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 	hostPublicID, _ := c.Locals("host_public_id").(string)
 	queueID := c.Params("id")
 
+	// Get active queue details first (while active/paused) to use for notifications
+	queue, _ := h.Service.GetQueue(c.Context(), queueID)
+
 	unserved, err := h.Service.TerminateQueue(c.Context(), queueID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -675,7 +680,6 @@ func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 
 	// Notify unserved guests
 	if len(unserved) > 0 {
-		queue, _ := h.Service.GetQueue(c.Context(), queueID)
 		queueName := "Your Queue"
 		if queue != nil {
 			queueName = queue.Name
@@ -757,7 +761,7 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 	}
 
 	entryRecord := dto.ToEntryResponse(result.Entry, result.Position)
-	h.HostNotifierJob.DispatchUserJoined(result.QueueID, entryRecord)
+	// Suppress host notification in this flow (Task 9)
 	h.PosJob.Dispatch(result.QueueID)
 
 	// Mask PII for the public response

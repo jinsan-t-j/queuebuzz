@@ -165,7 +165,6 @@ definitions:
         type: string
       slug:
         maxLength: 30
-        minLength: 3
         type: string
     required:
     - name
@@ -261,9 +260,15 @@ definitions:
         type: string
       name:
         type: string
+      phone:
+        type: string
       profile_image_url:
         type: string
       public_id:
+        type: string
+      settings:
+        $ref: '#/definitions/dto.HostSettingsResponse'
+      slug:
         type: string
       tier:
         type: string
@@ -281,6 +286,35 @@ definitions:
         type: integer
       value:
         type: integer
+    type: object
+  dto.HostSettingsRequest:
+    properties:
+      avg_service_mins:
+        maximum: 60
+        minimum: 1
+        type: integer
+      collect_emails:
+        type: boolean
+      default_queue_name:
+        maxLength: 50
+        type: string
+      email_notifications:
+        type: boolean
+      push_notifications:
+        type: boolean
+    type: object
+  dto.HostSettingsResponse:
+    properties:
+      avg_service_mins:
+        type: integer
+      collect_emails:
+        type: boolean
+      default_queue_name:
+        type: string
+      email_notifications:
+        type: boolean
+      push_notifications:
+        type: boolean
     type: object
   dto.PeakHourPoint:
     properties:
@@ -449,13 +483,25 @@ definitions:
     type: object
   dto.UpdateMeRequest:
     properties:
-      email:
+      address:
+        maxLength: 200
+        type: string
+      banner_image_url:
+        type: string
+      business_name:
+        maxLength: 100
         type: string
       name:
+        maxLength: 50
+        type: string
+      phone:
+        type: string
+      profile_image_url:
         type: string
       settings:
-        additionalProperties: true
-        type: object
+        $ref: '#/definitions/dto.HostSettingsRequest'
+      slug:
+        type: string
     type: object
   dto.UpdatePaymentMethodRequest:
     properties:
@@ -495,7 +541,6 @@ definitions:
         type: string
       slug:
         maxLength: 30
-        minLength: 3
         type: string
       strict_queue_mode:
         type: boolean

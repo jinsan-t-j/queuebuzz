@@ -31,5 +31,6 @@ kill_timeout = "25s"
   APP_URL="https://api.queuebuzz.com"
   FRONTEND_URL="https://queuebuzz.com"
   AUTH_CALLBACK_URL="https://queuebuzz.com/dashboard"
-  EMAIL_FROM=noreply@queuebuzz.com
-  ALLOWED_ORIGIN=https://accounts.google.com,https://storage.queuebuzz.com,https://checkout.dodopayments.com
+  EMAIL_FROM="noreply@queuebuzz.com"
+  ALLOWED_ORIGIN="https://accounts.google.com,https://storage.queuebuzz.com,https://checkout.dodopayments.com"
+

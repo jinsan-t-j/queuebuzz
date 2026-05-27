@@ -59,8 +59,8 @@ func entryTopic(entryID string) string { return "entry:" + entryID }
 // pubTopic returns the public SSE topic key ("queue_public:{id}").
 func pubTopic(queueID string) string { return "queue_public:" + queueID }
 
-// PublishEntryUpdate notifies the host that a user joined/left the queue.
-func (n *QueueNotifier) PublishEntryUpdate(queueID string, entry dto.EntryRecord) {
+// PublishEntryJoined notifies the host that a user joined the queue.
+func (n *QueueNotifier) PublishEntryJoined(queueID string, entry dto.EntryRecord) {
 	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserJoined, entry)))
 
 	// Strip PII for public channel
@@ -84,6 +84,26 @@ func (n *QueueNotifier) PublishEntryUpdate(queueID string, entry dto.EntryRecord
 		"queue_id": queueID,
 		"entry_id": entry.ID,
 	})
+}
+
+// PublishEntryUpdated notifies the host and public channel that a user's details were updated.
+func (n *QueueNotifier) PublishEntryUpdated(queueID string, entry dto.EntryRecord) {
+	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserUpdated, entry)))
+
+	// Strip PII for public channel
+	publicEntry := entry
+	publicEntry.Email = nil
+	publicEntry.Phone = nil
+
+	// Check manual positioning to conditionally hide position
+	var q domain.Queue
+	dbCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := n.queueCol.FindOne(dbCtx, bson.M{"_id": queueID}).Decode(&q); err == nil && q.ManualPositioning {
+		publicEntry.Position = 0
+	}
+
+	n.publish(pubTopic(queueID), events.Wrap(sse.NewMessage(events.EventUserUpdated, publicEntry)))
 }
 
 // PublishQueueStatus broadcasts a general queue state change to the Host and Public viewers.
@@ -117,6 +137,7 @@ func (n *QueueNotifier) PublishUserCalled(queueID, entryID, status string) {
 	})
 }
 
+// PublishUserStatus broadcasts a status update for a specific entry to the Host Dashboard on user left and Public Join page.
 func (n *QueueNotifier) PublishUserStatus(queueID, entryID, status string) {
 	msg := events.Wrap(sse.NewMessage(events.EventUserStatusChanged, events.UserStatusData{ID: entryID, Status: status}))
 	n.publish(queueID, msg)

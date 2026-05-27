@@ -99,9 +99,9 @@ func (j *HostNotifierJob) processEvent(ev HostNotifyEvent) {
 	case ActionUserJoined:
 		switch v := ev.Payload.(type) {
 		case dto.EntryRecord:
-			j.notifier.PublishEntryUpdate(ev.QueueID, v)
+			j.notifier.PublishEntryJoined(ev.QueueID, v)
 		case *dto.EntryRecord:
-			j.notifier.PublishEntryUpdate(ev.QueueID, *v)
+			j.notifier.PublishEntryJoined(ev.QueueID, *v)
 		default:
 			panic(fmt.Errorf("ActionUserJoined payload error: %T", ev.Payload))
 		}
@@ -139,7 +139,7 @@ func (j *HostNotifierJob) processEvent(ev HostNotifyEvent) {
 			pos, _ := j.queueService.GetPosition(ctx, ev.QueueID, entryID)
 			cancel()
 			if err == nil && entry != nil {
-				j.notifier.PublishEntryUpdate(ev.QueueID, dto.ToEntryResponse(*entry, pos+1))
+				j.notifier.PublishEntryUpdated(ev.QueueID, dto.ToEntryResponse(*entry, pos+1))
 			}
 		}
 	}

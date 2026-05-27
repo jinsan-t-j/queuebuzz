@@ -18,6 +18,7 @@ const (
 	EventWaitingCountUpdated = "waiting_count_updated"
 	EventUserArrived         = "user_arrived"
 	EventQueueEnded          = "queue_ended"
+	EventUserUpdated         = "user_updated"
 )
 
 // UserArrivedData is the payload for EventUserArrived.

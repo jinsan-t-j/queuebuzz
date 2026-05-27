@@ -214,6 +214,8 @@ func sha256Hash(data string) string {
 }
 
 func parseRSAPrivateKey(pemStr string) *rsa.PrivateKey {
+	pemStr = strings.ReplaceAll(pemStr, `\n`, "\n")
+	pemStr = strings.Trim(pemStr, "\"`' \n\r")
 	block, _ := pem.Decode([]byte(pemStr))
 	if block == nil {
 		log.Fatal().Msg("Failed to decode PEM block for private key")
@@ -238,6 +240,8 @@ func parseRSAPrivateKey(pemStr string) *rsa.PrivateKey {
 }
 
 func parseRSAPublicKey(pemStr string) *rsa.PublicKey {
+	pemStr = strings.ReplaceAll(pemStr, `\n`, "\n")
+	pemStr = strings.Trim(pemStr, "\"`' \n\r")
 	block, _ := pem.Decode([]byte(pemStr))
 	if block == nil {
 		log.Fatal().Msg("Failed to decode PEM block for public key")

@@ -289,6 +289,8 @@ func (s *SocialAuthService) buildAppleClientSecret() (string, error) {
 }
 
 func parseApplePrivateKey(raw string) (*ecdsa.PrivateKey, error) {
+	raw = strings.ReplaceAll(raw, `\n`, "\n")
+	raw = strings.Trim(raw, "\"`' \n\r")
 	block, _ := pem.Decode([]byte(raw))
 	if block == nil {
 		return nil, errors.New("failed to decode apple oauth private key")

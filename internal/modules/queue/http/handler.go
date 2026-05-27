@@ -453,6 +453,15 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "queue id is required")
 	}
 
+	// Fail early if queue is expired/not found
+	_, err := h.Service.GetQueue(c.Context(), queueID)
+	if err != nil {
+		if strings.Contains(err.Error(), "no documents in result") {
+			return fiber.NewError(fiber.StatusGone, "Queue has ended or expired")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
 	hostID, _ := c.Locals("host_id").(string)
 	snapshotFn := func() ([][]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -507,6 +516,15 @@ func (h *Handler) PublicEvents(c fiber.Ctx) error {
 	queueID := strings.Clone(c.Params("id"))
 	if queueID == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "queue id is required")
+	}
+
+	// Fail early if queue is expired/not found
+	_, err := h.Service.GetQueue(c.Context(), queueID)
+	if err != nil {
+		if strings.Contains(err.Error(), "no documents in result") {
+			return fiber.NewError(fiber.StatusGone, "Queue has ended or expired")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
 	snapshotFn := func() ([][]byte, error) {

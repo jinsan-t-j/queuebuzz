@@ -349,6 +349,12 @@ func (s *EmailService) renderTemplate(name string, data interface{}) (string, er
 		return "", fmt.Errorf("template %s not found", name)
 	}
 
+	if m, ok := data.(map[string]interface{}); ok {
+		if _, exists := m["FrontendURL"]; !exists {
+			m["FrontendURL"] = s.cfg.FrontendURL
+		}
+	}
+
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
 		return "", fmt.Errorf("failed to render template %s: %w", name, err)

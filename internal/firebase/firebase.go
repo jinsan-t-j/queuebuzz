@@ -78,9 +78,13 @@ func buildWebpushConfig(data map[string]string) *messaging.WebpushConfig {
 	config := &messaging.WebpushConfig{
 		Headers: headers,
 		Notification: &messaging.WebpushNotification{
-			Icon:  "/icons/notification-icon.png",
-			Badge: "/icons/badge-icon.png",
-			Tag:   "queue-buzz",
+			Icon:    "/icons/notification-icon.png",
+			Badge:   "/icons/badge-icon.png",
+			Tag:     "queue-buzz",
+			Vibrate: []int{300, 100, 300, 100, 300},
+			Data: map[string]interface{}{
+				"link": data["link"],
+			},
 		},
 	}
 
@@ -105,9 +109,14 @@ func buildAndroidConfig() *messaging.AndroidConfig {
 
 func buildAPNSConfig() *messaging.APNSConfig {
 	return &messaging.APNSConfig{
+		Headers: map[string]string{
+			"apns-push-type": "alert",
+			"apns-priority":  "10",
+		},
 		Payload: &messaging.APNSPayload{
 			Aps: &messaging.Aps{
 				ContentAvailable: true,
+				MutableContent:   true,
 				Sound:            "default",
 			},
 		},

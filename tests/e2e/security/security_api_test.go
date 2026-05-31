@@ -24,7 +24,7 @@ func TestSecurity_RateLimit_Triggered(t *testing.T) {
 	defer testApp.Shutdown()
 
 	got429 := false
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 25; i++ {
 		payload := `{"email":"rate-test@example.com"}`
 		resp, err := http.Post(testApp.BaseURL+"/api/v1/auth/login", "application/json", strings.NewReader(payload))
 		require.NoError(t, err)

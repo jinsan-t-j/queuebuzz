@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	qutil "queuebuzz/tests/e2e/queue/utils"
@@ -172,5 +173,52 @@ func TestSSE_Concurrent_IsolatedTopics(t *testing.T) {
 		t.Fatalf("unexpected event on Q2: %+v", ev)
 	case <-time.After(500 * time.Millisecond):
 		// Success: Q2 is isolated
+	}
+}
+
+func TestSSE_PublicStream_Slug_ReceivesEvent(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	queueID, joinCode, _ := qutil.CreateQueue(t, s, "SSE Public Slug Queue")
+
+	// Get slug using public status
+	resp, err := util.GET(s, fmt.Sprintf("/api/v1/queue/p/%s/public-status", queueID))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var data map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&data))
+	qData := data["data"].(map[string]any)
+	queueMap := qData["queue"].(map[string]any)
+	slug := queueMap["slug"].(string)
+	require.NotEmpty(t, slug)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Connect to public SSE stream using slug instead of ID
+	ch, err := util.ReadSSE(ctx, s,
+		fmt.Sprintf("/api/v1/queue/p/%s/events", slug),
+		nil,
+	)
+	require.NoError(t, err)
+
+	qutil.JoinQueue(t, s, queueID, joinCode, "Public Slug Customer")
+
+	// Wait for the waiting_count_updated event to verify slug resolves, subscribes and gets events
+	found := false
+	timeout := time.After(30 * time.Second)
+	for !found {
+		select {
+		case ev := <-ch:
+			if ev.Event == "waiting_count_updated" {
+				assert.NotEmpty(t, ev.Data)
+				found = true
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for public slug SSE event")
+		}
 	}
 }

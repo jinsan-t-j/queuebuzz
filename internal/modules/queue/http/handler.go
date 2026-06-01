@@ -519,13 +519,14 @@ func (h *Handler) PublicEvents(c fiber.Ctx) error {
 	}
 
 	// Fail early if queue is expired/not found
-	_, err := h.Service.GetQueue(c.Context(), queueID)
+	queue, err := h.Service.GetLiveQueueByID(c.Context(), queueID)
 	if err != nil {
-		if strings.Contains(err.Error(), "no documents in result") {
-			return fiber.NewError(fiber.StatusGone, "Queue has ended or expired")
-		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
+	if queue == nil {
+		return fiber.NewError(fiber.StatusGone, "Queue has ended or expired")
+	}
+	queueID = queue.ID
 
 	snapshotFn := func() ([][]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

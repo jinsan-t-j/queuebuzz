@@ -318,6 +318,8 @@ definitions:
     type: object
   dto.PeakHourPoint:
     properties:
+      day:
+        type: integer
       hour:
         type: string
       value:
@@ -432,6 +434,10 @@ definitions:
           $ref: '#/definitions/dto.ReturnRateQueue'
         type: array
       chartData:
+        items:
+          $ref: '#/definitions/dto.ReturnRatePoint'
+        type: array
+      chartDataToday:
         items:
           $ref: '#/definitions/dto.ReturnRatePoint'
         type: array

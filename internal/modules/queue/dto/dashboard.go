@@ -45,6 +45,7 @@ type RecentSession struct {
 type ReturnRateStats struct {
 	HasData        bool              `json:"hasData"`
 	ChartData      []ReturnRatePoint `json:"chartData"`
+	ChartDataToday []ReturnRatePoint `json:"chartDataToday"`
 	ByQueue        []ReturnRateQueue `json:"byQueue"`
 	ReturningCount int               `json:"returningCount"`
 }
@@ -67,6 +68,7 @@ type HeatmapPoint struct {
 
 type PeakHourPoint struct {
 	Hour  string `json:"hour"`
+	Day   int    `json:"day"`
 	Value int    `json:"value"`
 }
 

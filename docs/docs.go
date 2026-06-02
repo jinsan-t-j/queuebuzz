@@ -3117,6 +3117,9 @@ const docTemplate = `{
         "dto.PeakHourPoint": {
             "type": "object",
             "properties": {
+                "day": {
+                    "type": "integer"
+                },
                 "hour": {
                     "type": "string"
                 },
@@ -3292,6 +3295,12 @@ const docTemplate = `{
                     }
                 },
                 "chartData": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.ReturnRatePoint"
+                    }
+                },
+                "chartDataToday": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/dto.ReturnRatePoint"

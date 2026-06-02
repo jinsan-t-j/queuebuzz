@@ -3111,6 +3111,9 @@
         "dto.PeakHourPoint": {
             "type": "object",
             "properties": {
+                "day": {
+                    "type": "integer"
+                },
                 "hour": {
                     "type": "string"
                 },
@@ -3286,6 +3289,12 @@
                     }
                 },
                 "chartData": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.ReturnRatePoint"
+                    }
+                },
+                "chartDataToday": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/dto.ReturnRatePoint"

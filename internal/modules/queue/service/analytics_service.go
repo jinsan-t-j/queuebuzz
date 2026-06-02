@@ -113,8 +113,9 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 
 	weekMap := make(map[string]int)
 	weekWaitMap := make(map[string]time.Duration)
-	peakHoursMap := make(map[int]int)
+	peakHoursMap := make(map[string]int)
 	returnByDayMap := make(map[string]struct{ total, returning int })
+	returnByHourMap := make(map[int]struct{ total, returning int })
 	droppedSkippedMap := make(map[string]int) // "hour,day" -> value
 
 	for _, e := range entries {
@@ -147,12 +148,12 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 			// 1. Stats Today
 			if eDate.After(startOfToday) {
 				stats.Skipped++
-
-				// Heatmap for dropped/skipped
-				dayIdx := int(eDate.Weekday())
-				key := fmt.Sprintf("%d,%d", eDate.Hour(), dayIdx)
-				droppedSkippedMap[key]++
 			}
+
+			// Heatmap for dropped/skipped
+			dayIdx := int(eDate.Weekday())
+			key := fmt.Sprintf("%d,%d", eDate.Hour(), dayIdx)
+			droppedSkippedMap[key]++
 		}
 
 		// COMMON METRICS (regardless of status)
@@ -165,8 +166,21 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 		}
 		returnByDayMap[eDay] = row
 
+		// Today's hourly return rate tracking
+		if eDate.After(startOfToday) {
+			h := eDate.Hour()
+			rowToday := returnByHourMap[h]
+			rowToday.total++
+			if e.IsReturning {
+				rowToday.returning++
+			}
+			returnByHourMap[h] = rowToday
+		}
+
 		// Peak Hours tracking
-		peakHoursMap[eDate.Hour()]++
+		dayIdx := int(eDate.Weekday())
+		peakHoursKey := fmt.Sprintf("%d,%d", eDate.Hour(), dayIdx)
+		peakHoursMap[peakHoursKey]++
 	}
 
 	// Formatting Stats
@@ -197,19 +211,23 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 	}
 
 	// Building Peak Hours
-	peakHoursItems := make([]dto.PeakHourPoint, 24)
-	for h := 0; h < 24; h++ {
-		label := fmt.Sprintf("%d AM", h)
-		if h == 0 {
-			label = "12 AM"
-		} else if h == 12 {
-			label = "12 PM"
-		} else if h > 12 {
-			label = fmt.Sprintf("%d PM", h-12)
-		}
-		peakHoursItems[h] = dto.PeakHourPoint{
-			Hour:  label,
-			Value: peakHoursMap[h],
+	peakHoursItems := []dto.PeakHourPoint{}
+	for d := 0; d < 7; d++ {
+		for h := 0; h < 24; h++ {
+			label := fmt.Sprintf("%d AM", h)
+			if h == 0 {
+				label = "12 AM"
+			} else if h == 12 {
+				label = "12 PM"
+			} else if h > 12 {
+				label = fmt.Sprintf("%d PM", h-12)
+			}
+			key := fmt.Sprintf("%d,%d", h, d)
+			peakHoursItems = append(peakHoursItems, dto.PeakHourPoint{
+				Hour:  label,
+				Day:   d,
+				Value: peakHoursMap[key],
+			})
 		}
 	}
 
@@ -258,6 +276,24 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 		totalReturning += row.returning
 	}
 
+	returnChartToday := make([]dto.ReturnRatePoint, 24)
+	for h := 0; h < 24; h++ {
+		label := fmt.Sprintf("%d AM", h)
+		if h == 0 {
+			label = "12 AM"
+		} else if h == 12 {
+			label = "12 PM"
+		} else if h > 12 {
+			label = fmt.Sprintf("%d PM", h-12)
+		}
+		row := returnByHourMap[h]
+		rate := 0.0
+		if row.total > 0 {
+			rate = (float64(row.returning) / float64(row.total)) * 100
+		}
+		returnChartToday[h] = dto.ReturnRatePoint{Day: label, Rate: rate}
+	}
+
 	// Dropped/Skipped Heatmap
 	heatmap := []dto.HeatmapPoint{}
 	for key, val := range droppedSkippedMap {
@@ -278,6 +314,7 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 		ReturnRate: dto.ReturnRateStats{
 			HasData:        len(entries) > 0,
 			ChartData:      returnChart,
+			ChartDataToday: returnChartToday,
 			ReturningCount: totalReturning,
 		},
 		DroppedSkipped: heatmap,

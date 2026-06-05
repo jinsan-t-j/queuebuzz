@@ -12,6 +12,7 @@ import (
 	"queuebuzz/internal/log"
 	"queuebuzz/internal/middlewares"
 	billingprovider "queuebuzz/internal/modules/billing/provider"
+	sentrywrap "queuebuzz/internal/sentry"
 	"queuebuzz/internal/services/email"
 	"queuebuzz/internal/validator"
 
@@ -58,7 +59,12 @@ func New(cfg *config.Config, sender firebase.NotificationSender, dodoOpts ...opt
 	app.Use(middlewares.SecurityHeaders())
 	app.Use(middlewares.CORSMiddleware(cfg.AllowedOrigin))
 	app.Use(container.RateLimiters.Global)
-	app.Use(recover.New())
+	app.Use(recover.New(recover.Config{
+		EnableStackTrace: true,
+		StackTraceHandler: func(_ fiber.Ctx, e any) {
+			sentrywrap.RecoverWithSentry(e)
+		},
+	}))
 	app.Use(idempotency.New())
 
 	RegisterRoutes(app, container)
@@ -104,7 +110,10 @@ func (a *App) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	// 3. Finally close database and redis connections
+	// 3. Flush Sentry before closing connections
+	sentrywrap.Flush()
+
+	// 4. Finally close database and redis connections
 	a.Container.Cleanup()
 
 	log.Info().Msg("QueueBuzz server stopped")

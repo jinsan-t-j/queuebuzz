@@ -14,6 +14,7 @@ import (
 	"queuebuzz/internal/firebase"
 	"queuebuzz/internal/log"
 	"queuebuzz/internal/mongo"
+	sentrywrap "queuebuzz/internal/sentry"
 
 	_ "queuebuzz/docs"
 )
@@ -51,6 +52,8 @@ func main() {
 	flag.Parse()
 	cfg := config.Get()
 	log.Init(cfg.IsProduction())
+	sentrywrap.Init(cfg.SentryDSN, cfg.AppEnv, cfg.SentryTracesSampleRate)
+	defer sentrywrap.Flush()
 
 	log.Info().
 		Str("env", cfg.AppEnv).

@@ -8,6 +8,7 @@ import (
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/exceptions"
 	"queuebuzz/internal/log"
+	sentrywrap "queuebuzz/internal/sentry"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/goccy/go-json"
@@ -109,6 +110,7 @@ func (e *ErrorHandler) Handle(c fiber.Ctx, err error) error {
 	if statusCode >= fiber.StatusInternalServerError {
 		logEvent = log.Error()
 		msg = "Fiber Server Error"
+		sentrywrap.CaptureException(err)
 	}
 
 	logEvent.

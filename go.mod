@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.15
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.100.0
 	github.com/dodopayments/dodopayments-go v1.97.0
+	github.com/getsentry/sentry-go v0.46.2
 	github.com/go-playground/validator/v10 v10.30.1
 	github.com/goccy/go-json v0.10.5
 	github.com/gofiber/contrib/v3/swaggerui v1.0.1

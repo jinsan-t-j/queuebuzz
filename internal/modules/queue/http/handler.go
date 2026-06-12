@@ -834,6 +834,35 @@ func (h *Handler) CallEntry(c fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "No guests waiting in queue")
 		}
 		h.PosJob.Dispatch(queueID)
+
+		// Heads-up: notify the next 2 waiting guests that they're almost up
+		calledID := entry.ID
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			ids, err := h.RedisRepo.GetQueueEntryIDsRange(ctx, queueID, 0, 4)
+			if err != nil || len(ids) == 0 {
+				return
+			}
+			var nextUp []string
+			for _, id := range ids {
+				if id == calledID {
+					continue
+				}
+				e, err := h.Service.GetEntry(ctx, id)
+				if err != nil || e.Status != constants.EntryStatusWaiting {
+					continue
+				}
+				nextUp = append(nextUp, id)
+				if len(nextUp) >= 2 {
+					break
+				}
+			}
+			if len(nextUp) > 0 {
+				h.Notifier.NotifyHeadsUp(queueID, nextUp)
+			}
+		}()
 	} else {
 		// Case: Ping/Recall Specific Guest
 		if err := h.Service.UpdateEntryStatus(c.Context(), entryID, constants.EntryStatusCalled); err != nil {

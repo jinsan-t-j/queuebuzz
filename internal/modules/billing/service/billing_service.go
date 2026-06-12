@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"queuebuzz/internal/config"
+	"queuebuzz/internal/constants"
 	"queuebuzz/internal/log"
 	"queuebuzz/internal/modules/billing/domain"
 	"queuebuzz/internal/modules/billing/provider"
@@ -28,6 +29,7 @@ type BillingService struct {
 	txsCol     *mongodriver.Collection
 	recordsCol *mongodriver.Collection
 	hostsCol   *mongodriver.Collection
+	queuesCol  *mongodriver.Collection
 	redis      *redisdriver.Client
 
 	systemSvc *systemservice.SystemService
@@ -48,6 +50,7 @@ func NewBillingService(
 		txsCol:     db.Collection("billing_transactions"),
 		recordsCol: db.Collection("billing_records"),
 		hostsCol:   db.Collection("hosts"),
+		queuesCol:  db.Collection("queues"),
 		redis:      redis,
 		systemSvc:  systemSvc,
 		emailSvc:   emailSvc,
@@ -726,6 +729,13 @@ func (s *BillingService) HandlePaymentSucceeded(ctx context.Context, event *prov
 		log.Error().Err(err).Str("host_id", event.HostID).Str("tier", tier).Msg("Failed to update host tier")
 	}
 
+	// Extend active queues expiry on successful payment/upgrade to a paid plan
+	if plan != nil && !plan.IsFree {
+		if err := s.ExtendActiveQueuesExpiry(ctx, event.HostID, plan); err != nil {
+			log.Error().Err(err).Str("host_id", event.HostID).Msg("Failed to extend active queues expiry on plan upgrade")
+		}
+	}
+
 	return nil
 }
 
@@ -829,6 +839,11 @@ func (s *BillingService) HandleSubscriptionUpdated(ctx context.Context, event *p
 			_, _ = s.hostsCol.UpdateOne(ctx, bson.M{"_id": event.HostID}, bson.M{
 				"$set": bson.M{"tier": plan.Tier},
 			})
+			if !plan.IsFree {
+				if err := s.ExtendActiveQueuesExpiry(ctx, event.HostID, plan); err != nil {
+					log.Error().Err(err).Str("host_id", event.HostID).Msg("Failed to extend active queues expiry on subscription update")
+				}
+			}
 		}
 	}
 
@@ -1065,4 +1080,72 @@ func (s *BillingService) GetStandardFreePlan(ctx context.Context) (*domain.Plan,
 		return nil, fmt.Errorf("no free plan found in database: %w", err)
 	}
 	return &plan, nil
+}
+
+// ExtendActiveQueuesExpiry updates MongoDB and Redis for all active/paused queues of a host when they upgrade to a paid plan.
+func (s *BillingService) ExtendActiveQueuesExpiry(ctx context.Context, hostID string, plan *domain.Plan) error {
+	if plan == nil || plan.IsFree {
+		return nil
+	}
+
+	expiryHours := constants.DefaultQueueExpiryH
+	if plan.Limits.QueueExpiryHours > 0 {
+		expiryHours = plan.Limits.QueueExpiryHours
+	} else if plan.Limits.QueueExpiryHours <= 0 {
+		// Unlimited (1 year technical limit)
+		expiryHours = 24 * 365
+	}
+
+	cursor, err := s.queuesCol.Find(ctx, bson.M{
+		"host_id": hostID,
+		"status":  bson.M{"$in": []string{"ACTIVE", "PAUSED"}},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to fetch active queues: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var queues []struct {
+		ID        string    `bson:"_id"`
+		JoinCode  string    `bson:"join_code"`
+		CreatedAt time.Time `bson:"created_at"`
+	}
+	if err := cursor.All(ctx, &queues); err != nil {
+		return fmt.Errorf("failed to decode queues: %w", err)
+	}
+
+	for _, q := range queues {
+		newExpiresAt := q.CreatedAt.Add(time.Duration(expiryHours) * time.Hour)
+		if newExpiresAt.Before(time.Now()) {
+			newExpiresAt = time.Now().Add(time.Duration(expiryHours) * time.Hour)
+		}
+
+		_, err = s.queuesCol.UpdateOne(ctx, bson.M{"_id": q.ID}, bson.M{
+			"$set": bson.M{
+				"expires_at": newExpiresAt,
+				"updated_at": time.Now(),
+			},
+		})
+		if err != nil {
+			log.Error().Err(err).Str("queue_id", q.ID).Msg("Failed to update queue expiry in MongoDB")
+			continue
+		}
+
+		ttl := time.Until(newExpiresAt)
+		if ttl > 0 {
+			if q.JoinCode != "" {
+				joinCodeKey := "joincode:" + q.JoinCode
+				joinCodeTTL := ttl + (time.Duration(constants.JoinCodeTTLExtraH) * time.Hour)
+				_ = s.redis.Expire(ctx, joinCodeKey, joinCodeTTL).Err()
+			}
+
+			positionsKey := "queue_positions:" + q.ID
+			_ = s.redis.Expire(ctx, positionsKey, ttl).Err()
+
+			counterKey := "ticket_counter:" + q.ID
+			_ = s.redis.Expire(ctx, counterKey, ttl).Err()
+		}
+	}
+
+	return nil
 }

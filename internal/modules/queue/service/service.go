@@ -233,6 +233,52 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 	return &queue, nil
 }
 
+// ExtendActiveQueueExpiry updates MongoDB and Redis for an active queue to match a host's new/current plan limits.
+func (s *Service) ExtendActiveQueueExpiry(ctx context.Context, queueID string, hostID string) error {
+	var queue domain.Queue
+	err := s.queueCol.FindOne(ctx, bson.M{"_id": queueID}).Decode(&queue)
+	if err != nil {
+		return err
+	}
+
+	// Only extend active or paused queues
+	if queue.Status != constants.QueueStatusActive && queue.Status != constants.QueueStatusPaused {
+		return nil
+	}
+
+	plan, _ := s.billingSvc.GetHostPlan(ctx, hostID)
+	expiryHours := constants.DefaultQueueExpiryH
+	if plan != nil {
+		if plan.Limits.QueueExpiryHours > 0 {
+			expiryHours = plan.Limits.QueueExpiryHours
+		} else if plan.Limits.QueueExpiryHours <= 0 && plan.Tier != "free" {
+			expiryHours = 24 * 365
+		}
+	}
+
+	newExpiresAt := queue.CreatedAt.Add(time.Duration(expiryHours) * time.Hour)
+	if newExpiresAt.Before(time.Now()) {
+		newExpiresAt = time.Now().Add(time.Duration(expiryHours) * time.Hour)
+	}
+
+	_, err = s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{
+		"$set": bson.M{
+			"expires_at": newExpiresAt,
+			"updated_at": time.Now(),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	ttl := time.Until(newExpiresAt)
+	if ttl > 0 {
+		_ = s.redisRepo.ExtendQueueKeysExpiry(ctx, queueID, queue.JoinCode, ttl)
+	}
+
+	return nil
+}
+
 func (s *Service) CheckSlugAvailability(ctx context.Context, slug string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

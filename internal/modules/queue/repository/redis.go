@@ -131,6 +131,23 @@ func (r *RedisRepository) SetJoinCode(ctx context.Context, code string, queueID 
 	return r.rdb.Set(ctx, key, queueID, ttl).Err()
 }
 
+// ExtendQueueKeysExpiry updates the TTL of active queue keys in Redis (joincode, positions, counter).
+func (r *RedisRepository) ExtendQueueKeysExpiry(ctx context.Context, queueID string, joinCode string, ttl time.Duration) error {
+	if joinCode != "" {
+		joinCodeKey := fmt.Sprintf("joincode:%s", joinCode)
+		joinCodeTTL := ttl + (time.Duration(constants.JoinCodeTTLExtraH) * time.Hour)
+		_ = r.rdb.Expire(ctx, joinCodeKey, joinCodeTTL).Err()
+	}
+
+	positionsKey := internalredis.QueuePositionsKey(queueID)
+	_ = r.rdb.Expire(ctx, positionsKey, ttl).Err()
+
+	counterKey := internalredis.TicketCounterKey(queueID)
+	_ = r.rdb.Expire(ctx, counterKey, ttl).Err()
+
+	return nil
+}
+
 func (r *RedisRepository) ReleaseJoinCodesBulk(ctx context.Context, codes []string) error {
 	if len(codes) == 0 {
 		return nil

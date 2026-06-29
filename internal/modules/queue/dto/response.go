@@ -41,6 +41,7 @@ type EntryRecord struct {
 	ID          string  `json:"id"`
 	QueueID     string  `json:"queue_id"`
 	TicketNo    string  `json:"ticket_no"`
+	VerifyCode  string  `json:"verify_code"`
 	Position    int64   `json:"position"`
 	Name        string  `json:"name"`
 	Email       *string `json:"email,omitempty"`
@@ -152,6 +153,7 @@ func ToEntryResponse(entry domain.Entry, position int64) EntryRecord {
 		ID:          entry.ID,
 		QueueID:     entry.QueueID,
 		TicketNo:    entry.TicketNo,
+		VerifyCode:  entry.VerifyCode,
 		Position:    position,
 		Name:        entry.Name,
 		Email:       entry.Email,

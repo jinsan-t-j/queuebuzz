@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 
+	"queuebuzz/internal/constants"
+
 	"go.mongodb.org/mongo-driver/v2/bson"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -36,10 +38,44 @@ func EnsureQueueIndexes(ctx context.Context, db *mongodriver.Database) error {
 
 func EnsureEntryIndexes(ctx context.Context, db *mongodriver.Database) error {
 	entryCol := db.Collection("queue_entries")
+
+	// Drop the existing index to avoid conflicts when updating definition/options
+	_ = entryCol.Indexes().DropOne(ctx, "queue_id_verify_code_active_unique")
+
 	entryIndexes := []mongodriver.IndexModel{
 		{
 			Keys:    bson.D{{Key: "token", Value: 1}},
 			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys: bson.D{
+				{Key: "queue_id", Value: 1},
+				{Key: "verify_code", Value: 1},
+			},
+			Options: options.Index().
+				SetName("queue_id_verify_code_active_unique").
+				SetUnique(true).
+				SetPartialFilterExpression(bson.D{
+					{
+						Key: "status",
+						Value: bson.D{{
+							Key: "$in",
+							Value: bson.A{
+								constants.EntryStatusWaiting,
+								constants.EntryStatusCalled,
+								constants.EntryStatusIdle,
+								constants.EntryStatusArrived,
+							},
+						}},
+					},
+					{
+						Key: "verify_code",
+						Value: bson.D{{
+							Key:   "$gt",
+							Value: "",
+						}},
+					},
+				}),
 		},
 		{
 			Keys: bson.D{{Key: "queue_id", Value: 1}},

@@ -11,6 +11,7 @@ type Entry struct {
 	Token               string     `bson:"token" json:"token"`
 	QueueID             string     `bson:"queue_id" json:"queue_id"`
 	TicketNo            string     `bson:"ticket_no" json:"ticket_number"`
+	VerifyCode          string     `bson:"verify_code" json:"verify_code"`
 	Status              string     `bson:"status" json:"status"`
 	FCMToken            *string    `bson:"fcm_token" json:"-"`
 	Email               *string    `bson:"email" json:"-"`

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"fmt"
 	"regexp"
 	"strings"
@@ -29,6 +30,18 @@ import (
 // slugRegex enforces lowercase alphanumeric + hyphens, 3-30 chars,
 // must start and end with alphanumeric.
 var slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$`)
+
+// generateVerifyCode produces a short human-readable code for verbal identity
+// confirmation between host and customer. Uses an unambiguous charset (no 0/O/1/I/L).
+func generateVerifyCode(length int) string {
+	const charset = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+	b := make([]byte, length)
+	_, _ = cryptorand.Read(b)
+	for i := range b {
+		b[i] = charset[int(b[i])%len(charset)]
+	}
+	return string(b)
+}
 
 var reservedSlugs = map[string]bool{
 	"admin": true, "api": true, "app": true, "auth": true,
@@ -462,14 +475,33 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 	entry.TicketNo = ticketNo
 
 	now := time.Now()
-	entry.ID = uuid.New().String()
-	entry.Token = uuid.New().String()
-	entry.Status = constants.EntryStatusWaiting
-	entry.CreatedAt = now
-	entry.UpdatedAt = now
+	const maxVerifyCodeAttempts = 5
+	inserted := false
 
-	if _, err := s.entryCol.InsertOne(ctx, entry); err != nil {
-		return nil, fmt.Errorf("failed to insert queue entry: %w", err)
+	for attempt := 0; attempt < maxVerifyCodeAttempts; attempt++ {
+		candidate := entry
+		candidate.ID = uuid.New().String()
+		candidate.Token = uuid.New().String()
+		candidate.VerifyCode = generateVerifyCode(6)
+		candidate.Status = constants.EntryStatusWaiting
+		candidate.CreatedAt = now
+		candidate.UpdatedAt = now
+
+		if _, err := s.entryCol.InsertOne(ctx, candidate); err != nil {
+			if mongodriver.IsDuplicateKeyError(err) {
+				log.Warn().Int("attempt", attempt+1).Str("queue_id", entry.QueueID).Msg("verify code collision resolved")
+				continue
+			}
+			return nil, fmt.Errorf("failed to insert queue entry: %w", err)
+		}
+
+		entry = candidate
+		inserted = true
+		break
+	}
+
+	if !inserted {
+		return nil, fmt.Errorf("failed to generate unique verify code after %d attempts", maxVerifyCodeAttempts)
 	}
 
 	var position int64
@@ -608,7 +640,7 @@ func (s *Service) CallNextUser(ctx context.Context, queueID string) (*domain.Ent
 			if settings != nil && settings.DefaultQueueEntryIdleTimeoutMin > 0 {
 				idleMins = settings.DefaultQueueEntryIdleTimeoutMin
 			}
-			_ = s.redisRepo.SetIdleTimer(ctx, queueID, entry.Token, time.Duration(idleMins)*time.Minute)
+			_ = s.redisRepo.SetIdleTimer(ctx, queueID, entry.ID, time.Duration(idleMins)*time.Minute)
 
 			return entry, nil
 		}
@@ -622,6 +654,10 @@ func (s *Service) RemoveUser(ctx context.Context, entryID string) error {
 
 func (s *Service) ServeUser(ctx context.Context, entryID string) error {
 	return s.finishUserSession(ctx, entryID, constants.EntryStatusServed)
+}
+
+func (s *Service) SkipUser(ctx context.Context, entryID string) error {
+	return s.finishUserSession(ctx, entryID, constants.EntryStatusSkipped)
 }
 
 func (s *Service) finishUserSession(ctx context.Context, entryID, status string) error {

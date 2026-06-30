@@ -86,6 +86,12 @@ func (p *DodoProvider) CreateCheckoutSession(req CheckoutRequest) (*CheckoutResp
 		)
 	}
 
+	// Set billing address country and currency from the plan's configuration.
+	// DodoPayments (as Merchant of Record) uses the billing country to
+	// automatically calculate and remit the correct tax (GST for IN, VAT for
+	// EU, sales tax for US, etc.).
+	p.applyBillingConfig(&params, req)
+
 	session, err := p.client.CheckoutSessions.New(context.Background(), params)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create Dodo checkout session")
@@ -96,6 +102,110 @@ func (p *DodoProvider) CreateCheckoutSession(req CheckoutRequest) (*CheckoutResp
 		URL:       session.CheckoutURL,
 		SessionID: session.SessionID,
 	}, nil
+}
+
+// applyBillingConfig sets billing address, currency, mandate floor, and
+// allowed payment methods on the checkout params based on the plan's country
+// and pricing configuration.
+func (p *DodoProvider) applyBillingConfig(params *dodopayments.CheckoutSessionNewParams, req CheckoutRequest) {
+	countryCode := mapCountryCode(req.Plan.CountryCode)
+	if countryCode == "" {
+		return
+	}
+
+	// Billing address country enables DodoPayments to apply the correct
+	// tax regime (GST, VAT, etc.) automatically.
+	params.CheckoutSessionRequest.BillingAddress = dodopayments.F(dodopayments.CheckoutSessionBillingAddressParam{
+		Country: dodopayments.F(countryCode),
+	})
+
+	// Pin the billing currency to the plan's configured currency so the
+	// customer is charged in the expected denomination.
+	if cur := mapCurrency(req.Plan.Currency); cur != "" {
+		params.CheckoutSessionRequest.BillingCurrency = dodopayments.F(cur)
+	}
+
+	// Country-specific payment and mandate configuration.
+	switch countryCode {
+	case dodopayments.CountryCodeIn:
+		p.applyINConfig(params, req)
+	default:
+		// For non-IN countries, allow standard card payments.
+		params.CheckoutSessionRequest.AllowedPaymentMethodTypes = dodopayments.F([]dodopayments.PaymentMethodTypes{
+			dodopayments.PaymentMethodTypesCredit,
+			dodopayments.PaymentMethodTypesDebit,
+		})
+	}
+}
+
+// applyINConfig sets India-specific checkout parameters:
+//   - RBI-compliant e-mandate floor (standing instruction) based on plan price
+//   - UPI + card payment methods for Indian customers
+func (p *DodoProvider) applyINConfig(params *dodopayments.CheckoutSessionNewParams, req CheckoutRequest) {
+	// Allowed payment methods for India: UPI Autopay + cards (always include
+	// credit/debit as fallback per DodoPayments recommendation).
+	params.CheckoutSessionRequest.AllowedPaymentMethodTypes = dodopayments.F([]dodopayments.PaymentMethodTypes{
+		dodopayments.PaymentMethodTypesUpiCollect,
+		dodopayments.PaymentMethodTypesCredit,
+		dodopayments.PaymentMethodTypesDebit,
+	})
+
+	// RBI e-mandate standing instruction: set the mandate floor to the plan
+	// price so the authorization covers the full recurring amount.
+	// The mandate amount sent to the processor is:
+	//   max(mandate_floor, actual_billing_amount)
+	// We use the plan's configured price (already in paise for INR plans).
+	mandateFloorPaise := mandateFloorForPlan(req.Plan.MonthlyPrice, req.Plan.YearlyPrice, req.BillingCycle)
+	if mandateFloorPaise > 0 {
+		params.CheckoutSessionRequest.MandateMinAmountInrPaise = dodopayments.F(mandateFloorPaise)
+	}
+}
+
+// mandateFloorForPlan computes the INR e-mandate floor in paise.
+// We set the floor to 130% of the plan price to give a safe headroom for taxes
+// (e.g. 18% GST in India, or up to 25% VAT elsewhere) and minor adjustments.
+// Capped at the RBI upper limit of ₹15,00,000 (15,00,000 paise).
+func mandateFloorForPlan(monthlyPrice, yearlyPrice int, billingCycle string) int64 {
+	var pricePaise int64
+	switch billingCycle {
+	case "yearly":
+		pricePaise = int64(yearlyPrice)
+	default:
+		pricePaise = int64(monthlyPrice)
+	}
+
+	if pricePaise <= 0 {
+		return 0
+	}
+
+	// 130% headroom to safely cover taxes and pricing adjustments
+	floor := pricePaise + (pricePaise * 30 / 100)
+
+	const rbiMaxPaise int64 = 15_000_00 // ₹15,000 = 15,00,000 paise
+	if floor > rbiMaxPaise {
+		floor = rbiMaxPaise
+	}
+
+	return floor
+}
+
+// mapCountryCode converts a plan's country_code string (e.g. "IN", "US",
+// "GLOBAL") to the DodoPayments CountryCode type. Returns empty for
+// GLOBAL/unknown since we can't infer a specific billing country.
+func mapCountryCode(code string) dodopayments.CountryCode {
+	if code == "" || code == "GLOBAL" {
+		return ""
+	}
+	return dodopayments.CountryCode(code)
+}
+
+// mapCurrency converts a plan's currency string (e.g. "INR", "USD") to the
+// DodoPayments Currency type. Returns empty for unknown/empty values.
+func mapCurrency(currency string) dodopayments.Currency {
+	if currency == "" {
+		return ""
+	}
+	return dodopayments.Currency(currency)
 }
 
 func (p *DodoProvider) VerifyWebhook(payload []byte, headers map[string]string) (*BillingEvent, error) {

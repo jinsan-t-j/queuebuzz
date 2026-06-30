@@ -506,7 +506,7 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 
 	var position int64
 	if !queue.ManualPositioning {
-		score := float64(now.Unix())
+		score := float64(now.UnixMilli())
 		if err := s.redisRepo.AddToQueue(ctx, entry.QueueID, entry.ID, score, ttl); err != nil {
 			return nil, fmt.Errorf("failed to add to queue positions: %w", err)
 		}
@@ -1214,7 +1214,7 @@ func (s *Service) rehydrateQueue(ctx context.Context, queueID string) ([]string,
 	for i, entry := range entries {
 		ids[i] = entry.ID
 		members[i] = redis.Z{
-			Score:  float64(entry.CreatedAt.Unix()),
+			Score:  float64(entry.CreatedAt.UnixMilli()),
 			Member: entry.ID,
 		}
 	}

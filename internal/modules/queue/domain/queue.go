@@ -17,6 +17,7 @@ type Queue struct {
 	Slug              string        `bson:"slug" json:"slug"`
 	Status            string        `bson:"status" json:"status"`
 	AvgServiceMins    int           `bson:"avg_service_mins" json:"avg_service_mins"`
+	DelayExpiresAt    time.Time     `bson:"delay_expires_at" json:"delay_expires_at"`
 	AllowPartyJoining bool          `bson:"allow_party_joining" json:"allow_party_joining"`
 	MaxPartySize      int           `bson:"max_party_size" json:"max_party_size"`
 	ManualPositioning bool          `bson:"manual_positioning" json:"manual_positioning"`

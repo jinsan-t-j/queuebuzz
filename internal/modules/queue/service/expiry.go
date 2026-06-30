@@ -224,7 +224,8 @@ func (s *ExpiryService) BroadcastPositionsForQueue(ctx context.Context, queueID 
 	}
 
 	var q struct {
-		AvgServiceMins int `bson:"avg_service_mins"`
+		AvgServiceMins int       `bson:"avg_service_mins"`
+		DelayExpiresAt time.Time `bson:"delay_expires_at"`
 	}
 	_ = s.queueCol.FindOne(opCtx, bson.M{"_id": queueID}).Decode(&q)
 	avgServiceMins := q.AvgServiceMins
@@ -232,7 +233,12 @@ func (s *ExpiryService) BroadcastPositionsForQueue(ctx context.Context, queueID 
 		avgServiceMins = 5
 	}
 
-	s.notifier.PublishWaitingCount(queueID, int64(len(ids)), avgServiceMins)
+	remainingBuffer := 0
+	if !q.DelayExpiresAt.IsZero() && q.DelayExpiresAt.After(time.Now()) {
+		remainingBuffer = int(time.Until(q.DelayExpiresAt).Minutes()) + 1
+	}
+
+	s.notifier.PublishWaitingCount(queueID, int64(len(ids)), avgServiceMins, remainingBuffer)
 
 	if len(ids) > 0 {
 		s.notifier.PublishPositionUpdates(ids)

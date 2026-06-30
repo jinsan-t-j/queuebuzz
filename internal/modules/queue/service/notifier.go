@@ -192,10 +192,11 @@ func (n *QueueNotifier) PublishEntryStatusChanged(entryID, status string) {
 	n.publish(entryTopic(entryID), events.Wrap(sse.NewMessage(events.EventEntryStatusChanged, events.EntryStatusChangedData{Status: status})))
 }
 
-func (n *QueueNotifier) PublishWaitingCount(queueID string, count int64, avgServiceMins int) {
+func (n *QueueNotifier) PublishWaitingCount(queueID string, count int64, avgServiceMins int, bufferMins int) {
 	n.publish(pubTopic(queueID), events.Wrap(sse.NewMessage("waiting_count_updated", map[string]interface{}{
 		"count":            count,
 		"avg_service_mins": avgServiceMins,
+		"buffer_mins":      bufferMins,
 	})))
 }
 

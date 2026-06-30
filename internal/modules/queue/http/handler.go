@@ -593,6 +593,13 @@ func (h *Handler) Update(c fiber.Ctx) error {
 	if req.AvgServiceMins != nil {
 		updates["avg_service_mins"] = *req.AvgServiceMins
 	}
+	if req.BufferMins != nil {
+		if *req.BufferMins > 0 {
+			updates["delay_expires_at"] = time.Now().Add(time.Duration(*req.BufferMins) * time.Minute)
+		} else {
+			updates["delay_expires_at"] = time.Time{}
+		}
+	}
 	if req.Slug != nil {
 		updates["slug"] = *req.Slug
 	}
@@ -834,6 +841,7 @@ func (h *Handler) CallEntry(c fiber.Ctx) error {
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "No guests waiting in queue")
 		}
+		_, _ = h.Service.UpdateQueue(c.Context(), queueID, bson.M{"delay_expires_at": time.Time{}})
 		h.PosJob.Dispatch(queueID)
 
 		// Heads-up: notify the next 2 waiting guests that they're almost up

@@ -35,7 +35,7 @@ vet:
 
 # Generate Swagger docs (requires: go install github.com/swaggo/swag/cmd/swag@latest)
 swagger:
-	swag init -g cmd/main.go -o docs --parseDependency --parseInternal
+	swag init -g main.go -o docs --parseDependency --parseInternal
 
 # Build Docker image
 docker:

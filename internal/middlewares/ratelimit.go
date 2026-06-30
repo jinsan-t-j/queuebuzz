@@ -43,7 +43,7 @@ func NewRateLimiters(cfg *config.Config) *RateLimiters {
 	}
 
 	return &RateLimiters{
-		Join:     factory(5, 1*time.Minute),
+		Join:     factory(20, 1*time.Minute),
 		Register: factory(20, 1*time.Minute),
 		Verify:   factory(30, 1*time.Minute),
 		SSE:      factory(10, 1*time.Minute),

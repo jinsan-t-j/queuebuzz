@@ -63,6 +63,7 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 	manage.Get("/events", limiters.SSE, m.QueueHandler.StreamEvents)
 	manage.Post("/call/:entry_id?", limiters.Host, m.QueueHandler.CallEntry)
 	manage.Post("/serve/:entry_id", limiters.Host, m.QueueHandler.Serve)
+	manage.Post("/skip/:entry_id", limiters.Host, m.QueueHandler.Skip)
 	manage.Post("/pause", m.QueueHandler.PauseQueue)
 	manage.Post("/resume", m.QueueHandler.ResumeQueue)
 	manage.Post("/terminate", m.QueueHandler.TerminateQueue)

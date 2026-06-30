@@ -241,6 +241,8 @@ definitions:
         type: string
       updated_at:
         type: string
+      verify_code:
+        type: string
       wait_time_min:
         type: integer
     type: object
@@ -342,6 +344,8 @@ definitions:
       allow_party_joining:
         type: boolean
       avg_service_mins:
+        type: integer
+      buffer_mins:
         type: integer
       collect_emails:
         type: boolean
@@ -521,6 +525,10 @@ definitions:
       avg_service_mins:
         maximum: 60
         minimum: 1
+        type: integer
+      buffer_mins:
+        maximum: 1440
+        minimum: 0
         type: integer
       collect_emails:
         type: boolean
@@ -2154,6 +2162,53 @@ paths:
               type: string
             type: object
       summary: Get the queue history
+      tags:
+      - Queue
+  /queue/manage/{id}/skip/{entry_id}:
+    post:
+      description: Skips an entry in the live queue for the authenticated host.
+      parameters:
+      - description: Queue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Entry ID
+        in: path
+        name: entry_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Entry skipped
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                Data:
+                  type: object
+              type: object
+        "400":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Error response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Skip an entry in the queue
       tags:
       - Queue
   /queue/p/{id}/public-status:

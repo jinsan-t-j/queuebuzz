@@ -303,7 +303,7 @@ func (r *RedisRepository) SetTicketCounter(ctx context.Context, queueID string, 
 
 func (r *RedisRepository) MoveToBack(ctx context.Context, queueID, entryID string) error {
 	key := internalredis.QueuePositionsKey(queueID)
-	score := float64(time.Now().Unix())
+	score := float64(time.Now().UnixMilli())
 	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {
 		return r.rdb.ZAdd(tCtx, key, redis.Z{Score: score, Member: entryID}).Err()
 	})

@@ -477,6 +477,7 @@ func (h *Handler) StreamEvents(c fiber.Ctx) error {
 			constants.EntryStatusIdle,
 			constants.EntryStatusArrived,
 			constants.EntryStatusServed,
+			constants.EntryStatusLeft,
 		)
 		if err != nil {
 			return nil, err
@@ -591,6 +592,13 @@ func (h *Handler) Update(c fiber.Ctx) error {
 	}
 	if req.AvgServiceMins != nil {
 		updates["avg_service_mins"] = *req.AvgServiceMins
+	}
+	if req.BufferMins != nil {
+		if *req.BufferMins > 0 {
+			updates["delay_expires_at"] = time.Now().Add(time.Duration(*req.BufferMins) * time.Minute)
+		} else {
+			updates["delay_expires_at"] = time.Time{}
+		}
 	}
 	if req.Slug != nil {
 		updates["slug"] = *req.Slug
@@ -833,6 +841,7 @@ func (h *Handler) CallEntry(c fiber.Ctx) error {
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "No guests waiting in queue")
 		}
+		_, _ = h.Service.UpdateQueue(c.Context(), queueID, bson.M{"delay_expires_at": time.Time{}})
 		h.PosJob.Dispatch(queueID)
 
 		// Heads-up: notify the next 2 waiting guests that they're almost up
@@ -906,6 +915,32 @@ func (h *Handler) Serve(c fiber.Ctx) error {
 	}
 
 	h.HostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusServed)
+	h.PosJob.Dispatch(queueID)
+
+	return c.SendStatus(fiber.StatusOK)
+}
+
+// Skip godoc
+// @Summary Skip an entry in the queue
+// @Description Skips an entry in the live queue for the authenticated host.
+// @Tags Queue
+// @Produce json
+// @Param id path string true "Queue ID"
+// @Param entry_id path string true "Entry ID"
+// @Success 200 {object} helpers.SuccessResponse{Data=nil} "Entry skipped"
+// @Failure 400 {object} map[string]string "Error response"
+// @Failure 401 {object} map[string]string "Error response"
+// @Failure 500 {object} map[string]string "Error response"
+// @Router /queue/manage/{id}/skip/{entry_id} [post]
+func (h *Handler) Skip(c fiber.Ctx) error {
+	queueID := c.Params("id")
+	entryID := c.Params("entry_id")
+
+	if err := h.Service.SkipUser(c.Context(), entryID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	h.HostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusSkipped)
 	h.PosJob.Dispatch(queueID)
 
 	return c.SendStatus(fiber.StatusOK)

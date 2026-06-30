@@ -12,6 +12,7 @@ type QueueRecord struct {
 	Slug                string  `json:"slug"`
 	Status              string  `json:"status"`
 	AvgServiceMins      int     `json:"avg_service_mins"`
+	BufferMins          int     `json:"buffer_mins"`
 	AllowPartyJoining   bool    `json:"allow_party_joining"`
 	MaxPartySize        int     `json:"max_party_size"`
 	ManualPositioning   bool    `json:"manual_positioning"`
@@ -41,6 +42,7 @@ type EntryRecord struct {
 	ID          string  `json:"id"`
 	QueueID     string  `json:"queue_id"`
 	TicketNo    string  `json:"ticket_no"`
+	VerifyCode  string  `json:"verify_code"`
 	Position    int64   `json:"position"`
 	Name        string  `json:"name"`
 	Email       *string `json:"email,omitempty"`
@@ -152,6 +154,7 @@ func ToEntryResponse(entry domain.Entry, position int64) EntryRecord {
 		ID:          entry.ID,
 		QueueID:     entry.QueueID,
 		TicketNo:    entry.TicketNo,
+		VerifyCode:  entry.VerifyCode,
 		Position:    position,
 		Name:        entry.Name,
 		Email:       entry.Email,
@@ -176,6 +179,11 @@ func ToEntryResponses(entries []domain.Entry) []EntryRecord {
 }
 
 func ToQueueResponse(queue domain.Queue, profileImg, bannerImg string) QueueRecord {
+	bufferMins := 0
+	if !queue.DelayExpiresAt.IsZero() && queue.DelayExpiresAt.After(time.Now()) {
+		bufferMins = int(time.Until(queue.DelayExpiresAt).Minutes()) + 1
+	}
+
 	return QueueRecord{
 		ID:                  queue.ID,
 		Name:                queue.Name,
@@ -183,6 +191,7 @@ func ToQueueResponse(queue domain.Queue, profileImg, bannerImg string) QueueReco
 		Slug:                queue.Slug,
 		Status:              queue.Status,
 		AvgServiceMins:      queue.AvgServiceMins,
+		BufferMins:          bufferMins,
 		AllowPartyJoining:   queue.AllowPartyJoining,
 		MaxPartySize:        queue.MaxPartySize,
 		ManualPositioning:   queue.ManualPositioning,

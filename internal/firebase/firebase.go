@@ -3,6 +3,7 @@ package firebase
 import (
 	"context"
 	"encoding/base64"
+	"net/url"
 	"strings"
 
 	"queuebuzz/internal/log"
@@ -69,6 +70,11 @@ func buildNotificationData(data map[string]string, title, body string) map[strin
 	return payload
 }
 
+func isValidURL(str string) bool {
+	u, err := url.ParseRequestURI(str)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
 func buildWebpushConfig(data map[string]string) *messaging.WebpushConfig {
 	headers := map[string]string{
 		"TTL":     "60",
@@ -88,7 +94,7 @@ func buildWebpushConfig(data map[string]string) *messaging.WebpushConfig {
 		},
 	}
 
-	if link := data["link"]; link != "" {
+	if link := data["link"]; link != "" && isValidURL(link) {
 		config.FCMOptions = &messaging.WebpushFCMOptions{
 			Link: link,
 		}

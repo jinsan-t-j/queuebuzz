@@ -19,6 +19,7 @@ const (
 	EventUserArrived         = "user_arrived"
 	EventQueueEnded          = "queue_ended"
 	EventUserUpdated         = "user_updated"
+	EventHeadsUp             = "heads_up"
 )
 
 // UserArrivedData is the payload for EventUserArrived.
@@ -47,6 +48,11 @@ type PositionUpdateData struct {
 // EntryStatusChangedData is the payload for EventEntryStatusChanged.
 type EntryStatusChangedData struct {
 	Status string `json:"status"`
+}
+
+// HeadsUpData is the payload for EventHeadsUp.
+type HeadsUpData struct {
+	Position int `json:"position"`
 }
 
 // Wrap is a helper to wrap payload in an SSE message.

@@ -19,6 +19,7 @@ type CreateQueueRequest struct {
 type UpdateQueueRequest struct {
 	Name              *string  `json:"name" validate:"omitempty,min=3,max=50"`
 	AvgServiceMins    *int     `json:"avg_service_mins" validate:"omitempty,min=1,max=60"`
+	BufferMins        *int     `json:"buffer_mins" validate:"omitempty,min=0,max=1440"`
 	Slug              *string  `json:"slug" validate:"omitempty,max=30,slug"`
 	AllowPartyJoining *bool    `json:"allow_party_joining" validate:"omitempty"`
 	MaxPartySize      *int     `json:"max_party_size" validate:"omitempty,min=1,max=100"`

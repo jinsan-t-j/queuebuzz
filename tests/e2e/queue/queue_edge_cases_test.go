@@ -2,6 +2,7 @@ package queue
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestQueue_StrictMode(t *testing.T) {
@@ -101,6 +103,50 @@ func TestQueue_ManualPositioning(t *testing.T) {
 	require.NoError(t, util.DecodeJSON(guestResp, &guestData))
 	assert.Equal(t, float64(0), guestData["data"].(map[string]any)["position"],
 		"manual positioning should report position 0 from API")
+}
+
+func TestQueue_SkipGuest(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	token, _, _ := authutil.RegisterHost(t, s, "Skip Host", "skip@test.com", "password")
+	queueID, joinCode := qutil.CreateAuthenticatedQueue(t, s, "Skip Queue", token)
+
+	qutil.JoinQueue(t, s, queueID, joinCode, "Guest 1")
+	qutil.JoinQueue(t, s, queueID, joinCode, "Guest 2")
+
+	callResp, err := util.POST(s, "/api/v1/queue/manage/"+queueID+"/call", nil, util.HostCookie(token))
+	require.NoError(t, err)
+	defer callResp.Body.Close()
+	require.Equal(t, http.StatusOK, callResp.StatusCode)
+
+	var callBody map[string]any
+	require.NoError(t, util.DecodeJSON(callResp, &callBody))
+	callData := callBody["data"].(map[string]any)
+	entryID := callData["id"].(string)
+
+	skipResp, err := util.POST(s, "/api/v1/queue/manage/"+queueID+"/skip/"+entryID, nil, util.HostCookie(token))
+	require.NoError(t, err)
+	defer skipResp.Body.Close()
+	assert.Equal(t, http.StatusOK, skipResp.StatusCode)
+
+	ctx := context.Background()
+	var entry bson.M
+	err = s.DB.Collection("queue_entries").FindOne(ctx, bson.M{"_id": entryID}).Decode(&entry)
+	require.NoError(t, err)
+	assert.Equal(t, "SKIPPED", entry["status"])
+	assert.NotNil(t, entry["finished_at"])
+
+	nextResp, err := util.POST(s, "/api/v1/queue/manage/"+queueID+"/call", nil, util.HostCookie(token))
+	require.NoError(t, err)
+	defer nextResp.Body.Close()
+	require.Equal(t, http.StatusOK, nextResp.StatusCode)
+
+	var nextBody map[string]any
+	require.NoError(t, util.DecodeJSON(nextResp, &nextBody))
+	nextData := nextBody["data"].(map[string]any)
+	assert.NotEqual(t, entryID, nextData["id"])
+	assert.Equal(t, "Guest 2", nextData["name"])
 }
 
 func TestJoinQueue_CapacityExceeded(t *testing.T) {

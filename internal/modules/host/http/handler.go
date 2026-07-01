@@ -5,7 +5,9 @@ import (
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
+	"queuebuzz/internal/log"
 	authservice "queuebuzz/internal/modules/auth/service"
+
 	"queuebuzz/internal/modules/billing/service"
 	"queuebuzz/internal/modules/host/dto"
 	hostservice "queuebuzz/internal/modules/host/service"
@@ -86,6 +88,11 @@ func (h *Handler) Claim(c fiber.Ctx) error {
 	}
 	if err := h.hostService.ClaimQueue(c.Context(), anonClaims.QueueID, registeredHostID, host.PublicID); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError)
+	}
+
+	// Extend queue expiry if the claiming host has a paid account
+	if err := h.queueService.ExtendActiveQueueExpiry(c.Context(), anonClaims.QueueID, registeredHostID); err != nil {
+		log.Error().Err(err).Str("queue_id", anonClaims.QueueID).Str("host_id", registeredHostID).Msg("Failed to extend claimed queue expiry")
 	}
 
 	_ = h.redisService.DeleteAnonHostToken(c.Context(), anonClaims.QueueID)

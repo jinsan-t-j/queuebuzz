@@ -66,6 +66,10 @@ type Config struct {
 	SupportEmail       string `env:"SUPPORT_EMAIL" env-default:"support@queuebuzz.com"`
 	RecoveryHMACSecret string `env:"RECOVERY_HMAC_SECRET" env-required:"true"`
 
+	// Sentry
+	SentryDSN              string  `env:"SENTRY_DSN" env-default:""`
+	SentryTracesSampleRate float64 `env:"SENTRY_TRACES_SAMPLE_RATE" env-default:"0.1"`
+
 	// Testing
 	DisableRateLimit bool `env:"DISABLE_RATE_LIMIT" env-default:"false"`
 }

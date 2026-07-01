@@ -214,11 +214,28 @@ func sha256Hash(data string) string {
 }
 
 func parseRSAPrivateKey(pemStr string) *rsa.PrivateKey {
-	pemStr = strings.ReplaceAll(pemStr, `\n`, "\n")
-	pemStr = strings.Trim(pemStr, "\"`' \n\r")
-	block, _ := pem.Decode([]byte(pemStr))
+	normalized := normalizePEM(pemStr, "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----")
+	block, _ := pem.Decode([]byte(normalized))
 	if block == nil {
-		log.Fatal().Msg("Failed to decode PEM block for private key")
+		first25 := ""
+		if len(pemStr) > 25 {
+			first25 = pemStr[:25]
+		} else {
+			first25 = pemStr
+		}
+		last25 := ""
+		if len(pemStr) > 25 {
+			last25 = pemStr[len(pemStr)-25:]
+		} else {
+			last25 = pemStr
+		}
+		log.Fatal().
+			Int("length", len(pemStr)).
+			Str("first25", first25).
+			Str("last25", last25).
+			Bool("contains_literal_slash_n", strings.Contains(pemStr, `\n`)).
+			Bool("contains_real_newline", strings.Contains(pemStr, "\n")).
+			Msg("Failed to decode PEM block for private key")
 		return nil
 	}
 
@@ -240,9 +257,8 @@ func parseRSAPrivateKey(pemStr string) *rsa.PrivateKey {
 }
 
 func parseRSAPublicKey(pemStr string) *rsa.PublicKey {
-	pemStr = strings.ReplaceAll(pemStr, `\n`, "\n")
-	pemStr = strings.Trim(pemStr, "\"`' \n\r")
-	block, _ := pem.Decode([]byte(pemStr))
+	normalized := normalizePEM(pemStr, "-----BEGIN PUBLIC KEY-----", "-----END PUBLIC KEY-----")
+	block, _ := pem.Decode([]byte(normalized))
 	if block == nil {
 		log.Fatal().Msg("Failed to decode PEM block for public key")
 		return nil
@@ -259,4 +275,38 @@ func parseRSAPublicKey(pemStr string) *rsa.PublicKey {
 	}
 
 	return rsaPub
+}
+
+func normalizePEM(pemStr string, header, footer string) string {
+	pemStr = strings.ReplaceAll(pemStr, `\n`, "\n")
+	pemStr = strings.Trim(pemStr, "\"`' \n\r\t")
+
+	if block, _ := pem.Decode([]byte(pemStr)); block != nil {
+		return pemStr
+	}
+
+	cleaned := strings.ReplaceAll(pemStr, "\n", "")
+	cleaned = strings.ReplaceAll(cleaned, "\r", "")
+
+	if !strings.HasPrefix(cleaned, header) || !strings.HasSuffix(cleaned, footer) {
+		return pemStr
+	}
+
+	body := cleaned
+	body = strings.TrimPrefix(body, header)
+	body = strings.TrimSuffix(body, footer)
+	body = strings.TrimSpace(body)
+	body = strings.ReplaceAll(body, " ", "")
+
+	var formattedBody strings.Builder
+	for i := 0; i < len(body); i += 64 {
+		end := i + 64
+		if end > len(body) {
+			end = len(body)
+		}
+		formattedBody.WriteString(body[i:end])
+		formattedBody.WriteString("\n")
+	}
+
+	return fmt.Sprintf("%s\n%s%s\n", header, formattedBody.String(), footer)
 }

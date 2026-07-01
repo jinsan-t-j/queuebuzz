@@ -192,10 +192,11 @@ func (n *QueueNotifier) PublishEntryStatusChanged(entryID, status string) {
 	n.publish(entryTopic(entryID), events.Wrap(sse.NewMessage(events.EventEntryStatusChanged, events.EntryStatusChangedData{Status: status})))
 }
 
-func (n *QueueNotifier) PublishWaitingCount(queueID string, count int64, avgServiceMins int) {
+func (n *QueueNotifier) PublishWaitingCount(queueID string, count int64, avgServiceMins int, bufferMins int) {
 	n.publish(pubTopic(queueID), events.Wrap(sse.NewMessage("waiting_count_updated", map[string]interface{}{
 		"count":            count,
 		"avg_service_mins": avgServiceMins,
+		"buffer_mins":      bufferMins,
 	})))
 }
 
@@ -208,6 +209,36 @@ func (n *QueueNotifier) NotifyQueueEnded(entryID, queueName string) {
 		"event":      events.EventQueueEnded,
 		"queue_name": queueName,
 	})
+}
+
+// NotifyHeadsUp sends a "get ready" alert to the next-in-line waiting guests.
+// Called after a guest is buzzed so positions 2 and 3 know they're almost up.
+func (n *QueueNotifier) NotifyHeadsUp(queueID string, entryIDs []string) {
+	titles := []string{
+		"You're next!",
+		"Almost your turn!",
+	}
+	bodies := []string{
+		"Get ready — you're second in line. Start heading over now.",
+		"Heads up — you're third in line. Your turn is coming up soon.",
+	}
+
+	for i, id := range entryIDs {
+		if i >= 2 {
+			break
+		}
+		pos := i + 2 // position 2 or 3
+
+		// SSE event so the UI can react in real time
+		n.publish(entryTopic(id), events.Wrap(sse.NewMessage(events.EventHeadsUp, events.HeadsUpData{Position: pos})))
+
+		// Push notification
+		n.notifyEntry(id, titles[i], bodies[i], map[string]string{
+			"event":    events.EventHeadsUp,
+			"queue_id": queueID,
+			"entry_id": id,
+		})
+	}
 }
 
 func (n *QueueNotifier) publish(topic string, msg sse.Message) {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"fmt"
 	"regexp"
 	"strings"
@@ -29,6 +30,18 @@ import (
 // slugRegex enforces lowercase alphanumeric + hyphens, 3-30 chars,
 // must start and end with alphanumeric.
 var slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$`)
+
+// generateVerifyCode produces a short human-readable code for verbal identity
+// confirmation between host and customer. Uses an unambiguous charset (no 0/O/1/I/L).
+func generateVerifyCode(length int) string {
+	const charset = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+	b := make([]byte, length)
+	_, _ = cryptorand.Read(b)
+	for i := range b {
+		b[i] = charset[int(b[i])%len(charset)]
+	}
+	return string(b)
+}
 
 var reservedSlugs = map[string]bool{
 	"admin": true, "api": true, "app": true, "auth": true,
@@ -233,6 +246,52 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 	return &queue, nil
 }
 
+// ExtendActiveQueueExpiry updates MongoDB and Redis for an active queue to match a host's new/current plan limits.
+func (s *Service) ExtendActiveQueueExpiry(ctx context.Context, queueID string, hostID string) error {
+	var queue domain.Queue
+	err := s.queueCol.FindOne(ctx, bson.M{"_id": queueID}).Decode(&queue)
+	if err != nil {
+		return err
+	}
+
+	// Only extend active or paused queues
+	if queue.Status != constants.QueueStatusActive && queue.Status != constants.QueueStatusPaused {
+		return nil
+	}
+
+	plan, _ := s.billingSvc.GetHostPlan(ctx, hostID)
+	expiryHours := constants.DefaultQueueExpiryH
+	if plan != nil {
+		if plan.Limits.QueueExpiryHours > 0 {
+			expiryHours = plan.Limits.QueueExpiryHours
+		} else if plan.Limits.QueueExpiryHours <= 0 && plan.Tier != "free" {
+			expiryHours = 24 * 365
+		}
+	}
+
+	newExpiresAt := queue.CreatedAt.Add(time.Duration(expiryHours) * time.Hour)
+	if newExpiresAt.Before(time.Now()) {
+		newExpiresAt = time.Now().Add(time.Duration(expiryHours) * time.Hour)
+	}
+
+	_, err = s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, bson.M{
+		"$set": bson.M{
+			"expires_at": newExpiresAt,
+			"updated_at": time.Now(),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	ttl := time.Until(newExpiresAt)
+	if ttl > 0 {
+		_ = s.redisRepo.ExtendQueueKeysExpiry(ctx, queueID, queue.JoinCode, ttl)
+	}
+
+	return nil
+}
+
 func (s *Service) CheckSlugAvailability(ctx context.Context, slug string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -416,19 +475,38 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 	entry.TicketNo = ticketNo
 
 	now := time.Now()
-	entry.ID = uuid.New().String()
-	entry.Token = uuid.New().String()
-	entry.Status = constants.EntryStatusWaiting
-	entry.CreatedAt = now
-	entry.UpdatedAt = now
+	const maxVerifyCodeAttempts = 5
+	inserted := false
 
-	if _, err := s.entryCol.InsertOne(ctx, entry); err != nil {
-		return nil, fmt.Errorf("failed to insert queue entry: %w", err)
+	for attempt := 0; attempt < maxVerifyCodeAttempts; attempt++ {
+		candidate := entry
+		candidate.ID = uuid.New().String()
+		candidate.Token = uuid.New().String()
+		candidate.VerifyCode = generateVerifyCode(6)
+		candidate.Status = constants.EntryStatusWaiting
+		candidate.CreatedAt = now
+		candidate.UpdatedAt = now
+
+		if _, err := s.entryCol.InsertOne(ctx, candidate); err != nil {
+			if mongodriver.IsDuplicateKeyError(err) {
+				log.Warn().Int("attempt", attempt+1).Str("queue_id", entry.QueueID).Msg("verify code collision resolved")
+				continue
+			}
+			return nil, fmt.Errorf("failed to insert queue entry: %w", err)
+		}
+
+		entry = candidate
+		inserted = true
+		break
+	}
+
+	if !inserted {
+		return nil, fmt.Errorf("failed to generate unique verify code after %d attempts", maxVerifyCodeAttempts)
 	}
 
 	var position int64
 	if !queue.ManualPositioning {
-		score := float64(now.Unix())
+		score := float64(now.UnixMilli())
 		if err := s.redisRepo.AddToQueue(ctx, entry.QueueID, entry.ID, score, ttl); err != nil {
 			return nil, fmt.Errorf("failed to add to queue positions: %w", err)
 		}
@@ -562,7 +640,7 @@ func (s *Service) CallNextUser(ctx context.Context, queueID string) (*domain.Ent
 			if settings != nil && settings.DefaultQueueEntryIdleTimeoutMin > 0 {
 				idleMins = settings.DefaultQueueEntryIdleTimeoutMin
 			}
-			_ = s.redisRepo.SetIdleTimer(ctx, queueID, entry.Token, time.Duration(idleMins)*time.Minute)
+			_ = s.redisRepo.SetIdleTimer(ctx, queueID, entry.ID, time.Duration(idleMins)*time.Minute)
 
 			return entry, nil
 		}
@@ -576,6 +654,10 @@ func (s *Service) RemoveUser(ctx context.Context, entryID string) error {
 
 func (s *Service) ServeUser(ctx context.Context, entryID string) error {
 	return s.finishUserSession(ctx, entryID, constants.EntryStatusServed)
+}
+
+func (s *Service) SkipUser(ctx context.Context, entryID string) error {
+	return s.finishUserSession(ctx, entryID, constants.EntryStatusSkipped)
 }
 
 func (s *Service) finishUserSession(ctx context.Context, entryID, status string) error {
@@ -1132,7 +1214,7 @@ func (s *Service) rehydrateQueue(ctx context.Context, queueID string) ([]string,
 	for i, entry := range entries {
 		ids[i] = entry.ID
 		members[i] = redis.Z{
-			Score:  float64(entry.CreatedAt.Unix()),
+			Score:  float64(entry.CreatedAt.UnixMilli()),
 			Member: entry.ID,
 		}
 	}

@@ -3,6 +3,7 @@ package firebase
 import (
 	"context"
 	"encoding/base64"
+	"net/url"
 	"strings"
 
 	"queuebuzz/internal/log"
@@ -69,6 +70,11 @@ func buildNotificationData(data map[string]string, title, body string) map[strin
 	return payload
 }
 
+func isValidURL(str string) bool {
+	u, err := url.ParseRequestURI(str)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
 func buildWebpushConfig(data map[string]string) *messaging.WebpushConfig {
 	headers := map[string]string{
 		"TTL":     "60",
@@ -78,13 +84,17 @@ func buildWebpushConfig(data map[string]string) *messaging.WebpushConfig {
 	config := &messaging.WebpushConfig{
 		Headers: headers,
 		Notification: &messaging.WebpushNotification{
-			Icon:  "/icons/notification-icon.png",
-			Badge: "/icons/badge-icon.png",
-			Tag:   "queue-buzz",
+			Icon:    "/icons/notification-icon.png",
+			Badge:   "/icons/badge-icon.png",
+			Tag:     "queue-buzz",
+			Vibrate: []int{300, 100, 300, 100, 300},
+			Data: map[string]interface{}{
+				"link": data["link"],
+			},
 		},
 	}
 
-	if link := data["link"]; link != "" {
+	if link := data["link"]; link != "" && isValidURL(link) {
 		config.FCMOptions = &messaging.WebpushFCMOptions{
 			Link: link,
 		}
@@ -105,9 +115,14 @@ func buildAndroidConfig() *messaging.AndroidConfig {
 
 func buildAPNSConfig() *messaging.APNSConfig {
 	return &messaging.APNSConfig{
+		Headers: map[string]string{
+			"apns-push-type": "alert",
+			"apns-priority":  "10",
+		},
 		Payload: &messaging.APNSPayload{
 			Aps: &messaging.Aps{
 				ContentAvailable: true,
+				MutableContent:   true,
 				Sound:            "default",
 			},
 		},

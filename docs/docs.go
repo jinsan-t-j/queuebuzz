@@ -1617,6 +1617,81 @@ const docTemplate = `{
                 }
             }
         },
+        "/queue/manage/{id}/skip/{entry_id}": {
+            "post": {
+                "description": "Skips an entry in the live queue for the authenticated host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Queue"
+                ],
+                "summary": "Skip an entry in the queue",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Queue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Entry ID",
+                        "name": "entry_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Entry skipped",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/helpers.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "Data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/queue/p/find": {
             "get": {
                 "description": "Finds the queue using an ID/slug/code or a 6-character code.",
@@ -3000,6 +3075,9 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string"
                 },
+                "verify_code": {
+                    "type": "string"
+                },
                 "wait_time_min": {
                     "type": "integer"
                 }
@@ -3117,6 +3195,9 @@ const docTemplate = `{
         "dto.PeakHourPoint": {
             "type": "object",
             "properties": {
+                "day": {
+                    "type": "integer"
+                },
                 "hour": {
                     "type": "string"
                 },
@@ -3151,6 +3232,9 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "avg_service_mins": {
+                    "type": "integer"
+                },
+                "buffer_mins": {
                     "type": "integer"
                 },
                 "collect_emails": {
@@ -3297,6 +3381,12 @@ const docTemplate = `{
                         "$ref": "#/definitions/dto.ReturnRatePoint"
                     }
                 },
+                "chartDataToday": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.ReturnRatePoint"
+                    }
+                },
                 "hasData": {
                     "type": "boolean"
                 },
@@ -3416,6 +3506,11 @@ const docTemplate = `{
                     "type": "integer",
                     "maximum": 60,
                     "minimum": 1
+                },
+                "buffer_mins": {
+                    "type": "integer",
+                    "maximum": 1440,
+                    "minimum": 0
                 },
                 "collect_emails": {
                     "type": "boolean"

@@ -204,8 +204,12 @@ func (s *Service) UpdateHost(ctx context.Context, id string, updates bson.M) err
 				return fmt.Errorf("this custom slug is already taken by another business")
 			}
 
-			// Ensure no collision with active queues' slugs
-			qCount, err := s.queueCol.CountDocuments(ctx, bson.M{"slug": slug, "status": constants.QueueStatusActive})
+			// Ensure no collision with active queues' slugs, unless they belong to the same host
+			qCount, err := s.queueCol.CountDocuments(ctx, bson.M{
+				"slug":    slug,
+				"status":  constants.QueueStatusActive,
+				"host_id": bson.M{"$ne": id},
+			})
 			if err != nil {
 				return fmt.Errorf("failed to validate slug uniqueness against queues: %w", err)
 			}

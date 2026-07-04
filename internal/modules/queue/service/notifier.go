@@ -10,6 +10,7 @@ import (
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/firebase"
+	"queuebuzz/internal/helpers"
 	"queuebuzz/internal/log"
 	customerevents "queuebuzz/internal/modules/customer/events"
 	"queuebuzz/internal/modules/queue/domain"
@@ -61,7 +62,12 @@ func pubTopic(queueID string) string { return "queue_public:" + queueID }
 
 // PublishEntryJoined notifies the host that a user joined the queue.
 func (n *QueueNotifier) PublishEntryJoined(queueID string, entry dto.EntryRecord) {
-	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserJoined, entry)))
+	hostEntry := entry
+	if !n.canViewGuestData(queueID) {
+		hostEntry.Email = helpers.MaskEmail(entry.Email)
+		hostEntry.Phone = helpers.MaskPhone(entry.Phone)
+	}
+	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserJoined, hostEntry)))
 
 	// Strip PII for public channel
 	publicEntry := entry
@@ -88,7 +94,12 @@ func (n *QueueNotifier) PublishEntryJoined(queueID string, entry dto.EntryRecord
 
 // PublishEntryUpdated notifies the host and public channel that a user's details were updated.
 func (n *QueueNotifier) PublishEntryUpdated(queueID string, entry dto.EntryRecord) {
-	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserUpdated, entry)))
+	hostEntry := entry
+	if !n.canViewGuestData(queueID) {
+		hostEntry.Email = helpers.MaskEmail(entry.Email)
+		hostEntry.Phone = helpers.MaskPhone(entry.Phone)
+	}
+	n.publish(queueID, events.Wrap(sse.NewMessage(events.EventUserUpdated, hostEntry)))
 
 	// Strip PII for public channel
 	publicEntry := entry
@@ -248,6 +259,29 @@ func (n *QueueNotifier) publish(topic string, msg sse.Message) {
 		return
 	}
 	n.broker.Publish(topic, payload)
+}
+
+func (n *QueueNotifier) canViewGuestData(queueID string) bool {
+	var q domain.Queue
+	dbCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := n.queueCol.FindOne(dbCtx, bson.M{"_id": queueID}).Decode(&q); err != nil {
+		return false
+	}
+	if q.HostID == nil || *q.HostID == "" {
+		return false
+	}
+
+	hostsCol := n.queueCol.Database().Collection("hosts")
+	var host struct {
+		Tier string `bson:"tier"`
+	}
+	if err := hostsCol.FindOne(dbCtx, bson.M{"_id": *q.HostID}).Decode(&host); err != nil {
+		return false
+	}
+	tier := strings.ToLower(host.Tier)
+	return tier != "free" && tier != ""
 }
 
 func (n *QueueNotifier) absoluteURL(path string) string {

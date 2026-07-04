@@ -22,7 +22,6 @@ type Queue struct {
 	MaxPartySize      int           `bson:"max_party_size" json:"max_party_size"`
 	ManualPositioning bool          `bson:"manual_positioning" json:"manual_positioning"`
 	StrictQueueMode   bool          `bson:"strict_queue_mode" json:"strict_queue_mode"`
-	CollectEmails     bool          `bson:"collect_emails" json:"collect_emails"`
 	IsGeoLocked       bool          `bson:"is_geo_locked" json:"is_geo_locked"`
 	Latitude          float64       `bson:"latitude" json:"latitude"`
 	Longitude         float64       `bson:"longitude" json:"longitude"`

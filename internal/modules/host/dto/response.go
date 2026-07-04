@@ -5,7 +5,6 @@ type HostSettingsResponse struct {
 	AvgServiceMins     int    `json:"avg_service_mins"`
 	EmailNotifications bool   `json:"email_notifications"`
 	PushNotifications  bool   `json:"push_notifications"`
-	CollectEmails      bool   `json:"collect_emails"`
 }
 
 type GetMeResponse struct {

@@ -19,7 +19,6 @@ type HostSettings struct {
 	AvgServiceMins     int    `bson:"avg_service_mins" json:"avg_service_mins"`
 	EmailNotifications bool   `bson:"email_notifications" json:"email_notifications"`
 	PushNotifications  bool   `bson:"push_notifications" json:"push_notifications"`
-	CollectEmails      bool   `bson:"collect_emails" json:"collect_emails"`
 }
 
 type Host struct {

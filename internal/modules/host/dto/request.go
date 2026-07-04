@@ -10,7 +10,6 @@ type HostSettingsRequest struct {
 	AvgServiceMins     *int    `json:"avg_service_mins,omitempty" validate:"omitempty,min=1,max=60"`
 	EmailNotifications *bool   `json:"email_notifications,omitempty"`
 	PushNotifications  *bool   `json:"push_notifications,omitempty"`
-	CollectEmails      *bool   `json:"collect_emails,omitempty"`
 }
 
 type UpdateMeRequest struct {

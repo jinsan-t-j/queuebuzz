@@ -17,7 +17,6 @@ type QueueRecord struct {
 	MaxPartySize        int     `json:"max_party_size"`
 	ManualPositioning   bool    `json:"manual_positioning"`
 	StrictQueueMode     bool    `json:"strict_queue_mode"`
-	CollectEmails       bool    `json:"collect_emails"`
 	Notes               string  `json:"notes,omitempty"`
 	HostProfileImageURL string  `json:"host_profile_image_url,omitempty"`
 	HostBannerImageURL  string  `json:"host_banner_image_url,omitempty"`
@@ -196,7 +195,6 @@ func ToQueueResponse(queue domain.Queue, profileImg, bannerImg string) QueueReco
 		MaxPartySize:        queue.MaxPartySize,
 		ManualPositioning:   queue.ManualPositioning,
 		StrictQueueMode:     queue.StrictQueueMode,
-		CollectEmails:       queue.CollectEmails,
 		Notes:               queue.Notes,
 		HostProfileImageURL: profileImg,
 		HostBannerImageURL:  bannerImg,

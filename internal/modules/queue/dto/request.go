@@ -9,7 +9,6 @@ type CreateQueueRequest struct {
 	AllowPartyJoining *bool    `json:"allow_party_joining" validate:"omitempty"`
 	MaxPartySize      *int     `json:"max_party_size" validate:"omitempty,min=1,max=100"`
 	ManualPositioning *bool    `json:"manual_positioning" validate:"omitempty"`
-	CollectEmails     *bool    `json:"collect_emails" validate:"omitempty"`
 	IsGeoLocked       *bool    `json:"is_geo_locked" validate:"omitempty"`
 	Latitude          *float64 `json:"latitude" validate:"omitempty"`
 	Longitude         *float64 `json:"longitude" validate:"omitempty"`
@@ -24,7 +23,6 @@ type UpdateQueueRequest struct {
 	AllowPartyJoining *bool    `json:"allow_party_joining" validate:"omitempty"`
 	MaxPartySize      *int     `json:"max_party_size" validate:"omitempty,min=1,max=100"`
 	StrictQueueMode   *bool    `json:"strict_queue_mode" validate:"omitempty"`
-	CollectEmails     *bool    `json:"collect_emails" validate:"omitempty"`
 	Notes             *string  `json:"notes" validate:"omitempty,max=5000"`
 	IsGeoLocked       *bool    `json:"is_geo_locked" validate:"omitempty"`
 	Latitude          *float64 `json:"latitude" validate:"omitempty"`
@@ -37,7 +35,7 @@ type JoinByCodeRequest struct {
 	FCMToken    *string  `json:"fcm_token" validate:"omitempty"`
 	DisplayName *string  `json:"display_name"`
 	Email       *string  `json:"email" validate:"omitempty,email"`
-	Phone       *string  `json:"phone" validate:"omitempty,len=10"`
+	Phone       *string  `json:"phone" validate:"omitempty,min=8,max=15"`
 	PartySize   *int     `json:"party_size" validate:"omitempty,min=1,max=100"`
 	PIN         *string  `json:"pin" validate:"omitempty,len=4"`
 	Fingerprint string   `json:"fingerprint"`
@@ -51,7 +49,7 @@ type JoinRequest struct {
 	FCMToken    *string  `json:"fcm_token" validate:"omitempty"`
 	DisplayName *string  `json:"display_name"`
 	Email       *string  `json:"email" validate:"omitempty,email"`
-	Phone       *string  `json:"phone" validate:"omitempty,len=10"`
+	Phone       *string  `json:"phone" validate:"omitempty,min=8,max=15"`
 	PartySize   *int     `json:"party_size" validate:"omitempty,min=1,max=100"`
 	PIN         *string  `json:"pin" validate:"omitempty,len=4"`
 	Fingerprint string   `json:"fingerprint"`
@@ -63,6 +61,6 @@ type JoinRequest struct {
 type AddEntryRequest struct {
 	Name      string  `json:"name" validate:"required,min=3,max=50"`
 	Email     *string `json:"email" validate:"omitempty,email"`
-	Phone     *string `json:"phone" validate:"omitempty,len=10"`
+	Phone     *string `json:"phone" validate:"omitempty,min=8,max=15"`
 	PartySize *int    `json:"party_size" validate:"omitempty,min=1,max=100"`
 }

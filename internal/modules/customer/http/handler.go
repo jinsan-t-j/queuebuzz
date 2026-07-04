@@ -185,6 +185,9 @@ func (h *Handler) UpdateEntry(c fiber.Ctx) error {
 		}
 		updates["email"] = *req.Email
 	}
+	if req.Phone != nil {
+		updates["phone"] = *req.Phone
+	}
 	if req.PartySize != nil {
 		updates["party_size"] = *req.PartySize
 	}

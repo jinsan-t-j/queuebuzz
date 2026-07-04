@@ -148,7 +148,6 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 			AvgServiceMins:     host.Settings.AvgServiceMins,
 			EmailNotifications: host.Settings.EmailNotifications,
 			PushNotifications:  host.Settings.PushNotifications,
-			CollectEmails:      host.Settings.CollectEmails,
 		}
 	}
 
@@ -289,9 +288,6 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 		}
 		if req.Settings.PushNotifications != nil {
 			settingsMap["push_notifications"] = *req.Settings.PushNotifications
-		}
-		if req.Settings.CollectEmails != nil {
-			settingsMap["collect_emails"] = *req.Settings.CollectEmails
 		}
 		updates["settings"] = settingsMap
 	}

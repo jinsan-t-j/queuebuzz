@@ -1,10 +1,13 @@
 package queue
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	authutil "queuebuzz/tests/e2e/auth/utils"
+	"queuebuzz/tests/e2e/billing"
 	qutil "queuebuzz/tests/e2e/queue/utils"
 	"queuebuzz/tests/e2e/util"
 	"testing"
@@ -219,6 +222,135 @@ func TestSSE_PublicStream_Slug_ReceivesEvent(t *testing.T) {
 			}
 		case <-timeout:
 			t.Fatal("timed out waiting for public slug SSE event")
+		}
+	}
+}
+
+func TestSSE_GuestDataMasking_FreeVsPremium(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	// 1. Register host (Free plan by default)
+	hostToken, hostID, _ := authutil.RegisterHost(t, s, "Mask Host", "maskhost@test.com", "password")
+
+	// 2. Create queue for free host
+	queueID1, joinCode1 := qutil.CreateAuthenticatedQueue(t, s, "Free Host Queue", hostToken)
+
+	// 3. Connect to SSE as free host
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel1()
+	ch1, err := util.ReadSSE(ctx1, s,
+		fmt.Sprintf("/api/v1/queue/manage/%s/events", queueID1),
+		[]*http.Cookie{util.AuthCookie(hostToken)},
+	)
+	require.NoError(t, err)
+
+	// 4. Join customer with email and phone
+	joinPayload1 := map[string]any{
+		"display_name": "Customer One",
+		"fingerprint":  "fp-cust-1",
+		"join_code":    joinCode1,
+		"email":        "customer1@example.com",
+		"phone":        "9876543210",
+	}
+	bodyBytes1, _ := json.Marshal(joinPayload1)
+	req1, _ := http.NewRequest(http.MethodPost, s.BaseURL+fmt.Sprintf("/api/v1/customer/entry/join/%s", queueID1), bytes.NewReader(bodyBytes1))
+	req1.Header.Set("Content-Type", "application/json")
+	resp1, err := s.Do(req1)
+	require.NoError(t, err)
+	resp1.Body.Close()
+	require.Equal(t, http.StatusCreated, resp1.StatusCode)
+
+	// 5. Verify email and phone are masked in host SSE event
+	foundMasked := false
+	timeout1 := time.After(5 * time.Second)
+	for !foundMasked {
+		select {
+		case ev := <-ch1:
+			if ev.Event == "joined" {
+				var envelope map[string]any
+				require.NoError(t, json.Unmarshal([]byte(ev.Data), &envelope))
+
+				entryData, okEntry := envelope["data"].(map[string]any)
+				require.True(t, okEntry)
+
+				// Assert email and phone are masked
+				email, okEmail := entryData["email"].(string)
+				phone, okPhone := entryData["phone"].(string)
+				assert.True(t, okEmail)
+				assert.True(t, okPhone)
+
+				assert.Contains(t, email, "****")
+				assert.Contains(t, phone, "****")
+				assert.NotEqual(t, "customer1@example.com", email)
+				assert.NotEqual(t, "9876543210", phone)
+				foundMasked = true
+			}
+		case <-timeout1:
+			t.Fatal("timed out waiting for masked joined event")
+		}
+	}
+	cancel1() // close stream 1
+
+	// 5.5 Terminate first queue so host can start a new active queue
+	qutil.TerminateQueue(t, s, queueID1, hostToken)
+
+	// 6. Upgrade host to premium
+	billing.UpgradeToPremium(t, s, hostID, hostToken)
+
+	// 7. Create queue for premium host
+	queueID2, joinCode2 := qutil.CreateAuthenticatedQueue(t, s, "Premium Host Queue", hostToken)
+
+	// 8. Connect to SSE as premium host
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel2()
+	ch2, err := util.ReadSSE(ctx2, s,
+		fmt.Sprintf("/api/v1/queue/manage/%s/events", queueID2),
+		[]*http.Cookie{util.AuthCookie(hostToken)},
+	)
+	require.NoError(t, err)
+
+	// 9. Join customer to premium queue
+	joinPayload2 := map[string]any{
+		"display_name": "Customer Two",
+		"fingerprint":  "fp-cust-2",
+		"join_code":    joinCode2,
+		"email":        "customer2@example.com",
+		"phone":        "9876543211",
+	}
+	bodyBytes2, _ := json.Marshal(joinPayload2)
+	req2, _ := http.NewRequest(http.MethodPost, s.BaseURL+fmt.Sprintf("/api/v1/customer/entry/join/%s", queueID2), bytes.NewReader(bodyBytes2))
+	req2.Header.Set("Content-Type", "application/json")
+	resp2, err := s.Do(req2)
+	require.NoError(t, err)
+	resp2.Body.Close()
+	require.Equal(t, http.StatusCreated, resp2.StatusCode)
+
+	// 10. Verify email and phone are UNMASKED in host SSE event
+	foundUnmasked := false
+	timeout2 := time.After(5 * time.Second)
+	for !foundUnmasked {
+		select {
+		case ev := <-ch2:
+			if ev.Event == "joined" {
+				var envelope map[string]any
+				require.NoError(t, json.Unmarshal([]byte(ev.Data), &envelope))
+
+				entryData, okEntry := envelope["data"].(map[string]any)
+				require.True(t, okEntry)
+
+				// Assert email and phone are unmasked
+				email, okEmail := entryData["email"].(string)
+				phone, okPhone := entryData["phone"].(string)
+				assert.True(t, okEmail)
+				assert.True(t, okPhone)
+
+				assert.Equal(t, "customer2@example.com", email)
+				assert.Equal(t, "9876543211", phone)
+				foundUnmasked = true
+			}
+		case <-timeout2:
+			t.Fatal("timed out waiting for unmasked joined event")
 		}
 	}
 }

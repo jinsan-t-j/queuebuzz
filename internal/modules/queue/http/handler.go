@@ -180,7 +180,6 @@ func (h *Handler) Create(c fiber.Ctx) error {
 			AllowPartyJoining: req.AllowPartyJoining,
 			MaxPartySize:      req.MaxPartySize,
 			ManualPositioning: req.ManualPositioning,
-			CollectEmails:     req.CollectEmails,
 			IsGeoLocked:       req.IsGeoLocked,
 			Latitude:          req.Latitude,
 			Longitude:         req.Longitude,
@@ -608,9 +607,6 @@ func (h *Handler) Update(c fiber.Ctx) error {
 	}
 	if req.MaxPartySize != nil {
 		updates["max_party_size"] = *req.MaxPartySize
-	}
-	if req.CollectEmails != nil {
-		updates["collect_emails"] = *req.CollectEmails
 	}
 
 	if req.StrictQueueMode != nil {

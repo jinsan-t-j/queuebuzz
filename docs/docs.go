@@ -2829,7 +2829,9 @@ const docTemplate = `{
                     "minimum": 1
                 },
                 "phone": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 15,
+                    "minLength": 8
                 }
             }
         },
@@ -2929,9 +2931,6 @@ const docTemplate = `{
                     "type": "integer",
                     "maximum": 60,
                     "minimum": 1
-                },
-                "collect_emails": {
-                    "type": "boolean"
                 },
                 "geo_radius_meters": {
                     "type": "number",
@@ -3157,9 +3156,6 @@ const docTemplate = `{
                     "maximum": 60,
                     "minimum": 1
                 },
-                "collect_emails": {
-                    "type": "boolean"
-                },
                 "default_queue_name": {
                     "type": "string",
                     "maxLength": 50
@@ -3177,9 +3173,6 @@ const docTemplate = `{
             "properties": {
                 "avg_service_mins": {
                     "type": "integer"
-                },
-                "collect_emails": {
-                    "type": "boolean"
                 },
                 "default_queue_name": {
                     "type": "string"
@@ -3236,9 +3229,6 @@ const docTemplate = `{
                 },
                 "buffer_mins": {
                     "type": "integer"
-                },
-                "collect_emails": {
-                    "type": "boolean"
                 },
                 "created_at": {
                     "type": "string"
@@ -3453,6 +3443,11 @@ const docTemplate = `{
                     "type": "integer",
                     "maximum": 100,
                     "minimum": 1
+                },
+                "phone": {
+                    "type": "string",
+                    "maxLength": 15,
+                    "minLength": 8
                 }
             }
         },
@@ -3511,9 +3506,6 @@ const docTemplate = `{
                     "type": "integer",
                     "maximum": 1440,
                     "minimum": 0
-                },
-                "collect_emails": {
-                    "type": "boolean"
                 },
                 "geo_radius_meters": {
                     "type": "number",

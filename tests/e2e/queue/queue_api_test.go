@@ -81,11 +81,9 @@ func TestQueue_Settings_Update(t *testing.T) {
 
 	// 1. Update settings
 	strictMode := true
-	collectEmails := true
 	notes := "Welcome to our store!"
 	payload := map[string]any{
 		"strict_queue_mode": strictMode,
-		"collect_emails":    collectEmails,
 		"notes":             notes,
 		"avg_service_mins":  15,
 	}

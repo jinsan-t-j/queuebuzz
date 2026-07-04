@@ -89,7 +89,6 @@ type CreateQueueParams struct {
 	AllowPartyJoining *bool
 	MaxPartySize      *int
 	ManualPositioning *bool
-	CollectEmails     *bool
 	IsGeoLocked       *bool
 	Latitude          *float64
 	Longitude         *float64
@@ -191,7 +190,6 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 		AllowPartyJoining: allowParty,
 		MaxPartySize:      maxParty,
 		ManualPositioning: params.ManualPositioning != nil && *params.ManualPositioning,
-		CollectEmails:     params.CollectEmails != nil && *params.CollectEmails,
 		IsGeoLocked:       geoLocked,
 		Latitude:          lat,
 		Longitude:         lng,

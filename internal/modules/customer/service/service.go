@@ -87,6 +87,16 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 			return nil, exceptions.Duplicate("email", "Guest already in queue!")
 		}
 	}
+	if params.Phone != nil && *params.Phone != "" {
+		count, _ := s.entryCol.CountDocuments(ctx, bson.M{
+			"queue_id": queue.ID,
+			"status":   bson.M{"$in": []string{constants.EntryStatusWaiting, constants.EntryStatusCalled, constants.EntryStatusIdle}},
+			"phone":    *params.Phone,
+		})
+		if count > 0 {
+			return nil, exceptions.Duplicate("phone", "Guest already in queue!")
+		}
+	}
 
 	// 4. Delegate Creation
 	entry := queuedomain.Entry{

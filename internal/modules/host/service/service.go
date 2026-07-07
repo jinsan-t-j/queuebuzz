@@ -52,11 +52,12 @@ func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*h
 
 	now := time.Now()
 	host = hostdomain.Host{
-		ID:        generateHostID(),
-		PublicID:  helpers.GenerateSlug(),
-		Tier:      constants.TierFree,
-		CreatedAt: now,
-		LastSeen:  now,
+		ID:            generateHostID(),
+		PublicID:      helpers.GenerateSlug(),
+		Tier:          constants.TierFree,
+		TermsAccepted: false,
+		CreatedAt:     now,
+		LastSeen:      now,
 	}
 	if email != "" {
 		host.Email = &email
@@ -125,12 +126,13 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 	}
 
 	host = hostdomain.Host{
-		ID:         generateHostID(),
-		PublicID:   helpers.GenerateSlug(),
-		Tier:       constants.TierFree,
-		CreatedAt:  now,
-		LastSeen:   now,
-		SocialAuth: &hostdomain.HostSocialAuth{},
+		ID:            generateHostID(),
+		PublicID:      helpers.GenerateSlug(),
+		Tier:          constants.TierFree,
+		TermsAccepted: false,
+		CreatedAt:     now,
+		LastSeen:      now,
+		SocialAuth:    &hostdomain.HostSocialAuth{},
 	}
 	if identity.EmailVerified && identity.Email != "" {
 		host.Email = &identity.Email

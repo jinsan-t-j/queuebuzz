@@ -31,13 +31,13 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 			YearlyPrice:  0,
 			Limits: domain.PlanLimit{
 				MaxQueuesPerMonth:    1,
-				MaxGuestsPerQueue:    25,
+				MaxGuestsPerQueue:    50, // raised from 25 — better trial experience
 				HistoryAccess:        false,
 				CustomBranding:       false,
 				CanExport:            false,
 				QueueExpiryHours:     24,
 				CanViewGuestData:     false,
-				HistoryRetentionDays: 7,
+				HistoryRetentionDays: 3, // reduced from 7 to nudge upgrades
 				AllowGeoLock:         false,
 			},
 			CreatedAt: time.Now(),
@@ -54,17 +54,17 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 			IsFree:                   false,
 			CountryCode:              "IN",
 			Currency:                 "INR",
-			MonthlyPrice:             49900,  // ₹499.00
-			YearlyPrice:              549900, // ₹5499.00
+			MonthlyPrice:             79900,  // ₹799.00
+			YearlyPrice:              769900, // ₹7,699.00 (~₹641/mo — save ~20%)
 			Limits: domain.PlanLimit{
 				MaxQueuesPerMonth:    25,
-				MaxGuestsPerQueue:    100,
+				MaxGuestsPerQueue:    200, // raised from 100
 				HistoryAccess:        true,
 				CustomBranding:       false,
 				CanExport:            true,
 				QueueExpiryHours:     72, // 3 days
 				CanViewGuestData:     true,
-				HistoryRetentionDays: 0,
+				HistoryRetentionDays: 90, // explicit 90-day cap; Elite = unlimited
 				AllowGeoLock:         true,
 			},
 			CreatedAt: time.Now(),
@@ -81,17 +81,17 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 			IsFree:                   false,
 			CountryCode:              "GLOBAL",
 			Currency:                 "USD",
-			MonthlyPrice:             900,   // $9.00
-			YearlyPrice:              10900, // $109.00
+			MonthlyPrice:             1400,  // $14.00
+			YearlyPrice:              13400, // $134.00 (~$11.17/mo — save ~20%)
 			Limits: domain.PlanLimit{
 				MaxQueuesPerMonth:    25,
-				MaxGuestsPerQueue:    100,
+				MaxGuestsPerQueue:    200, // raised from 100
 				HistoryAccess:        true,
 				CustomBranding:       false,
 				CanExport:            true,
 				QueueExpiryHours:     72,
 				CanViewGuestData:     true,
-				HistoryRetentionDays: 0,
+				HistoryRetentionDays: 90, // explicit 90-day cap; Elite = unlimited
 				AllowGeoLock:         true,
 			},
 			CreatedAt: time.Now(),
@@ -108,17 +108,17 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 			IsFree:                   false,
 			CountryCode:              "IN",
 			Currency:                 "INR",
-			MonthlyPrice:             149900,  // ₹1,499.00
-			YearlyPrice:              1649900, // ₹16,499.00
+			MonthlyPrice:             249900,  // ₹2,499.00
+			YearlyPrice:              2399000, // ₹23,990.00 (~₹1,999/mo — save 20%)
 			Limits: domain.PlanLimit{
-				MaxQueuesPerMonth:    50,
-				MaxGuestsPerQueue:    0,
+				MaxQueuesPerMonth:    100, // raised from 50 — supports multi-branch
+				MaxGuestsPerQueue:    0,   // unlimited
 				HistoryAccess:        true,
 				CustomBranding:       true,
 				CanExport:            true,
 				QueueExpiryHours:     168, // 1 week
 				CanViewGuestData:     true,
-				HistoryRetentionDays: 0,
+				HistoryRetentionDays: 0, // unlimited
 				AllowGeoLock:         true,
 			},
 			CreatedAt: time.Now(),
@@ -135,17 +135,17 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 			IsFree:                   false,
 			CountryCode:              "GLOBAL",
 			Currency:                 "USD",
-			MonthlyPrice:             2900, // $29.00
-			YearlyPrice:              29000,
+			MonthlyPrice:             3900,  // $39.00
+			YearlyPrice:              37400, // $374.00 (~$31.17/mo — save ~20%)
 			Limits: domain.PlanLimit{
-				MaxQueuesPerMonth:    50,
-				MaxGuestsPerQueue:    0,
+				MaxQueuesPerMonth:    100, // raised from 50 — supports multi-branch
+				MaxGuestsPerQueue:    0,   // unlimited
 				HistoryAccess:        true,
 				CustomBranding:       true,
 				CanExport:            true,
 				QueueExpiryHours:     168,
 				CanViewGuestData:     true,
-				HistoryRetentionDays: 0, // Unlimited
+				HistoryRetentionDays: 0, // unlimited
 				AllowGeoLock:         true,
 			},
 			CreatedAt: time.Now(),

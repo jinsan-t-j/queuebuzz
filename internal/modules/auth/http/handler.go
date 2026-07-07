@@ -170,18 +170,19 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 	h.setAuthCookies(c, accessToken, refreshToken, accessExp, refreshExp)
 
 	targetURL := h.cfg.AuthCallbackURL
-	if identity.ClaimQueueID != "" || identity.RedirectURL != "" {
-		u, _ := url.Parse(targetURL)
-		q := u.Query()
-		if identity.ClaimQueueID != "" {
-			q.Set("claim_queue_id", identity.ClaimQueueID)
-		}
-		if identity.RedirectURL != "" {
-			q.Set("redirect", identity.RedirectURL)
-		}
-		u.RawQuery = q.Encode()
-		targetURL = u.String()
+	u, _ := url.Parse(targetURL)
+	q := u.Query()
+	if created {
+		q.Set("signup", "true")
 	}
+	if identity.ClaimQueueID != "" {
+		q.Set("claim_queue_id", identity.ClaimQueueID)
+	}
+	if identity.RedirectURL != "" {
+		q.Set("redirect", identity.RedirectURL)
+	}
+	u.RawQuery = q.Encode()
+	targetURL = u.String()
 	return c.Redirect().To(targetURL)
 }
 
@@ -244,18 +245,19 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 	h.setAuthCookies(c, accessToken, refreshToken, accessExp, refreshExp)
 
 	targetURL := h.cfg.AuthCallbackURL
-	if claimQueueID != "" || redirectURL != "" {
-		u, _ := url.Parse(targetURL)
-		q := u.Query()
-		if claimQueueID != "" {
-			q.Set("claim_queue_id", claimQueueID)
-		}
-		if redirectURL != "" {
-			q.Set("redirect", redirectURL)
-		}
-		u.RawQuery = q.Encode()
-		targetURL = u.String()
+	u, _ := url.Parse(targetURL)
+	q := u.Query()
+	if created {
+		q.Set("signup", "true")
 	}
+	if claimQueueID != "" {
+		q.Set("claim_queue_id", claimQueueID)
+	}
+	if redirectURL != "" {
+		q.Set("redirect", redirectURL)
+	}
+	u.RawQuery = q.Encode()
+	targetURL = u.String()
 
 	return c.Redirect().To(targetURL)
 }

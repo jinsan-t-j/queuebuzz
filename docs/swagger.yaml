@@ -272,6 +272,8 @@ definitions:
         $ref: '#/definitions/dto.HostSettingsResponse'
       slug:
         type: string
+      terms_accepted:
+        type: boolean
       tier:
         type: string
     type: object
@@ -510,6 +512,8 @@ definitions:
         $ref: '#/definitions/dto.HostSettingsRequest'
       slug:
         type: string
+      terms_accepted:
+        type: boolean
     type: object
   dto.UpdatePaymentMethodRequest:
     properties:

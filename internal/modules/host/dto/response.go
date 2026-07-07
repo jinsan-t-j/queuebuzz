@@ -21,4 +21,5 @@ type GetMeResponse struct {
 	ProfileImageURL string                `json:"profile_image_url,omitempty"`
 	BannerImageURL  string                `json:"banner_image_url,omitempty"`
 	Settings        *HostSettingsResponse `json:"settings,omitempty"`
+	TermsAccepted   bool                  `json:"terms_accepted"`
 }

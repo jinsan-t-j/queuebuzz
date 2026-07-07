@@ -3115,6 +3115,9 @@
                 "slug": {
                     "type": "string"
                 },
+                "terms_accepted": {
+                    "type": "boolean"
+                },
                 "tier": {
                     "type": "string"
                 }
@@ -3474,6 +3477,9 @@
                 },
                 "slug": {
                     "type": "string"
+                },
+                "terms_accepted": {
+                    "type": "boolean"
                 }
             }
         },

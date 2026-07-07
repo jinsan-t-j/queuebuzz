@@ -3121,6 +3121,9 @@ const docTemplate = `{
                 "slug": {
                     "type": "string"
                 },
+                "terms_accepted": {
+                    "type": "boolean"
+                },
                 "tier": {
                     "type": "string"
                 }
@@ -3480,6 +3483,9 @@ const docTemplate = `{
                 },
                 "slug": {
                     "type": "string"
+                },
+                "terms_accepted": {
+                    "type": "boolean"
                 }
             }
         },

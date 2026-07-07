@@ -41,4 +41,5 @@ type Host struct {
 	BannerImageURL      *string         `bson:"banner_image_url,omitempty" json:"banner_image_url,omitempty"`
 	CreatedAt           time.Time       `bson:"created_at" json:"created_at"`
 	LastSeen            time.Time       `bson:"last_seen" json:"last_seen"`
+	TermsAccepted       bool            `bson:"terms_accepted" json:"terms_accepted"`
 }

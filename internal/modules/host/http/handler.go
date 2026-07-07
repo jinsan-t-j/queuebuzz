@@ -165,6 +165,7 @@ func (h *Handler) GetMe(c fiber.Ctx) error {
 		ProfileImageURL: helpers.DerefString(host.ProfileImageURL),
 		BannerImageURL:  helpers.DerefString(host.BannerImageURL),
 		Settings:        settingsRes,
+		TermsAccepted:   host.TermsAccepted,
 	}).OK(c)
 }
 
@@ -274,6 +275,9 @@ func (h *Handler) UpdateMe(c fiber.Ctx) error {
 		} else {
 			updates["banner_image_url"] = *req.BannerImageURL
 		}
+	}
+	if req.TermsAccepted != nil {
+		updates["terms_accepted"] = *req.TermsAccepted
 	}
 	if req.Settings != nil {
 		settingsMap := make(bson.M)

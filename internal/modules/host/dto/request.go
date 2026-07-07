@@ -21,4 +21,5 @@ type UpdateMeRequest struct {
 	BannerImageURL  *string              `json:"banner_image_url,omitempty"`
 	Slug            *string              `json:"slug,omitempty" validate:"omitempty,slug"`
 	Settings        *HostSettingsRequest `json:"settings,omitempty" validate:"omitempty"`
+	TermsAccepted   *bool                `json:"terms_accepted,omitempty"`
 }

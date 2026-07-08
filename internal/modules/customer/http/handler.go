@@ -437,6 +437,37 @@ func (h *Handler) RecoverSession(c fiber.Ctx) error {
 	return helpers.NewSuccessResponse("Session recovered", response).OK(c)
 }
 
+// GetRecoveryToken godoc
+// @Summary Get recovery token
+// @Description Generates a signed, single-use recovery token for the currently authenticated guest entry.
+// @Tags Entry
+// @Produce json
+// @Success 200 {object} helpers.SuccessResponse "Recovery token generated"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /entry/recovery-token [get]
+func (h *Handler) GetRecoveryToken(c fiber.Ctx) error {
+	entryID, _ := c.Locals("entry_id").(string)
+	queueID, _ := c.Locals("queue_id").(string)
+
+	if entryID == "" || queueID == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
+	}
+
+	var token string
+	var err error
+	if c.Query("stateless") == "true" {
+		token, err = h.recoverySvc.GenerateStatelessToken(entryID, queueID)
+	} else {
+		token, err = h.recoverySvc.GenerateToken(c.Context(), entryID, queueID)
+	}
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to generate recovery token")
+	}
+
+	return helpers.NewSuccessResponse("Recovery token generated", fiber.Map{"token": token}).OK(c)
+}
+
 // RecoverByToken godoc
 // @Summary Recover session by token
 // @Description Recovers a guest session using an email recovery token.
@@ -453,9 +484,16 @@ func (h *Handler) RecoverByToken(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Missing recovery token")
 	}
 
-	entryID, queueID, err := h.recoverySvc.ClaimToken(c.Context(), token)
+	var entryID, queueID string
+	var err error
+
+	entryID, queueID, err = h.recoverySvc.VerifyStatelessToken(token)
 	if err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized, err.Error())
+		// Fallback to claiming stateful token (e.g. for email recovery links)
+		entryID, queueID, err = h.recoverySvc.ClaimToken(c.Context(), token)
+		if err != nil {
+			return fiber.NewError(fiber.StatusUnauthorized, err.Error())
+		}
 	}
 
 	result, err := h.customerService.RejoinByID(c.Context(), entryID)

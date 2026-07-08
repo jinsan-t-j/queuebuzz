@@ -103,6 +103,58 @@ func (s *RecoveryService) GenerateToken(ctx context.Context, entryID, queueID st
 	return token, nil
 }
 
+// GenerateStatelessToken generates a token containing entryID and queueID, signed with HMAC, valid for 15 minutes.
+func (s *RecoveryService) GenerateStatelessToken(entryID, queueID string) (string, error) {
+	expiration := time.Now().Add(15 * time.Minute).Unix()
+	payload := fmt.Sprintf("%s:%s:%d", entryID, queueID, expiration)
+
+	mac := hmac.New(sha256.New, s.hmacKey)
+	_, _ = mac.Write([]byte(payload))
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	payloadHex := hex.EncodeToString([]byte(payload))
+	return payloadHex + "." + sig, nil
+}
+
+// VerifyStatelessToken verifies the stateless token and returns entryID and queueID if valid.
+func (s *RecoveryService) VerifyStatelessToken(token string) (string, string, error) {
+	parts := splitToken(token)
+	if parts == nil {
+		return "", "", fmt.Errorf("malformed token")
+	}
+
+	payloadBytes, err := hex.DecodeString(parts[0])
+	if err != nil {
+		return "", "", fmt.Errorf("malformed token payload")
+	}
+
+	payload := string(payloadBytes)
+	mac := hmac.New(sha256.New, s.hmacKey)
+	_, _ = mac.Write([]byte(payload))
+	expectedSig := hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(expectedSig), []byte(parts[1])) {
+		return "", "", fmt.Errorf("invalid signature")
+	}
+
+	segments := strings.Split(payload, ":")
+	if len(segments) != 3 {
+		return "", "", fmt.Errorf("invalid payload format")
+	}
+
+	var expiration int64
+	_, err = fmt.Sscanf(segments[2], "%d", &expiration)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid expiration timestamp")
+	}
+
+	if time.Now().Unix() > expiration {
+		return "", "", fmt.Errorf("token has expired")
+	}
+
+	return segments[0], segments[1], nil
+}
+
 // ClaimToken validates and atomically consumes a recovery token.
 func (s *RecoveryService) ClaimToken(ctx context.Context, token string) (string, string, error) {
 	parts := splitToken(token)

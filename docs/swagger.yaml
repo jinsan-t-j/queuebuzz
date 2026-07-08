@@ -1257,6 +1257,32 @@ paths:
       summary: Recover session
       tags:
       - Entry
+  /entry/recovery-token:
+    get:
+      description: Generates a signed, single-use recovery token for the currently
+        authenticated guest entry.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Recovery token generated
+          schema:
+            $ref: '#/definitions/helpers.SuccessResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get recovery token
+      tags:
+      - Entry
   /entry/update:
     post:
       description: Updates the name, email, or party size for the currently authenticated

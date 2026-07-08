@@ -784,7 +784,7 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 	}
 
 	entryRecord := dto.ToEntryResponse(result.Entry, result.Position)
-	// Suppress host notification in this flow (Task 9)
+	h.HostNotifierJob.DispatchUserJoined(result.QueueID, entryRecord)
 	h.PosJob.Dispatch(result.QueueID)
 
 	// Mask PII for the public response

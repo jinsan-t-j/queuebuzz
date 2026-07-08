@@ -937,6 +937,44 @@ const docTemplate = `{
                 }
             }
         },
+        "/entry/recovery-token": {
+            "get": {
+                "description": "Generates a signed, single-use recovery token for the currently authenticated guest entry.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Entry"
+                ],
+                "summary": "Get recovery token",
+                "responses": {
+                    "200": {
+                        "description": "Recovery token generated",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.SuccessResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/entry/update": {
             "post": {
                 "description": "Updates the name, email, or party size for the currently authenticated entry.",

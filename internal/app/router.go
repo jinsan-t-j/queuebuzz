@@ -14,5 +14,5 @@ func RegisterRoutes(app *fiber.App, c *Container) {
 	c.Queue.RegisterRoutes(api, c.RateLimiters)
 	c.Customer.RegisterRoutes(api, c.RateLimiters)
 	c.Billing.RegisterRoutes(api)
-	c.System.RegisterRoutes(api)
+	c.System.RegisterRoutes(api, c.RateLimiters)
 }

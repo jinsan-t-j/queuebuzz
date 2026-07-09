@@ -135,7 +135,7 @@ func NewContainer(
 
 	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob, expiryJob, authSvc, queueCol)
 
-	systemHandler := systemhttp.NewHandler(cfg, systemSvc)
+	systemHandler := systemhttp.NewHandler(cfg, systemSvc, emailSvc)
 	systemModule := systemmodule.New(systemHandler)
 
 	billingModule := billingmodule.New(billingHandler, billingSvc, authSvc, billingReminderJob)

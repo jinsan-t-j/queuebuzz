@@ -363,6 +363,33 @@ func (s *EmailService) renderTemplate(name string, data interface{}) (string, er
 	return buf.String(), nil
 }
 
+// SendSupportRequest sends a support email to the configured support email.
+func (s *EmailService) SendSupportRequest(name, fromEmail, subject, message string) error {
+	s.mu.RLock()
+	toEmail := s.supportEmail
+	s.mu.RUnlock()
+
+	if toEmail == "" {
+		toEmail = s.cfg.SupportEmail
+	}
+
+	data := map[string]interface{}{
+		"Name":    name,
+		"Email":   fromEmail,
+		"Subject": subject,
+		"Message": message,
+		"Year":    time.Now().Year(),
+	}
+
+	html, err := s.renderTemplate("support_request.gohtml", data)
+	if err != nil {
+		return err
+	}
+
+	s.job.Dispatch(toEmail, fmt.Sprintf("[Support Request] %s", subject), html)
+	return nil
+}
+
 // SendImmediate implements email.Sender
 func (s *EmailService) SendImmediate(to, subject, html string) error {
 

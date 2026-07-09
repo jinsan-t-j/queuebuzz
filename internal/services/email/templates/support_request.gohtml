@@ -1,0 +1,25 @@
+{{define "title"}}Support Request: {{.Subject}}{{end}}
+
+{{define "content"}}
+<h1 style="font-size: 20px; margin-top: 0; color: #1A0A2E;">New Support Request</h1>
+<table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-family: sans-serif;">
+  <tr>
+    <td style="padding: 8px 0; font-weight: bold; width: 120px; color: #7B6B95;">From Name:</td>
+    <td style="padding: 8px 0; color: #1A0A2E;">{{.Name}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px 0; font-weight: bold; color: #7B6B95;">From Email:</td>
+    <td style="padding: 8px 0; color: #1A0A2E;"><a href="mailto:{{.Email}}" style="color: #00E5A0; text-decoration: none;">{{.Email}}</a></td>
+  </tr>
+  <tr>
+    <td style="padding: 8px 0; font-weight: bold; color: #7B6B95;">Subject:</td>
+    <td style="padding: 8px 0; color: #1A0A2E;">{{.Subject}}</td>
+  </tr>
+</table>
+
+<div style="margin-top: 24px; padding: 16px; background-color: #F7F3EE; border-radius: 12px; border: 1px solid #E8E2F0; color: #1A0A2E; white-space: pre-wrap; font-family: sans-serif; line-height: 1.6;">
+{{.Message}}
+</div>
+{{end}}
+
+{{template "layout" .}}

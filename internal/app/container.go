@@ -44,6 +44,8 @@ import (
 
 	redisdriver "github.com/redis/go-redis/v9"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
+
+	redisstore "github.com/gofiber/storage/redis/v3"
 )
 
 type Container struct {
@@ -84,7 +86,11 @@ func NewContainer(
 ) *Container {
 	mClient, mongoDB := mongo.Connect(cfg.DBUri, cfg.DBName)
 	rdb := redis.Connect(cfg.RedisURL, cfg.RedisPassword)
-	limiters := middlewares.NewRateLimiters(cfg)
+
+	redisStore := redisstore.New(redisstore.Config{
+		URL: cfg.RedisURL,
+	})
+	limiters := middlewares.NewRateLimiters(cfg, redisStore)
 
 	queueCol := mongoDB.Collection("queues")
 	entryCol := mongoDB.Collection("queue_entries")

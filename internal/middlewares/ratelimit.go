@@ -2,7 +2,6 @@ package middlewares
 
 import (
 	"os"
-	"strings"
 	"time"
 
 	"queuebuzz/internal/config"
@@ -26,18 +25,6 @@ type RateLimiters struct {
 func NewRateLimiters(cfg *config.Config, store fiber.Storage) *RateLimiters {
 	disabled := cfg.DisableRateLimit
 
-	// Parse whitelist IPs from environment variable ALLOW_IPS (comma-separated)
-	whitelistEnv := os.Getenv("ALLOW_IPS")
-	whitelist := make(map[string]bool)
-	if whitelistEnv != "" {
-		for _, ip := range strings.Split(whitelistEnv, ",") {
-			trimmed := strings.TrimSpace(ip)
-			if trimmed != "" {
-				whitelist[trimmed] = true
-			}
-		}
-	}
-
 	factory := func(prefix string, limit int, expiration time.Duration) fiber.Handler {
 		return limiter.New(limiter.Config{
 			Max:        limit,
@@ -47,8 +34,12 @@ func NewRateLimiters(cfg *config.Config, store fiber.Storage) *RateLimiters {
 				if disabled {
 					return true
 				}
-				clientIP := c.IP()
-				return whitelist[clientIP]
+				bypassToken := os.Getenv("OVERIDE_QUEUE_GUARD_TOKEN")
+				clientToken := c.Get("X-Bypass-Active-Queue-Guard")
+				if bypassToken != "" && clientToken != "" && bypassToken == clientToken {
+					return true
+				}
+				return false
 			},
 			KeyGenerator: func(c fiber.Ctx) string {
 				return prefix + ":" + c.IP()

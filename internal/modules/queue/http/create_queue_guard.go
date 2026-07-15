@@ -18,7 +18,11 @@ func CreateQueueGuard(billingSvc *service.BillingService, queueSvc *queueservice
 		hostPublicID, _ := c.Locals("host_public_id").(string)
 		queueID, _ := c.Locals("queue_id").(string)
 
-		if os.Getenv("DISABLE_ACTIVE_QUEUE_GUARD") != "true" && os.Getenv("DISABLE_BILLING_GUARDS") != "true" {
+		bypassToken := os.Getenv("OVERIDE_QUEUE_GUARD_TOKEN")
+		clientToken := c.Get("X-Bypass-Active-Queue-Guard")
+		shouldBypass := bypassToken != "" && clientToken != "" && bypassToken == clientToken
+
+		if !shouldBypass {
 			if err := checkActiveQueue(c, queueSvc, hostPublicID, queueID); err != nil {
 				return nil
 			}

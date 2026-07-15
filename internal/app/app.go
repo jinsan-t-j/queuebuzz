@@ -54,6 +54,12 @@ func New(cfg *config.Config, sender firebase.NotificationSender, dodoOpts ...opt
 	app := fiber.New(fiber.Config{
 		ErrorHandler:    errHandler.Handle,
 		StructValidator: validator.New(),
+		TrustProxy:      true,
+		ProxyHeader:     "X-Forwarded-For",
+		TrustProxyConfig: fiber.TrustProxyConfig{
+			Loopback: true,
+			Private:  true,
+		},
 	})
 
 	app.Use(middlewares.SecurityHeaders())

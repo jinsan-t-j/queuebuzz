@@ -1,6 +1,8 @@
 package middlewares
 
 import (
+	"os"
+	"strings"
 	"time"
 
 	"queuebuzz/internal/config"
@@ -21,18 +23,35 @@ type RateLimiters struct {
 }
 
 // NewRateLimiters initializes rate limiters based on the provided configuration.
-func NewRateLimiters(cfg *config.Config) *RateLimiters {
+func NewRateLimiters(cfg *config.Config, store fiber.Storage) *RateLimiters {
 	disabled := cfg.DisableRateLimit
 
-	factory := func(limit int, expiration time.Duration) fiber.Handler {
+	// Parse whitelist IPs from environment variable ALLOW_IPS (comma-separated)
+	whitelistEnv := os.Getenv("ALLOW_IPS")
+	whitelist := make(map[string]bool)
+	if whitelistEnv != "" {
+		for _, ip := range strings.Split(whitelistEnv, ",") {
+			trimmed := strings.TrimSpace(ip)
+			if trimmed != "" {
+				whitelist[trimmed] = true
+			}
+		}
+	}
+
+	factory := func(prefix string, limit int, expiration time.Duration) fiber.Handler {
 		return limiter.New(limiter.Config{
 			Max:        limit,
 			Expiration: expiration,
-			Next: func(_ fiber.Ctx) bool {
-				return disabled
+			Storage:    store,
+			Next: func(c fiber.Ctx) bool {
+				if disabled {
+					return true
+				}
+				clientIP := c.IP()
+				return whitelist[clientIP]
 			},
 			KeyGenerator: func(c fiber.Ctx) string {
-				return c.IP()
+				return prefix + ":" + c.IP()
 			},
 			LimitReached: func(c fiber.Ctx) error {
 				return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
@@ -43,12 +62,12 @@ func NewRateLimiters(cfg *config.Config) *RateLimiters {
 	}
 
 	return &RateLimiters{
-		Join:     factory(20, 1*time.Minute),
-		Register: factory(20, 1*time.Minute),
-		Verify:   factory(30, 1*time.Minute),
-		SSE:      factory(10, 1*time.Minute),
-		Global:   factory(100, 1*time.Minute),
-		Lenient:  factory(30, 1*time.Minute),
-		Host:     factory(2, 1*time.Second),
+		Join:     factory("join", 20, 1*time.Minute),
+		Register: factory("register", 20, 1*time.Minute),
+		Verify:   factory("verify", 30, 1*time.Minute),
+		SSE:      factory("sse", 10, 1*time.Minute),
+		Global:   factory("global", 100, 1*time.Minute),
+		Lenient:  factory("lenient", 30, 1*time.Minute),
+		Host:     factory("host", 2, 1*time.Second),
 	}
 }

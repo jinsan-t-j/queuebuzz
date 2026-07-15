@@ -2,6 +2,7 @@ package http
 
 import (
 	"errors"
+	"os"
 
 	"queuebuzz/internal/modules/billing/service"
 	queueservice "queuebuzz/internal/modules/queue/service"
@@ -17,8 +18,10 @@ func CreateQueueGuard(billingSvc *service.BillingService, queueSvc *queueservice
 		hostPublicID, _ := c.Locals("host_public_id").(string)
 		queueID, _ := c.Locals("queue_id").(string)
 
-		if err := checkActiveQueue(c, queueSvc, hostPublicID, queueID); err != nil {
-			return nil
+		if os.Getenv("DISABLE_ACTIVE_QUEUE_GUARD") != "true" && os.Getenv("DISABLE_BILLING_GUARDS") != "true" {
+			if err := checkActiveQueue(c, queueSvc, hostPublicID, queueID); err != nil {
+				return nil
+			}
 		}
 
 		if err := checkMonthlyQuota(c, billingSvc, hostID); err != nil {

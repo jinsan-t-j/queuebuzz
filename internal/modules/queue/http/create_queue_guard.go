@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 
+	"queuebuzz/internal/config"
+	"queuebuzz/internal/log"
 	"queuebuzz/internal/modules/billing/service"
 	queueservice "queuebuzz/internal/modules/queue/service"
 
@@ -18,9 +20,13 @@ func CreateQueueGuard(billingSvc *service.BillingService, queueSvc *queueservice
 		hostPublicID, _ := c.Locals("host_public_id").(string)
 		queueID, _ := c.Locals("queue_id").(string)
 
-		bypassToken := os.Getenv("OVERIDE_QUEUE_GUARD_TOKEN")
+		bypassToken := config.Get().OverrideQueueGuardToken
+		if bypassToken == "" {
+			bypassToken = os.Getenv("OVERIDE_QUEUE_GUARD_TOKEN")
+		}
 		clientToken := c.Get("X-Bypass-Active-Queue-Guard")
 		shouldBypass := bypassToken != "" && clientToken != "" && bypassToken == clientToken
+		log.Info().Str("bypassToken", bypassToken).Str("clientToken", clientToken).Bool("shouldBypass", shouldBypass).Msg("Bypass active queue guard check")
 
 		if !shouldBypass {
 			if err := checkActiveQueue(c, queueSvc, hostPublicID, queueID); err != nil {
@@ -72,7 +78,7 @@ func checkMonthlyQuota(c fiber.Ctx, svc *service.BillingService, hostID string) 
 	exceeded, err := svc.IsLimitExceeded(c.Context(), hostID, "queues_monthly", -1)
 	if err != nil {
 		_ = c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Unable to verify queue limits. Please try again.",
+			"error": "Unable to verify queue limits. Please try again. ",
 			"code":  "LIMIT_CHECK_FAILED",
 		})
 		return errResponded

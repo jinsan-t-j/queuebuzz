@@ -71,7 +71,8 @@ type Config struct {
 	SentryTracesSampleRate float64 `env:"SENTRY_TRACES_SAMPLE_RATE" env-default:"0.1"`
 
 	// Testing
-	DisableRateLimit bool `env:"DISABLE_RATE_LIMIT" env-default:"false"`
+	DisableRateLimit        bool   `env:"DISABLE_RATE_LIMIT" env-default:"false"`
+	OverrideQueueGuardToken string `env:"OVERIDE_QUEUE_GUARD_TOKEN" env-default:""`
 }
 
 var (

@@ -32,10 +32,9 @@ func CreateQueueGuard(billingSvc *service.BillingService, queueSvc *queueservice
 			if err := checkActiveQueue(c, queueSvc, hostPublicID, queueID); err != nil {
 				return nil
 			}
-		}
-
-		if err := checkMonthlyQuota(c, billingSvc, hostID); err != nil {
-			return nil
+			if err := checkMonthlyQuota(c, billingSvc, hostID); err != nil {
+				return nil
+			}
 		}
 
 		return c.Next()

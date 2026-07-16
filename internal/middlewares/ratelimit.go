@@ -34,7 +34,10 @@ func NewRateLimiters(cfg *config.Config, store fiber.Storage) *RateLimiters {
 				if disabled {
 					return true
 				}
-				bypassToken := os.Getenv("OVERIDE_QUEUE_GUARD_TOKEN")
+				bypassToken := cfg.OverrideQueueGuardToken
+				if bypassToken == "" {
+					bypassToken = os.Getenv("OVERIDE_QUEUE_GUARD_TOKEN")
+				}
 				clientToken := c.Get("X-Bypass-Active-Queue-Guard")
 				if bypassToken != "" && clientToken != "" && bypassToken == clientToken {
 					return true

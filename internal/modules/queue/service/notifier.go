@@ -23,15 +23,23 @@ import (
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 )
 
+// NotifyDispatcher enqueues notification functions for background processing.
+// Implemented by jobs.NotificationJob.
+type NotifyDispatcher interface {
+	DispatchFunc(name string, fn func(ctx context.Context))
+}
+
 // QueueNotifier publishes SSE events to queue and entry topics.
 type QueueNotifier struct {
 	ctx      context.Context
+	cfg      *config.Config
 	broker   *sse.Broker
 	fb       firebase.NotificationSender
 	emailSvc *services.EmailService
 	queueCol *mongodriver.Collection
 	entryCol *mongodriver.Collection
 	appURL   string
+	notifJob NotifyDispatcher
 }
 
 func NewQueueNotifier(
@@ -42,15 +50,18 @@ func NewQueueNotifier(
 	emailSvc *services.EmailService,
 	queueCol *mongodriver.Collection,
 	entryCol *mongodriver.Collection,
+	notifJob NotifyDispatcher,
 ) *QueueNotifier {
 	return &QueueNotifier{
 		ctx:      ctx,
+		cfg:      cfg,
 		broker:   broker,
 		fb:       fb,
 		emailSvc: emailSvc,
 		queueCol: queueCol,
 		entryCol: entryCol,
 		appURL:   strings.TrimRight(cfg.AppURL, "/"),
+		notifJob: notifJob,
 	}
 }
 
@@ -353,10 +364,10 @@ func (n *QueueNotifier) notifyHost(queueID, title, body string, data map[string]
 		}
 	}
 
-	if config.Get().IsTesting() {
+	if n.cfg.IsTesting() {
 		run()
 	} else {
-		go run()
+		n.notifJob.DispatchFunc("host:"+queueID, func(_ context.Context) { run() })
 	}
 }
 
@@ -434,9 +445,9 @@ func (n *QueueNotifier) notifyEntry(entryID, title, body string, data map[string
 		}
 	}
 
-	if config.Get().IsTesting() {
+	if n.cfg.IsTesting() {
 		run()
 	} else {
-		go run()
+		n.notifJob.DispatchFunc("entry:"+entryID, func(_ context.Context) { run() })
 	}
 }

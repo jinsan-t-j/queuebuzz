@@ -14,12 +14,14 @@ type CallTask struct {
 }
 
 type Caller struct {
+	cfg      *config.Config
 	notifier *service.QueueNotifier
 	callChan chan CallTask
 }
 
-func NewCaller(n *service.QueueNotifier) *Caller {
+func NewCaller(cfg *config.Config, n *service.QueueNotifier) *Caller {
 	return &Caller{
+		cfg:      cfg,
 		notifier: n,
 		callChan: make(chan CallTask, 100),
 	}
@@ -37,7 +39,7 @@ func (c *Caller) Start(ctx context.Context) {
 }
 
 func (c *Caller) DispatchCall(queueID, entryID, status string) {
-	if config.Get().IsTesting() {
+	if c.cfg.IsTesting() {
 		c.notifier.PublishUserCalled(queueID, entryID, status)
 		return
 	}

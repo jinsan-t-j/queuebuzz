@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"crypto/subtle"
 	"queuebuzz/internal/config"
 	"strings"
 
@@ -21,7 +22,7 @@ func SystemSecretMiddleware(cfg *config.Config) fiber.Handler {
 			return fiber.NewError(fiber.StatusUnauthorized, "Invalid authorization header format")
 		}
 
-		if parts[1] != cfg.SystemAPISecret {
+		if subtle.ConstantTimeCompare([]byte(parts[1]), []byte(cfg.SystemAPISecret)) != 1 {
 			return fiber.NewError(fiber.StatusUnauthorized, "Invalid system API secret")
 		}
 

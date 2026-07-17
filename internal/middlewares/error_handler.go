@@ -1,8 +1,10 @@
 package middlewares
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"queuebuzz/internal/config"
@@ -47,6 +49,12 @@ func NewErrorHandler(cfg *config.Config) *ErrorHandler {
 }
 
 func (e *ErrorHandler) Handle(c fiber.Ctx, err error) error {
+	// If a handler already wrote a response (e.g. CreateQueueGuard sent 409),
+	// do not overwrite it.
+	if errors.Is(err, exceptions.ErrResponded) {
+		return nil
+	}
+
 	var statusCode int
 	var message string
 	var details interface{}
@@ -92,9 +100,19 @@ func (e *ErrorHandler) Handle(c fiber.Ctx, err error) error {
 		statusCode = fiberError.Code
 		message = fiberError.Message
 
+	case err != nil && (errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "context deadline exceeded")):
+		statusCode = fiber.StatusServiceUnavailable
+		message = "The request timed out due to high load. Please try again in a few seconds."
+		c.Set("Retry-After", "3")
+
+	case err != nil && strings.Contains(err.Error(), "checking out a connection"):
+		statusCode = fiber.StatusServiceUnavailable
+		message = "The server is currently under heavy database load. Please try again in a few seconds."
+		c.Set("Retry-After", "3")
+
 	default:
 		// Check for common client errors that might not be wrapped in fiber.Error
-		if err.Error() == "unexpected end of JSON input" || err.Error() == "EOF" {
+		if err != nil && (err.Error() == "unexpected end of JSON input" || err.Error() == "EOF") {
 			statusCode = fiber.StatusBadRequest
 			message = syntaxError
 		} else {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/log"
 
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
@@ -11,24 +12,25 @@ import (
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
 )
 
-func Connect(uri, dbName string) (*mongodriver.Client, *mongodriver.Database) {
+func Connect(cfg *config.Config) (*mongodriver.Client, *mongodriver.Database) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cs, err := connstring.ParseAndValidate(uri)
+	cs, err := connstring.ParseAndValidate(cfg.DBUri)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse MongoDB URI")
 	}
 
 	mongoDbName := cs.Database
 	if mongoDbName == "" {
-		mongoDbName = dbName
+		mongoDbName = cfg.DBName
 	}
 
 	opts := options.Client().
-		ApplyURI(uri).
-		SetMaxPoolSize(10).
-		SetMinPoolSize(2).
+		ApplyURI(cfg.DBUri).
+		SetMaxPoolSize(cfg.MongoDBMaxPoolSize).
+		SetMinPoolSize(10).
+		SetTimeout(3 * time.Second).
 		SetBSONOptions(&options.BSONOptions{
 			ObjectIDAsHexString: true,
 		})

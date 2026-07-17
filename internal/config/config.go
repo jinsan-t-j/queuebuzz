@@ -16,8 +16,9 @@ type Config struct {
 	AppEnv  string `env:"APP_ENV" env-default:"development"`
 
 	// MongoDB
-	DBUri  string `env:"DB_URI" env-required:"true"`
-	DBName string `env:"DB_NAME" env-required:"true"`
+	DBUri              string `env:"DB_URI" env-required:"true"`
+	DBName             string `env:"DB_NAME" env-required:"true"`
+	MongoDBMaxPoolSize uint64 `env:"MONGO_MAX_POOL_SIZE" env-default:"100"`
 
 	// Redis
 	RedisURL      string `env:"REDIS_URL" env-required:"true"`

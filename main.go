@@ -12,11 +12,13 @@ import (
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/database/seed"
 	"queuebuzz/internal/firebase"
+	"queuebuzz/internal/limit"
 	"queuebuzz/internal/log"
-	"queuebuzz/internal/mongo"
 	sentrywrap "queuebuzz/internal/sentry"
 
 	_ "queuebuzz/docs"
+
+	_ "go.uber.org/automaxprocs"
 )
 
 // @title           QueueBuzz API
@@ -60,6 +62,8 @@ func main() {
 		Str("port", cfg.AppPort).
 		Msg("Configuration and logging initialized")
 
+	limit.AutoTuneMemoryLimit()
+
 	if *healthCheck {
 		log.Info().Msg("Executing health-check...")
 
@@ -84,11 +88,11 @@ func main() {
 
 	log.Info().Msg("Building application container...")
 
-	_, db := mongo.Connect(cfg.DBUri, cfg.DBName)
-	seed.Run(context.Background(), db)
-
 	sender := firebase.NewSender(cfg.FirebaseCredentials)
 	application := app.New(cfg, sender)
+
+	// Run seed on the container's database connection (avoids double mongo.Connect)
+	seed.Run(context.Background(), application.Container.Mongo)
 
 	log.Info().Msg("Starting Fiber server listener...")
 	application.Start()

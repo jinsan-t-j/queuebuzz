@@ -20,6 +20,7 @@ import (
 
 // Handler exposes HTTP endpoints for the billing module.
 type Handler struct {
+	cfg      *config.Config
 	svc      *service.BillingService
 	provider provider.PaymentProvider
 	redis    *redisdriver.Client
@@ -27,11 +28,13 @@ type Handler struct {
 
 // NewHandler constructs a billing HTTP handler.
 func NewHandler(
+	cfg *config.Config,
 	svc *service.BillingService,
 	provider provider.PaymentProvider,
 	redis *redisdriver.Client,
 ) *Handler {
 	return &Handler{
+		cfg:      cfg,
 		svc:      svc,
 		provider: provider,
 		redis:    redis,
@@ -172,7 +175,7 @@ func (h *Handler) GetCheckoutURL(c fiber.Ctx) error {
 
 	frontendOrigin := c.Get("Origin")
 	if frontendOrigin == "" {
-		frontendOrigin = config.Get().FrontendURL
+		frontendOrigin = h.cfg.FrontendURL
 	}
 
 	url, err := h.svc.CreateCheckoutURL(c.Context(), hostID, req.PlanID, req.BillingCycle, frontendOrigin)
@@ -273,7 +276,7 @@ func (h *Handler) PaymentSuccess(c fiber.Ctx) error {
 	origin := c.Query("origin")
 	plan := c.Query("plan")
 	if origin == "" {
-		origin = config.Get().FrontendURL
+		origin = h.cfg.FrontendURL
 	}
 
 	// Redirect to frontend dashboard with success flag
@@ -286,7 +289,7 @@ func (h *Handler) PaymentSuccess(c fiber.Ctx) error {
 func (h *Handler) PaymentCancel(c fiber.Ctx) error {
 	origin := c.Query("origin")
 	if origin == "" {
-		origin = config.Get().FrontendURL
+		origin = h.cfg.FrontendURL
 	}
 
 	// Redirect back to pricing
@@ -416,7 +419,7 @@ func (h *Handler) UpdatePaymentMethod(c fiber.Ctx) error {
 	}
 
 	if req.ReturnURL == "" {
-		req.ReturnURL = config.Get().FrontendURL + "/settings"
+		req.ReturnURL = h.cfg.FrontendURL + "/settings"
 	}
 
 	link, err := h.svc.UpdatePaymentMethod(c.Context(), hostID, req.ReturnURL)

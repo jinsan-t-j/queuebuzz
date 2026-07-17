@@ -17,6 +17,10 @@ func NewRedisRepository(rdb *redis.Client) *RedisRepository {
 	return &RedisRepository{rdb: rdb}
 }
 
+func (r *RedisRepository) Client() *redis.Client {
+	return r.rdb
+}
+
 func (r *RedisRepository) SetUserSession(ctx context.Context, queueID, entryID string, ttl time.Duration) error {
 	key := internalredis.UserSessionKey(queueID, entryID)
 	return internalredis.ExecRetry(ctx, r.rdb, func(tCtx context.Context) error {

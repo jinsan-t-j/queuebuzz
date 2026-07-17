@@ -17,6 +17,7 @@ import (
 	"queuebuzz/internal/validator"
 
 	"github.com/dodopayments/dodopayments-go/option"
+	gojson "github.com/goccy/go-json"
 	swagger "github.com/gofiber/contrib/v3/swaggerui"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/idempotency"
@@ -54,6 +55,11 @@ func New(cfg *config.Config, sender firebase.NotificationSender, dodoOpts ...opt
 	app := fiber.New(fiber.Config{
 		ErrorHandler:    errHandler.Handle,
 		StructValidator: validator.New(),
+		JSONEncoder:     gojson.Marshal,
+		JSONDecoder:     gojson.Unmarshal,
+		ReadTimeout:     10 * time.Second,
+		WriteTimeout:    15 * time.Second,
+		IdleTimeout:     120 * time.Second,
 		TrustProxy:      true,
 		ProxyHeader:     "X-Forwarded-For",
 		TrustProxyConfig: fiber.TrustProxyConfig{
@@ -64,6 +70,7 @@ func New(cfg *config.Config, sender firebase.NotificationSender, dodoOpts ...opt
 
 	app.Use(middlewares.SecurityHeaders())
 	app.Use(middlewares.CORSMiddleware(cfg.AllowedOrigin))
+	app.Use(middlewares.ResourceGuardMiddleware())
 	app.Use(container.RateLimiters.Global)
 	app.Use(recover.New(recover.Config{
 		EnableStackTrace: true,
@@ -107,14 +114,14 @@ func (a *App) Start() {
 func (a *App) Shutdown(ctx context.Context) error {
 	log.Info().Msg("Shutting down gracefully...")
 
-	// 1. Stop background tasks and kill long-running SSE streams
-	a.Container.Shutdown()
-
-	// 2. Stop Fiber (waits for active regular HTTP requests)
+	// 1. Stop accepting new connections and drain in-flight HTTP requests
+	//    (includes SSE streams — they see ctx cancellation and exit cleanly).
 	if err := a.Fiber.ShutdownWithContext(ctx); err != nil {
 		log.Error().Err(err).Msg("Fiber shutdown error")
-		return err
 	}
+
+	// 2. Now that HTTP is drained, stop background jobs and SSE broker.
+	a.Container.Shutdown()
 
 	// 3. Flush Sentry before closing connections
 	sentrywrap.Flush()

@@ -389,7 +389,7 @@ func (h *Handler) DeleteMe(c fiber.Ctx) error {
 	}
 
 	if host != nil && host.Email != nil {
-		go h.emailService.SendAccountDeletionEmail(*host.Email, host.Name)
+		_ = h.emailService.SendAccountDeletionEmail(*host.Email, host.Name)
 	}
 
 	for _, name := range []string{"access_token", "refresh_token"} {

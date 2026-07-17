@@ -66,8 +66,17 @@ func (s *Service) FindOrCreateHost(ctx context.Context, email, phone string) (*h
 		host.Phone = &phone
 	}
 
-	if _, err := s.hostCol.InsertOne(ctx, host); err != nil {
-		return nil, false, err
+	if _, insertErr := s.hostCol.InsertOne(ctx, host); insertErr != nil {
+		// Concurrent FindOrCreateHost for the same email/phone hit the unique index.
+		// Retry the find — the other goroutine created the host successfully.
+		if mongodriver.IsDuplicateKeyError(insertErr) {
+			var existing hostdomain.Host
+			if retryErr := s.hostCol.FindOne(ctx, filter).Decode(&existing); retryErr == nil {
+				_, _ = s.hostCol.UpdateOne(ctx, bson.M{"_id": existing.ID}, bson.M{"$set": bson.M{"last_seen": time.Now()}})
+				return &existing, false, nil
+			}
+		}
+		return nil, false, insertErr
 	}
 
 	if s.emailSvc != nil && email != "" {
@@ -139,8 +148,15 @@ func (s *Service) FindOrCreateHostBySocial(ctx context.Context, identity *authdo
 	}
 	applyProviderAuth(&host, identity.Provider, providerAuth)
 
-	if _, err := s.hostCol.InsertOne(ctx, host); err != nil {
-		return nil, false, err
+	if _, insertErr := s.hostCol.InsertOne(ctx, host); insertErr != nil {
+		if mongodriver.IsDuplicateKeyError(insertErr) {
+			var existing hostdomain.Host
+			if retryErr := s.hostCol.FindOne(ctx, bson.M{providerField: identity.ProviderUserID}).Decode(&existing); retryErr == nil {
+				_, _ = s.hostCol.UpdateOne(ctx, bson.M{"_id": existing.ID}, bson.M{"$set": bson.M{"last_seen": time.Now()}})
+				return &existing, false, nil
+			}
+		}
+		return nil, false, insertErr
 	}
 	return &host, true, nil
 }

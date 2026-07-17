@@ -153,7 +153,7 @@ func (h *Handler) SocialCallback(c fiber.Ctx) error {
 	}
 
 	if created && host.Email != nil {
-		go h.emailService.SendWelcomeEmail(*host.Email, host.Name)
+		_ = h.emailService.SendWelcomeEmail(*host.Email, host.Name)
 	}
 	accessToken, refreshToken, accessExp, refreshExp, err := h.authService.IssueTokenPair(c.Context(), host.ID, host.PublicID)
 	if err != nil {
@@ -236,7 +236,7 @@ func (h *Handler) Verify(c fiber.Ctx) error {
 	}
 
 	if created && host.Email != nil {
-		go h.emailService.SendWelcomeEmail(*host.Email, host.Name)
+		_ = h.emailService.SendWelcomeEmail(*host.Email, host.Name)
 	}
 	accessToken, refreshToken, accessExp, refreshExp, err := h.authService.IssueTokenPair(c.Context(), host.ID, host.PublicID)
 	if err != nil {

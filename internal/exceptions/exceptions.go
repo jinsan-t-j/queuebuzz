@@ -10,6 +10,10 @@ var (
 	ErrGone         = NewAppException(410, "Resource is no longer available")
 	ErrTooMany      = NewAppException(429, "Too many requests")
 	ErrInternal     = NewAppException(500, "Internal server error")
+
+	// ErrResponded signals that the handler has already written a response.
+	// The error handler must not overwrite the status/body when it sees this.
+	ErrResponded = fmt.Errorf("response already sent")
 )
 
 type AppException struct {

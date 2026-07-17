@@ -30,6 +30,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.43.0
 	go.mongodb.org/mongo-driver/v2 v2.5.0
+	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.53.0
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/api v0.275.0

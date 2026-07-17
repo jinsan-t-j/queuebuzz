@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"crypto/subtle"
 	"os"
 	"time"
 
@@ -34,12 +35,16 @@ func NewRateLimiters(cfg *config.Config, store fiber.Storage) *RateLimiters {
 				if disabled {
 					return true
 				}
+				if c.Path() == "/healthz" {
+					return true
+				}
 				bypassToken := cfg.OverrideQueueGuardToken
 				if bypassToken == "" {
 					bypassToken = os.Getenv("OVERIDE_QUEUE_GUARD_TOKEN")
 				}
 				clientToken := c.Get("X-Bypass-Active-Queue-Guard")
-				if bypassToken != "" && clientToken != "" && bypassToken == clientToken {
+				if bypassToken != "" && clientToken != "" &&
+					subtle.ConstantTimeCompare([]byte(bypassToken), []byte(clientToken)) == 1 {
 					return true
 				}
 				return false

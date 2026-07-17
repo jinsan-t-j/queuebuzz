@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/middlewares"
 	authservice "queuebuzz/internal/modules/auth/service"
 	notificationhttp "queuebuzz/internal/modules/notification/http"
@@ -13,6 +14,7 @@ import (
 )
 
 type Module struct {
+	cfg                 *config.Config
 	QueueHandler        *queuehttp.Handler
 	NotificationHandler *notificationhttp.Handler
 	expiryService       *queueservice.ExpiryService
@@ -24,6 +26,7 @@ type Module struct {
 }
 
 func New(
+	cfg *config.Config,
 	queueHandler *queuehttp.Handler,
 	notificationHandler *notificationhttp.Handler,
 	expiryService *queueservice.ExpiryService,
@@ -34,6 +37,7 @@ func New(
 	queueCol *mongo.Collection,
 ) *Module {
 	return &Module{
+		cfg:                 cfg,
 		QueueHandler:        queueHandler,
 		NotificationHandler: notificationHandler,
 		expiryService:       expiryService,
@@ -51,7 +55,7 @@ func (m *Module) RegisterRoutes(router fiber.Router, limiters *middlewares.RateL
 	// Public / Guest Facing
 	public := queue.Group("/p")
 	public.Get("/find", limiters.Join, m.QueueHandler.FindActiveQueueByIDOrSlugOrCode)
-	public.Post("/create", middlewares.OptionalAuthMiddleware(m.authService), queuehttp.CreateQueueGuard(m.QueueHandler.BillingSvc, m.QueueHandler.Service), m.QueueHandler.Create)
+	public.Post("/create", middlewares.OptionalAuthMiddleware(m.authService), queuehttp.CreateQueueGuard(m.cfg, m.QueueHandler.RedisRepo.Client(), m.QueueHandler.BillingSvc, m.QueueHandler.Service), m.QueueHandler.Create)
 	public.Get("/:id/live", m.QueueHandler.GetLiveQueueByID)
 	public.Get("/:id/public-status", m.QueueHandler.GetPublicStatus)
 	public.Post("/:id/join", queuehttp.GuestCapacityGuard(m.QueueHandler.BillingSvc, m.QueueHandler.Service), m.QueueHandler.AddEntry)

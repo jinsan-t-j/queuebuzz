@@ -1031,6 +1031,45 @@ func (s *Service) GetLiveQueueByID(ctx context.Context, queueID string) (*domain
 	return &queue, nil
 }
 
+func (s *Service) HasActiveQueue(ctx context.Context, hostPublicID, queueID string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	var result struct {
+		ID string `bson:"_id"`
+	}
+
+	var filter bson.M
+	if hostPublicID != "" {
+		filter = bson.M{
+			"host_public_id": hostPublicID,
+			"status":         bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+			"expires_at":     bson.M{"$gt": time.Now()},
+		}
+	} else if queueID != "" {
+		filter = bson.M{
+			"$or": []bson.M{
+				{"_id": queueID},
+				{"slug": queueID},
+			},
+			"status":     bson.M{"$in": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+			"expires_at": bson.M{"$gt": time.Now()},
+		}
+	} else {
+		return "", nil
+	}
+
+	opts := options.FindOne().SetProjection(bson.M{"_id": 1})
+	err := s.queueCol.FindOne(ctx, filter, opts).Decode(&result)
+	if err != nil {
+		if err == mongodriver.ErrNoDocuments {
+			return "", nil
+		}
+		return "", err
+	}
+	return result.ID, nil
+}
+
 func (s *Service) GetActiveQueueByJoinCode(ctx context.Context, joinCode string) (*domain.Queue, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -1180,8 +1219,9 @@ func (s *Service) ensureTicketCounter(ctx context.Context, queueID string) error
 
 	var lastNum int64
 	if err == nil {
-		// Parse Q-0042 -> 42
-		fmt.Sscanf(lastEntry.TicketNo, "Q-%04d", &lastNum)
+		if _, parseErr := fmt.Sscanf(lastEntry.TicketNo, "Q-%04d", &lastNum); parseErr != nil {
+			log.Warn().Err(parseErr).Str("ticket_no", lastEntry.TicketNo).Msg("Failed to parse ticket number from last entry")
+		}
 	}
 
 	// Sync Redis with DB last known ticket

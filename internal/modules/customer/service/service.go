@@ -10,6 +10,7 @@ import (
 	customerrepo "queuebuzz/internal/modules/customer/repository"
 	queuedomain "queuebuzz/internal/modules/queue/domain"
 	queueservice "queuebuzz/internal/modules/queue/service"
+	rdb "queuebuzz/internal/redis"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
@@ -76,7 +77,29 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 		return nil, fmt.Errorf("queue has expired")
 	}
 
-	// 2. Duplicate Check
+	// 2. Distributed Locking & Concurrency Protection
+	var lockKey string
+	if params.Email != nil && *params.Email != "" {
+		lockKey = fmt.Sprintf("lock:join:%s:%s", queue.ID, *params.Email)
+	} else if params.Phone != nil && *params.Phone != "" {
+		lockKey = fmt.Sprintf("lock:join:%s:%s", queue.ID, *params.Phone)
+	}
+
+	if lockKey != "" {
+		lock := rdb.NewLock(s.redisRepo.Client(), lockKey)
+		acquired, err := lock.Acquire(ctx, 5*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		if !acquired {
+			return nil, exceptions.NewAppException(409, "A join request is already being processed for this guest. Please try again.")
+		}
+		defer func() {
+			_ = lock.Release(ctx)
+		}()
+	}
+
+	// 3. Duplicate Check
 	if params.Email != nil && *params.Email != "" {
 		count, _ := s.entryCol.CountDocuments(ctx, bson.M{
 			"queue_id": queue.ID,
@@ -185,8 +208,13 @@ func (s *Service) SessionExists(ctx context.Context, queueID, entryID string) (b
 	}
 
 	// Resilience: If Redis session missing, check DB
-	entry, err := s.queueService.GetEntry(ctx, entryID)
-	if err != nil || entry == nil || entry.QueueID != queueID {
+	var entry struct {
+		QueueID string `bson:"queue_id"`
+		Status  string `bson:"status"`
+	}
+	opts := options.FindOne().SetProjection(bson.M{"queue_id": 1, "status": 1})
+	err = s.entryCol.FindOne(ctx, bson.M{"_id": entryID}, opts).Decode(&entry)
+	if err != nil || entry.QueueID != queueID {
 		return false, nil
 	}
 

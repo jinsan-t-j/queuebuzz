@@ -33,13 +33,15 @@ type StatusPayload struct {
 }
 
 type HostNotifierJob struct {
+	cfg          *config.Config
 	queueService *service.Service
 	notifier     *service.QueueNotifier
 	eventChan    chan HostNotifyEvent
 }
 
-func NewHostNotifierJob(qs *service.Service, s *service.ExpiryService) *HostNotifierJob {
+func NewHostNotifierJob(cfg *config.Config, qs *service.Service, s *service.ExpiryService) *HostNotifierJob {
 	return &HostNotifierJob{
+		cfg:          cfg,
 		queueService: qs,
 		notifier:     s.Notifier(),
 		eventChan:    make(chan HostNotifyEvent, 200),
@@ -82,7 +84,7 @@ func (j *HostNotifierJob) DispatchUserUpdated(queueID, entryID string) {
 }
 
 func (j *HostNotifierJob) dispatch(queueID string, action HostNotifyAction, payload interface{}) {
-	if config.Get().IsTesting() {
+	if j.cfg.IsTesting() {
 		j.processEvent(HostNotifyEvent{QueueID: queueID, Action: action, Payload: payload})
 		return
 	}

@@ -24,6 +24,7 @@ import (
 )
 
 type BillingService struct {
+	cfg        *config.Config
 	plansCol   *mongodriver.Collection
 	subsCol    *mongodriver.Collection
 	txsCol     *mongodriver.Collection
@@ -38,6 +39,7 @@ type BillingService struct {
 }
 
 func NewBillingService(
+	cfg *config.Config,
 	db *mongodriver.Database,
 	redis *redisdriver.Client,
 	systemSvc *systemservice.SystemService,
@@ -45,6 +47,7 @@ func NewBillingService(
 	payment provider.PaymentProvider,
 ) *BillingService {
 	return &BillingService{
+		cfg:        cfg,
 		plansCol:   db.Collection("billing_plans"),
 		subsCol:    db.Collection("billing_subscriptions"),
 		txsCol:     db.Collection("billing_transactions"),
@@ -268,8 +271,7 @@ func (s *BillingService) CreateCheckoutURL(ctx context.Context, hostID, planID, 
 	}
 
 	// 8. Build return URLs (pointing to our backend handlers)
-	cfg := config.Get()
-	backendBase := cfg.AppURL
+	backendBase := s.cfg.AppURL
 	if before, ok := strings.CutSuffix(backendBase, "/"); ok {
 		backendBase = before
 	}

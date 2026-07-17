@@ -71,6 +71,7 @@ type Container struct {
 	caller             *jobs.Caller
 	expiryJob          *jobs.ExpiryJob
 	keyspaceJob        *jobs.KeyspaceJob
+	notificationJob    *jobs.NotificationJob
 	billingReminderJob *billingjobs.RenewalReminderJob
 
 	ctx    context.Context
@@ -84,7 +85,7 @@ func NewContainer(
 	emailProv email.Provider,
 	billingProv billingprovider.PaymentProvider,
 ) *Container {
-	mClient, mongoDB := mongo.Connect(cfg.DBUri, cfg.DBName)
+	mClient, mongoDB := mongo.Connect(cfg)
 	rdb := redis.Connect(cfg.RedisURL, cfg.RedisPassword)
 
 	redisStore := redisstore.New(redisstore.Config{
@@ -107,8 +108,8 @@ func NewContainer(
 	emailSvc := services.NewEmailService(cfg, emailProv, systemSvc)
 	recoverySvc := customerservice.NewRecoveryService(rdb, entryCol, emailSvc, cfg.RecoveryHMACSecret, cfg.FrontendURL)
 
-	billingSvc := billingservice.NewBillingService(mongoDB, rdb, systemSvc, emailSvc, billingProv)
-	billingHandler := billinghttp.NewHandler(billingSvc, billingProv, rdb)
+	billingSvc := billingservice.NewBillingService(cfg, mongoDB, rdb, systemSvc, emailSvc, billingProv)
+	billingHandler := billinghttp.NewHandler(cfg, billingSvc, billingProv, rdb)
 
 	analyticsSvc := queueservice.NewAnalyticsService(queueCol, entryCol)
 	queueSvc := queueservice.New(queueCol, entryCol, queueRedisRepo, analyticsSvc, billingSvc, systemSvc)
@@ -122,12 +123,13 @@ func NewContainer(
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	broker := sse.NewBroker()
-	notifier := queueservice.NewQueueNotifier(ctx, cfg, broker, notifSender, emailSvc, queueCol, entryCol)
+	broker := sse.NewBroker(rdb)
+	notifJob := jobs.NewNotificationJob(200, 3)
+	notifier := queueservice.NewQueueNotifier(ctx, cfg, broker, notifSender, emailSvc, queueCol, entryCol, notifJob)
 	expirySvc := queueservice.NewExpiryService(rdb, queueCol, entryCol, queueRedisRepo, notifier, billingSvc, systemSvc)
-	posJob := jobs.NewPositionJob(expirySvc)
-	hostNotifierJob := jobs.NewHostNotifierJob(queueSvc, expirySvc)
-	caller := jobs.NewCaller(notifier)
+	posJob := jobs.NewPositionJob(cfg, expirySvc)
+	hostNotifierJob := jobs.NewHostNotifierJob(cfg, queueSvc, expirySvc)
+	caller := jobs.NewCaller(cfg, notifier)
 	expiryJob := jobs.NewExpiryJob(expirySvc)
 	keyspaceJob := jobs.NewKeyspaceJob(rdb, expirySvc)
 	billingReminderJob := billingjobs.NewRenewalReminderJob(billingSvc)
@@ -139,10 +141,10 @@ func NewContainer(
 	customerHandler := customerhttp.NewHandler(cfg, customerSvc, recoverySvc, queueSvc, authSvc, broker, posJob, hostNotifierJob, emailSvc)
 	notifHandler := notificationhttp.NewHandler(queueSvc, notifSender)
 
-	queueModule := queuemodule.New(queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob, expiryJob, authSvc, queueCol)
+	queueModule := queuemodule.New(cfg, queueHandler, notifHandler, expirySvc, posJob, hostNotifierJob, expiryJob, authSvc, queueCol)
 
 	systemHandler := systemhttp.NewHandler(cfg, systemSvc, emailSvc)
-	systemModule := systemmodule.New(systemHandler)
+	systemModule := systemmodule.New(systemHandler, cfg)
 
 	billingModule := billingmodule.New(billingHandler, billingSvc, authSvc, billingReminderJob)
 
@@ -167,6 +169,7 @@ func NewContainer(
 		caller:             caller,
 		expiryJob:          expiryJob,
 		keyspaceJob:        keyspaceJob,
+		notificationJob:    notifJob,
 		billingReminderJob: billingReminderJob,
 
 		ctx:    ctx,
@@ -177,11 +180,17 @@ func NewContainer(
 func (c *Container) Start() {
 	log.Info().Msg("Starting background jobs...")
 
+	// Start SSE PubSub listener under lifecycle management
+	if c.Broker != nil {
+		c.Broker.StartPubSub(c.ctx)
+	}
+
 	c.runJob("PositionJob", c.posJob.Start)
 	c.runJob("HostNotifierJob", c.hostNotifierJob.Start)
 	c.runJob("CallerJob", c.caller.Start)
 	c.runJob("ExpiryJob", c.expiryJob.Start)
 	c.runJob("KeyspaceJob", c.keyspaceJob.Start)
+	c.runJob("NotificationJob", c.notificationJob.Start)
 	c.runJob("BillingReminderJob", c.billingReminderJob.Start)
 	c.runJob("EmailJob", c.EmailSvc.Job().Start)
 }

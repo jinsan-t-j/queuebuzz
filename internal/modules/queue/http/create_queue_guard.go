@@ -1,32 +1,62 @@
 package http
 
 import (
-	"errors"
+	"crypto/subtle"
 	"os"
+	"time"
 
 	"queuebuzz/internal/config"
-	"queuebuzz/internal/log"
+	"queuebuzz/internal/exceptions"
 	"queuebuzz/internal/modules/billing/service"
 	queueservice "queuebuzz/internal/modules/queue/service"
+	rdbpkg "queuebuzz/internal/redis"
 
 	"github.com/gofiber/fiber/v3"
+	redisdriver "github.com/redis/go-redis/v9"
 )
 
-var errResponded = errors.New("response already sent")
-
-func CreateQueueGuard(billingSvc *service.BillingService, queueSvc *queueservice.Service) fiber.Handler {
+func CreateQueueGuard(
+	cfg *config.Config,
+	rdb *redisdriver.Client,
+	billingSvc *service.BillingService,
+	queueSvc *queueservice.Service,
+) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		hostID, _ := c.Locals("host_id").(string)
 		hostPublicID, _ := c.Locals("host_public_id").(string)
 		queueID, _ := c.Locals("queue_id").(string)
 
-		bypassToken := config.Get().OverrideQueueGuardToken
+		var lockKey string
+		if hostID != "" {
+			lockKey = "lock:create-queue:host:" + hostID
+		} else if hostPublicID != "" {
+			lockKey = "lock:create-queue:public-host:" + hostPublicID
+		} else if queueID != "" {
+			lockKey = "lock:create-queue:session:" + queueID
+		}
+
+		if lockKey != "" {
+			lock := rdbpkg.NewLock(rdb, lockKey)
+			acquired, err := lock.Acquire(c.Context(), 10*time.Second)
+			if err != nil || !acquired {
+				_ = c.Status(fiber.StatusConflict).JSON(fiber.Map{
+					"error": "A queue creation request is already in progress. Please wait.",
+					"code":  "CONCURRENT_CREATION",
+				})
+				return exceptions.ErrResponded
+			}
+			defer func() {
+				_ = lock.Release(c.Context())
+			}()
+		}
+
+		bypassToken := cfg.OverrideQueueGuardToken
 		if bypassToken == "" {
 			bypassToken = os.Getenv("OVERIDE_QUEUE_GUARD_TOKEN")
 		}
 		clientToken := c.Get("X-Bypass-Active-Queue-Guard")
-		shouldBypass := bypassToken != "" && clientToken != "" && bypassToken == clientToken
-		log.Info().Str("bypassToken", bypassToken).Str("clientToken", clientToken).Bool("shouldBypass", shouldBypass).Msg("Bypass active queue guard check")
+		shouldBypass := bypassToken != "" && clientToken != "" &&
+			subtle.ConstantTimeCompare([]byte(bypassToken), []byte(clientToken)) == 1
 
 		if !shouldBypass {
 			if err := checkActiveQueue(c, queueSvc, hostPublicID, queueID); err != nil {
@@ -44,25 +74,25 @@ func CreateQueueGuard(billingSvc *service.BillingService, queueSvc *queueservice
 func checkActiveQueue(c fiber.Ctx, svc *queueservice.Service, hostPublicID, queueID string) error {
 	switch {
 	case hostPublicID != "":
-		q, err := svc.GetLiveQueueForHost(c.Context(), hostPublicID)
-		if err == nil && q != nil {
+		activeQueueID, err := svc.HasActiveQueue(c.Context(), hostPublicID, "")
+		if err == nil && activeQueueID != "" {
 			_ = c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 				"error":    "You already have an active queue. Please close or terminate it before starting a new one.",
 				"code":     "ACTIVE_QUEUE_EXISTS",
-				"queue_id": q.ID,
+				"queue_id": activeQueueID,
 			})
-			return errResponded
+			return exceptions.ErrResponded
 		}
 
 	case queueID != "":
-		q, err := svc.GetLiveQueueByID(c.Context(), queueID)
-		if err == nil && q != nil {
+		activeQueueID, err := svc.HasActiveQueue(c.Context(), "", queueID)
+		if err == nil && activeQueueID != "" {
 			_ = c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 				"error":    "You already have a live queue in this session. Sign in to save your history or close it to start a new one.",
 				"code":     "ACTIVE_QUEUE_EXISTS",
-				"queue_id": q.ID,
+				"queue_id": activeQueueID,
 			})
-			return errResponded
+			return exceptions.ErrResponded
 		}
 	}
 
@@ -80,7 +110,7 @@ func checkMonthlyQuota(c fiber.Ctx, svc *service.BillingService, hostID string) 
 			"error": "Unable to verify queue limits. Please try again. ",
 			"code":  "LIMIT_CHECK_FAILED",
 		})
-		return errResponded
+		return exceptions.ErrResponded
 	}
 
 	if exceeded {
@@ -88,7 +118,7 @@ func checkMonthlyQuota(c fiber.Ctx, svc *service.BillingService, hostID string) 
 			"error": "Monthly queue limit reached. Please upgrade your plan to add more.",
 			"code":  "MONTHLY_LIMIT_EXCEEDED",
 		})
-		return errResponded
+		return exceptions.ErrResponded
 	}
 
 	return nil

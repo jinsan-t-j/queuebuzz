@@ -817,11 +817,12 @@ func (h *Handler) CallEntry(c fiber.Ctx) error {
 	if entryID == "" {
 		// Acquire Lock to prevent race conditions during "Call Next"
 		lockKey := internalredis.ActionLockKey(queueID, "call_next")
-		ok, err := h.RedisRepo.AcquireLock(c.Context(), lockKey, 3*time.Second)
-		if err != nil || !ok {
+		lock := internalredis.NewLock(h.RedisRepo.Client(), lockKey)
+		acquired, lockErr := lock.Acquire(c.Context(), 3*time.Second)
+		if lockErr != nil || !acquired {
 			return fiber.NewError(fiber.StatusTooManyRequests, "Action in progress. Please wait.")
 		}
-		defer h.RedisRepo.ReleaseLock(c.Context(), lockKey)
+		defer func() { _ = lock.Release(c.Context()) }()
 
 		// Business Logic: Strict Mode Violation Check
 		queue, err := h.Service.GetQueue(c.Context(), queueID)

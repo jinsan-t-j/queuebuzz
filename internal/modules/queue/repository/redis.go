@@ -93,6 +93,10 @@ func NewRedisRepository(rdb *redis.Client) *RedisRepository {
 	return &RedisRepository{rdb: rdb}
 }
 
+func (r *RedisRepository) Client() *redis.Client {
+	return r.rdb
+}
+
 // GenerateJoinCode creates a cryptographically random 6-character join code
 // from the safe charset, checks Redis for collisions, and stores the mapping.
 // Returns the code or an error if all attempts fail.
@@ -371,27 +375,6 @@ func (r *RedisRepository) DeleteQueuesKeysBulk(ctx context.Context, queueIDs []s
 		}
 		return r.rdb.Del(tCtx, keys...).Err()
 	})
-}
-
-func (r *RedisRepository) AcquireLock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
-	err := r.rdb.SetArgs(ctx, key, "locked", redis.SetArgs{
-		Mode: "NX",
-		TTL:  ttl,
-	}).Err()
-
-	if err == redis.Nil {
-		// Key already exists (locked)
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
-}
-
-func (r *RedisRepository) ReleaseLock(ctx context.Context, key string) error {
-	return r.rdb.Del(ctx, key).Err()
 }
 
 // SetRehydratedSentinel marks a queue as recently synced with MongoDB.

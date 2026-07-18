@@ -260,7 +260,7 @@ func (b *Broker) ServeHTTP(c fiber.Ctx, topic string, snapshot func() ([][]byte,
 	topic = strings.Clone(topic)
 
 	sub, unsub := b.Subscribe(topic)
-	done := c.Context().Done()
+	done := c.RequestCtx().Done()
 
 	return c.SendStreamWriter(func(w *bufio.Writer) {
 		defer unsub()

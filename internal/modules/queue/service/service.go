@@ -80,6 +80,14 @@ func New(
 	}
 }
 
+// InvalidatePublicStatusSnapshot clears the short-lived public status cache for a queue.
+func (s *Service) InvalidatePublicStatusSnapshot(ctx context.Context, queueID string) {
+	if s.redisRepo == nil || queueID == "" {
+		return
+	}
+	_ = s.redisRepo.InvalidatePublicStatusSnapshot(ctx, queueID)
+}
+
 type CreateQueueParams struct {
 	HostID            *string
 	HostPublicID      *string

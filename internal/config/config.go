@@ -18,11 +18,14 @@ type Config struct {
 	// MongoDB
 	DBUri              string `env:"DB_URI" env-required:"true"`
 	DBName             string `env:"DB_NAME" env-required:"true"`
-	MongoDBMaxPoolSize uint64 `env:"MONGO_MAX_POOL_SIZE" env-default:"100"`
+	MongoDBMaxPoolSize uint64 `env:"MONGO_MAX_POOL_SIZE" env-default:"500"`
 
 	// Redis
-	RedisURL      string `env:"REDIS_URL" env-required:"true"`
-	RedisPassword string `env:"REDIS_PASSWORD" env-default:""`
+	RedisURL           string `env:"REDIS_URL" env-required:"true"`
+	RedisPassword      string `env:"REDIS_PASSWORD" env-default:""`
+	RedisMaxPoolSize   int    `env:"REDIS_MAX_POOL_SIZE" env-default:"500"`
+	RedisMinIdleConns  int    `env:"REDIS_MIN_IDLE_CONNS" env-default:"50"`
+	RedisStorePoolSize int    `env:"REDIS_STORE_POOL_SIZE" env-default:"500"`
 
 	// JWT RS256
 	JWTPrivateKey string `env:"JWT_PRIVATE_KEY" env-required:"true"`

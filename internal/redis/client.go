@@ -4,20 +4,29 @@ import (
 	"context"
 	"time"
 
+	"queuebuzz/internal/config"
 	"queuebuzz/internal/log"
 
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
-func Connect(url, password string) *redisdriver.Client {
-	opts, err := redisdriver.ParseURL(url)
+func Connect(cfg *config.Config) *redisdriver.Client {
+	opts, err := redisdriver.ParseURL(cfg.RedisURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse Redis URL")
 	}
 
-	if password != "" {
-		opts.Password = password
+	if cfg.RedisPassword != "" {
+		opts.Password = cfg.RedisPassword
 	}
+
+	// Optimize connection pool and timeouts for high concurrency load testing
+	opts.PoolSize = cfg.RedisMaxPoolSize
+	opts.MinIdleConns = cfg.RedisMinIdleConns
+	opts.DialTimeout = 5 * time.Second
+	opts.ReadTimeout = 3 * time.Second
+	opts.WriteTimeout = 3 * time.Second
+	opts.PoolTimeout = 4 * time.Second
 
 	client := redisdriver.NewClient(opts)
 

@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/modules/queue/domain"
 	"queuebuzz/internal/modules/queue/dto"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -19,6 +21,13 @@ type AnalyticsService struct {
 	queueCol *mongodriver.Collection
 	entryCol *mongodriver.Collection
 }
+
+type dashboardCacheEntry struct {
+	expiresAt time.Time
+	payload   []byte
+}
+
+var dashboardCache sync.Map
 
 func NewAnalyticsService(queueCol *mongodriver.Collection, entryCol *mongodriver.Collection) *AnalyticsService {
 	return &AnalyticsService{
@@ -62,6 +71,13 @@ func (s *AnalyticsService) ProcessIdentity(ctx context.Context, entry *domain.En
 func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID string, hostName string) (*dto.DashboardData, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+
+	if cached, ok := loadDashboardCache(hostPublicID); ok {
+		var data dto.DashboardData
+		if err := json.Unmarshal(cached, &data); err == nil {
+			return &data, nil
+		}
+	}
 
 	now := time.Now()
 	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -302,7 +318,7 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 		heatmap = append(heatmap, dto.HeatmapPoint{Hour: h, Day: d, Value: val})
 	}
 
-	return &dto.DashboardData{
+	data := &dto.DashboardData{
 		ActiveQueue: &dto.ActiveQueueStats{
 			IsActive:  activeFound,
 			QueueName: activeQ.Name,
@@ -328,5 +344,46 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 				{Label: "Complete your first queue", Sub: "Grab your streak", IsDone: closedCount > 0},
 			},
 		},
-	}, nil
+	}
+
+	if payload, err := json.Marshal(data); err == nil {
+		storeDashboardCache(hostPublicID, payload)
+	}
+
+	return data, nil
+}
+
+func loadDashboardCache(hostPublicID string) ([]byte, bool) {
+	if hostPublicID == "" {
+		return nil, false
+	}
+
+	entry, ok := dashboardCache.Load(hostPublicID)
+	if !ok {
+		return nil, false
+	}
+
+	cached, ok := entry.(dashboardCacheEntry)
+	if !ok {
+		dashboardCache.Delete(hostPublicID)
+		return nil, false
+	}
+
+	if time.Now().After(cached.expiresAt) {
+		dashboardCache.Delete(hostPublicID)
+		return nil, false
+	}
+
+	return cached.payload, true
+}
+
+func storeDashboardCache(hostPublicID string, payload []byte) {
+	if hostPublicID == "" || len(payload) == 0 {
+		return
+	}
+
+	dashboardCache.Store(hostPublicID, dashboardCacheEntry{
+		expiresAt: time.Now().Add(15 * time.Second),
+		payload:   payload,
+	})
 }

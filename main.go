@@ -63,6 +63,7 @@ func main() {
 		Msg("Configuration and logging initialized")
 
 	limit.AutoTuneMemoryLimit()
+	limit.AutoTuneFileLimits()
 
 	if *healthCheck {
 		log.Info().Msg("Executing health-check...")

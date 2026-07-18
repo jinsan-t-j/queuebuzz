@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/modules/queue/domain"
 	"queuebuzz/internal/modules/queue/dto"
@@ -355,9 +354,6 @@ func (s *AnalyticsService) GetDashboardData(ctx context.Context, hostPublicID st
 }
 
 func loadDashboardCache(hostPublicID string) ([]byte, bool) {
-	if os.Getenv("APP_ENV") == "test" {
-		return nil, false
-	}
 	if hostPublicID == "" {
 		return nil, false
 	}

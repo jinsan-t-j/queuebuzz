@@ -29,6 +29,18 @@ func EnsureQueueIndexes(ctx context.Context, db *mongodriver.Database) error {
 			Keys: bson.D{{Key: "status", Value: 1}},
 		},
 		{
+			Keys: bson.D{{Key: "_id", Value: 1}, {Key: "status", Value: 1}, {Key: "expires_at", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "slug", Value: 1}, {Key: "status", Value: 1}, {Key: "expires_at", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "join_code", Value: 1}, {Key: "status", Value: 1}, {Key: "expires_at", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "host_public_id", Value: 1}, {Key: "status", Value: 1}, {Key: "expires_at", Value: 1}},
+		},
+		{
 			Keys: bson.D{{Key: "host_id", Value: 1}, {Key: "created_at", Value: -1}},
 		},
 	}
@@ -79,6 +91,29 @@ func EnsureEntryIndexes(ctx context.Context, db *mongodriver.Database) error {
 		},
 		{
 			Keys: bson.D{{Key: "queue_id", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "queue_id", Value: 1}, {Key: "status", Value: 1}, {Key: "created_at", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "queue_id", Value: 1}, {Key: "status", Value: 1}, {Key: "email", Value: 1}},
+			Options: options.Index().SetPartialFilterExpression(bson.D{{
+				Key: "email",
+				Value: bson.D{{
+					Key:   "$gt",
+					Value: "",
+				}},
+			}}),
+		},
+		{
+			Keys: bson.D{{Key: "queue_id", Value: 1}, {Key: "status", Value: 1}, {Key: "phone", Value: 1}},
+			Options: options.Index().SetPartialFilterExpression(bson.D{{
+				Key: "phone",
+				Value: bson.D{{
+					Key:   "$gt",
+					Value: "",
+				}},
+			}}),
 		},
 		{
 			Keys: bson.D{{Key: "identity_hash", Value: 1}},

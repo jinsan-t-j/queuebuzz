@@ -134,7 +134,7 @@ func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueuePa
 		Metadata:    params.Metadata,
 	}
 
-	result, err := s.queueService.CreateEntry(ctx, entry)
+	result, err := s.queueService.CreateEntryForQueue(ctx, queue, entry)
 	if err != nil {
 		return nil, err
 	}

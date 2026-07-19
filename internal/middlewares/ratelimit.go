@@ -50,7 +50,17 @@ func NewRateLimiters(cfg *config.Config, store fiber.Storage) *RateLimiters {
 				return false
 			},
 			KeyGenerator: func(c fiber.Ctx) string {
-				return prefix + ":" + c.IP()
+				scope := c.Params("id")
+				if scope == "" {
+					scope = c.Query("id")
+				}
+				if hostID, ok := c.Locals("host_id").(string); ok && hostID != "" {
+					scope = hostID + ":" + scope
+				}
+				if scope == "" {
+					scope = "global"
+				}
+				return prefix + ":" + c.IP() + ":" + scope
 			},
 			LimitReached: func(c fiber.Ctx) error {
 				return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
@@ -61,12 +71,12 @@ func NewRateLimiters(cfg *config.Config, store fiber.Storage) *RateLimiters {
 	}
 
 	return &RateLimiters{
-		Join:     factory("join", 20, 1*time.Minute),
-		Register: factory("register", 20, 1*time.Minute),
-		Verify:   factory("verify", 30, 1*time.Minute),
-		SSE:      factory("sse", 10, 1*time.Minute),
-		Global:   factory("global", 100, 1*time.Minute),
-		Lenient:  factory("lenient", 30, 1*time.Minute),
-		Host:     factory("host", 2, 1*time.Second),
+		Join:     factory("join", cfg.RateLimitJoinPerMinute, 1*time.Minute),
+		Register: factory("register", cfg.RateLimitRegisterPerMinute, 1*time.Minute),
+		Verify:   factory("verify", cfg.RateLimitVerifyPerMinute, 1*time.Minute),
+		SSE:      factory("sse", cfg.RateLimitSSEPerMinute, 1*time.Minute),
+		Global:   factory("global", cfg.RateLimitGlobalPerMinute, 1*time.Minute),
+		Lenient:  factory("lenient", cfg.RateLimitLenientPerMinute, 1*time.Minute),
+		Host:     factory("host", cfg.RateLimitHostPerSecond, 1*time.Second),
 	}
 }

@@ -50,8 +50,9 @@ type Handler struct {
 }
 
 type publicStatusPayload struct {
-	Queue   dto.QueueRecord   `json:"queue"`
-	Entries []dto.EntryRecord `json:"entries"`
+	Queue        dto.QueueRecord   `json:"queue"`
+	Entries      []dto.EntryRecord `json:"entries"`
+	WaitingCount int64             `json:"waiting_count"`
 }
 
 type publicStatusResponse struct {
@@ -410,7 +411,9 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 // @Router /queue/p/{id}/public-status [get]
 func (h *Handler) GetPublicStatus(c fiber.Ctx) error {
 	queueID := c.Params("id")
-	if h.RedisRepo != nil {
+	includeEntries := c.Query("include_entries", "true") != "false"
+
+	if includeEntries && h.RedisRepo != nil {
 		if data, err := h.RedisRepo.GetPublicStatusSnapshot(c.Context(), queueID); err == nil {
 			var cached publicStatusResponse
 			if json.Unmarshal(data, &cached) == nil {
@@ -427,34 +430,47 @@ func (h *Handler) GetPublicStatus(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "live queue not found")
 	}
 
-	entries, err := h.Service.GetQueueEntries(c.Context(), queue.ID,
-		constants.EntryStatusWaiting,
-		constants.EntryStatusCalled,
-		constants.EntryStatusArrived,
-		constants.EntryStatusIdle,
-	)
-	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-	}
+	var entryResponses []dto.EntryRecord
+	var waitingCount int64
+	if includeEntries {
+		entries, err := h.Service.GetQueueEntries(c.Context(), queue.ID,
+			constants.EntryStatusWaiting,
+			constants.EntryStatusCalled,
+			constants.EntryStatusArrived,
+			constants.EntryStatusIdle,
+		)
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		}
 
-	entryResponses := dto.ToEntryResponses(entries)
-	for i := range entryResponses {
-		entryResponses[i].Email = nil
-		entryResponses[i].Phone = nil
-		if queue.ManualPositioning {
-			entryResponses[i].Position = 0
+		entryResponses = dto.ToEntryResponses(entries)
+		for i := range entryResponses {
+			entryResponses[i].Email = nil
+			entryResponses[i].Phone = nil
+			if queue.ManualPositioning {
+				entryResponses[i].Position = 0
+			}
+			if entryResponses[i].Status == constants.EntryStatusWaiting {
+				waitingCount++
+			}
+		}
+	} else {
+		waitingCount, _ = h.Service.GetWaitingCount(c.Context(), queue.ID)
+		if entryResponses == nil {
+			entryResponses = []dto.EntryRecord{}
 		}
 	}
 
 	response := publicStatusResponse{
 		Message: "Public status fetched",
 		Data: publicStatusPayload{
-			Queue:   h.toQueueResponse(c.Context(), *queue),
-			Entries: entryResponses,
+			Queue:        h.toQueueResponse(c.Context(), *queue),
+			Entries:      entryResponses,
+			WaitingCount: waitingCount,
 		},
 	}
 
-	if h.RedisRepo != nil {
+	if includeEntries && h.RedisRepo != nil {
 		_ = h.RedisRepo.SetPublicStatusSnapshot(c.Context(), queueID, response)
 	}
 

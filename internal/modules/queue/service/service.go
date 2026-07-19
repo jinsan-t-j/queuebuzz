@@ -466,13 +466,20 @@ func (s *Service) updateQueueStatus(ctx context.Context, queueID, status string)
 }
 
 func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQueueResult, error) {
+	return s.CreateEntryForQueue(ctx, nil, entry)
+}
+
+func (s *Service) CreateEntryForQueue(ctx context.Context, queue *domain.Queue, entry domain.Entry) (*JoinQueueResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// 1. Get Host context for identity isolation
-	queue, err := s.GetQueue(ctx, entry.QueueID)
-	if err != nil {
-		return nil, fmt.Errorf("queue not found: %w", err)
+	if queue == nil {
+		var err error
+		queue, err = s.GetQueue(ctx, entry.QueueID)
+		if err != nil {
+			return nil, fmt.Errorf("queue not found: %w", err)
+		}
 	}
 
 	// 2. Process Identity & Returning Status

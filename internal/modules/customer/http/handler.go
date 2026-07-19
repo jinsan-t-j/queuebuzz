@@ -13,6 +13,7 @@ import (
 	customerdto "queuebuzz/internal/modules/customer/dto"
 	customerevents "queuebuzz/internal/modules/customer/events"
 	customerservice "queuebuzz/internal/modules/customer/service"
+	queuedomain "queuebuzz/internal/modules/queue/domain"
 	queuedto "queuebuzz/internal/modules/queue/dto"
 	queueresource "queuebuzz/internal/modules/queue/jobs"
 	queueservice "queuebuzz/internal/modules/queue/service"
@@ -249,9 +250,13 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 		}
 	}
 
-	queue, err := h.queueService.GetQueue(c.Context(), c.Params("id"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+	queue, _ := c.Locals("queue_context").(*queuedomain.Queue)
+	if queue == nil {
+		var err error
+		queue, err = h.queueService.GetQueue(c.Context(), c.Params("id"))
+		if err != nil {
+			return fiber.NewError(fiber.StatusNotFound, "Queue not found")
+		}
 	}
 
 	if queue.Status == constants.QueueStatusPaused {

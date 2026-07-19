@@ -77,6 +77,15 @@ type Config struct {
 	// Testing
 	DisableRateLimit        bool   `env:"DISABLE_RATE_LIMIT" env-default:"false"`
 	OverrideQueueGuardToken string `env:"OVERIDE_QUEUE_GUARD_TOKEN" env-default:""`
+
+	// Rate limits. Defaults intentionally preserve the current production posture.
+	RateLimitJoinPerMinute     int `env:"RATE_LIMIT_JOIN_PER_MINUTE" env-default:"20"`
+	RateLimitRegisterPerMinute int `env:"RATE_LIMIT_REGISTER_PER_MINUTE" env-default:"20"`
+	RateLimitVerifyPerMinute   int `env:"RATE_LIMIT_VERIFY_PER_MINUTE" env-default:"30"`
+	RateLimitSSEPerMinute      int `env:"RATE_LIMIT_SSE_PER_MINUTE" env-default:"10"`
+	RateLimitGlobalPerMinute   int `env:"RATE_LIMIT_GLOBAL_PER_MINUTE" env-default:"100"`
+	RateLimitLenientPerMinute  int `env:"RATE_LIMIT_LENIENT_PER_MINUTE" env-default:"30"`
+	RateLimitHostPerSecond     int `env:"RATE_LIMIT_HOST_PER_SECOND" env-default:"2"`
 }
 
 var (

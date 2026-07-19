@@ -49,6 +49,16 @@ type Handler struct {
 	EmailService     *legacyservices.EmailService
 }
 
+type publicStatusPayload struct {
+	Queue   dto.QueueRecord   `json:"queue"`
+	Entries []dto.EntryRecord `json:"entries"`
+}
+
+type publicStatusResponse struct {
+	Message string              `json:"message"`
+	Data    publicStatusPayload `json:"data"`
+}
+
 func NewHandler(
 	cfg *config.Config,
 	queueSvc *queueservice.Service,
@@ -400,6 +410,15 @@ func (h *Handler) GetLiveQueueByID(c fiber.Ctx) error {
 // @Router /queue/p/{id}/public-status [get]
 func (h *Handler) GetPublicStatus(c fiber.Ctx) error {
 	queueID := c.Params("id")
+	if h.RedisRepo != nil {
+		if data, err := h.RedisRepo.GetPublicStatusSnapshot(c.Context(), queueID); err == nil {
+			var cached publicStatusResponse
+			if json.Unmarshal(data, &cached) == nil {
+				return c.Status(fiber.StatusOK).JSON(cached)
+			}
+		}
+	}
+
 	queue, err := h.Service.GetLiveQueueByID(c.Context(), queueID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
@@ -427,10 +446,19 @@ func (h *Handler) GetPublicStatus(c fiber.Ctx) error {
 		}
 	}
 
-	return helpers.NewSuccessResponse("Public status fetched", fiber.Map{
-		"queue":   h.toQueueResponse(c.Context(), *queue),
-		"entries": entryResponses,
-	}).OK(c)
+	response := publicStatusResponse{
+		Message: "Public status fetched",
+		Data: publicStatusPayload{
+			Queue:   h.toQueueResponse(c.Context(), *queue),
+			Entries: entryResponses,
+		},
+	}
+
+	if h.RedisRepo != nil {
+		_ = h.RedisRepo.SetPublicStatusSnapshot(c.Context(), queueID, response)
+	}
+
+	return c.Status(fiber.StatusOK).JSON(response)
 }
 
 // Events godoc
@@ -532,8 +560,24 @@ func (h *Handler) PublicEvents(c fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Initial wait count
-		count, _ := h.Service.GetWaitingCount(ctx, queueID)
+		count := int64(0)
+		cacheHit := false
+		if h.RedisRepo != nil {
+			if data, err := h.RedisRepo.GetPublicStatusSnapshot(ctx, queueID); err == nil {
+				var cached publicStatusResponse
+				if json.Unmarshal(data, &cached) == nil {
+					cacheHit = true
+					for _, entry := range cached.Data.Entries {
+						if entry.Status == constants.EntryStatusWaiting {
+							count++
+						}
+					}
+				}
+			}
+		}
+		if !cacheHit {
+			count, _ = h.Service.GetWaitingCount(ctx, queueID)
+		}
 		countMsg := events.Wrap(sse.NewMessage(events.EventWaitingCountUpdated, map[string]interface{}{"count": count}))
 		countPayload, _ := json.Marshal(countMsg)
 
@@ -562,6 +606,7 @@ func (h *Handler) PauseQueue(c fiber.Ctx) error {
 	}
 
 	h.HostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusPaused)
+	h.Service.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	return helpers.NewSuccessResponse("Queue paused successfully", nil).OK(c)
 }
@@ -649,6 +694,7 @@ func (h *Handler) Update(c fiber.Ctx) error {
 	}
 
 	h.PosJob.Dispatch(queueID)
+	h.Service.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	return helpers.NewSuccessResponse("Queue updated", h.toQueueResponse(c.Context(), *queue)).OK(c)
 }
@@ -671,6 +717,7 @@ func (h *Handler) ResumeQueue(c fiber.Ctx) error {
 	}
 
 	h.HostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusActive)
+	h.Service.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	return helpers.NewSuccessResponse("Queue resumed successfully", nil).OK(c)
 }
@@ -700,6 +747,7 @@ func (h *Handler) TerminateQueue(c fiber.Ctx) error {
 	}
 
 	h.HostNotifierJob.DispatchQueueStatus(queueID, constants.QueueStatusClosed)
+	h.Service.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	// Notify unserved guests
 	if len(unserved) > 0 {
@@ -786,6 +834,7 @@ func (h *Handler) AddEntry(c fiber.Ctx) error {
 	entryRecord := dto.ToEntryResponse(result.Entry, result.Position)
 	h.HostNotifierJob.DispatchUserJoined(result.QueueID, entryRecord)
 	h.PosJob.Dispatch(result.QueueID)
+	h.Service.InvalidatePublicStatusSnapshot(c.Context(), result.QueueID)
 
 	// Mask PII for the public response
 	maskedRecord := entryRecord
@@ -840,6 +889,7 @@ func (h *Handler) CallEntry(c fiber.Ctx) error {
 		}
 		_, _ = h.Service.UpdateQueue(c.Context(), queueID, bson.M{"delay_expires_at": time.Time{}})
 		h.PosJob.Dispatch(queueID)
+		h.Service.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 		// Heads-up: notify the next 2 waiting guests that they're almost up
 		calledID := entry.ID
@@ -913,6 +963,7 @@ func (h *Handler) Serve(c fiber.Ctx) error {
 
 	h.HostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusServed)
 	h.PosJob.Dispatch(queueID)
+	h.Service.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	return c.SendStatus(fiber.StatusOK)
 }
@@ -939,6 +990,7 @@ func (h *Handler) Skip(c fiber.Ctx) error {
 
 	h.HostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusSkipped)
 	h.PosJob.Dispatch(queueID)
+	h.Service.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	return c.SendStatus(fiber.StatusOK)
 }

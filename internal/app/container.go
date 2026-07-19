@@ -86,10 +86,11 @@ func NewContainer(
 	billingProv billingprovider.PaymentProvider,
 ) *Container {
 	mClient, mongoDB := mongo.Connect(cfg)
-	rdb := redis.Connect(cfg.RedisURL, cfg.RedisPassword)
+	rdb := redis.Connect(cfg)
 
 	redisStore := redisstore.New(redisstore.Config{
-		URL: cfg.RedisURL,
+		URL:      cfg.RedisURL,
+		PoolSize: cfg.RedisStorePoolSize,
 	})
 	limiters := middlewares.NewRateLimiters(cfg, redisStore)
 

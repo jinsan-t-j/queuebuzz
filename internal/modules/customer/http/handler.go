@@ -79,6 +79,7 @@ func (h *Handler) Leave(c fiber.Ctx) error {
 
 	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusLeft)
 	h.posJob.Dispatch(queueID)
+	h.queueService.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	c.Cookie(&fiber.Cookie{
 		Name:     "guest_entry_token",
@@ -204,6 +205,7 @@ func (h *Handler) UpdateEntry(c fiber.Ctx) error {
 	}
 
 	h.hostNotifierJob.DispatchUserUpdated(queueID, entryID)
+	h.queueService.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	if req.Email != nil && *req.Email != "" {
 		queue, _ := h.queueService.GetQueue(c.Context(), queueID)
@@ -309,6 +311,7 @@ func (h *Handler) JoinByQueueID(c fiber.Ctx) error {
 	entryRecord := queuedto.ToEntryResponse(result.Entry, result.Position)
 	h.hostNotifierJob.DispatchUserJoined(result.QueueID, entryRecord)
 	h.posJob.Dispatch(result.QueueID)
+	h.queueService.InvalidatePublicStatusSnapshot(c.Context(), result.QueueID)
 
 	if result.Email != nil && *result.Email != "" {
 		queueName := "Your Queue"
@@ -355,6 +358,7 @@ func (h *Handler) ConfirmArrived(c fiber.Ctx) error {
 	// Notify the host list and firing the pulse arrival toast via background enrichment
 	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusArrived)
 	h.hostNotifierJob.DispatchUserArrived(queueID, entryID)
+	h.queueService.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	return helpers.NewSuccessResponse("Arrival confirmed", nil).OK(c)
 }
@@ -378,6 +382,7 @@ func (h *Handler) ConfirmStillHere(c fiber.Ctx) error {
 
 	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusWaiting)
 	h.posJob.Dispatch(queueID)
+	h.queueService.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	return helpers.NewSuccessResponse("Presence confirmed", nil).OK(c)
 }
@@ -401,6 +406,7 @@ func (h *Handler) FinishService(c fiber.Ctx) error {
 
 	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusServed)
 	h.posJob.Dispatch(queueID)
+	h.queueService.InvalidatePublicStatusSnapshot(c.Context(), queueID)
 
 	h.clearGuestToken(c)
 

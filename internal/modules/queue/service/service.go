@@ -80,6 +80,21 @@ func New(
 	}
 }
 
+// InvalidatePublicStatusSnapshot clears the short-lived public status cache for a queue.
+func (s *Service) InvalidatePublicStatusSnapshot(ctx context.Context, queueID string) {
+	if s.redisRepo == nil || queueID == "" {
+		return
+	}
+	_ = s.redisRepo.InvalidatePublicStatusSnapshot(ctx, queueID)
+}
+
+// InvalidateDashboardCache clears the cached dashboard metrics for a host.
+func (s *Service) InvalidateDashboardCache(hostPublicID string) {
+	if s.analyticsSvc != nil && hostPublicID != "" {
+		s.analyticsSvc.InvalidateDashboardCache(hostPublicID)
+	}
+}
+
 type CreateQueueParams struct {
 	HostID            *string
 	HostPublicID      *string
@@ -239,6 +254,7 @@ func (s *Service) CreateQueue(ctx context.Context, params CreateQueueParams) (*d
 	// Invalidate history summary cache
 	if params.HostPublicID != nil {
 		_ = s.redisRepo.InvalidateHistorySummary(ctx, *params.HostPublicID)
+		s.InvalidateDashboardCache(*params.HostPublicID)
 	}
 
 	return &queue, nil
@@ -370,6 +386,7 @@ func (s *Service) TerminateQueue(ctx context.Context, queueID string) ([]domain.
 	if err == nil {
 		if qErr == nil && queue != nil && queue.HostPublicID != nil {
 			_ = s.redisRepo.InvalidateHistorySummary(ctx, *queue.HostPublicID)
+			s.InvalidateDashboardCache(*queue.HostPublicID)
 		}
 
 		// 3. Mark unserved entries as SKIPPED
@@ -419,6 +436,9 @@ func (s *Service) UpdateQueue(ctx context.Context, queueID string, updates bson.
 	if err != nil {
 		return nil, err
 	}
+	if queue.HostPublicID != nil {
+		s.InvalidateDashboardCache(*queue.HostPublicID)
+	}
 	return &queue, nil
 }
 
@@ -437,6 +457,11 @@ func (s *Service) updateQueueStatus(ctx context.Context, queueID, status string)
 		},
 	}
 	_, err := s.queueCol.UpdateOne(ctx, bson.M{"_id": queueID}, update)
+	if err == nil {
+		if queue, qerr := s.GetQueue(ctx, queueID); qerr == nil && queue != nil && queue.HostPublicID != nil {
+			s.InvalidateDashboardCache(*queue.HostPublicID)
+		}
+	}
 	return err
 }
 
@@ -513,6 +538,10 @@ func (s *Service) CreateEntry(ctx context.Context, entry domain.Entry) (*JoinQue
 		if err == nil {
 			position = pos + 1
 		}
+	}
+
+	if queue.HostPublicID != nil {
+		s.InvalidateDashboardCache(*queue.HostPublicID)
 	}
 
 	return &JoinQueueResult{
@@ -640,6 +669,10 @@ func (s *Service) CallNextUser(ctx context.Context, queueID string) (*domain.Ent
 			}
 			_ = s.redisRepo.SetIdleTimer(ctx, queueID, entry.ID, time.Duration(idleMins)*time.Minute)
 
+			if q, qerr := s.GetQueue(ctx, queueID); qerr == nil && q != nil && q.HostPublicID != nil {
+				s.InvalidateDashboardCache(*q.HostPublicID)
+			}
+
 			return entry, nil
 		}
 	}
@@ -683,10 +716,13 @@ func (s *Service) finishUserSession(ctx context.Context, entryID, status string)
 	}
 	_ = s.redisRepo.RemoveFromQueue(ctx, entry.QueueID, entryID)
 
-	// Update host metrics if served
-	if status == constants.EntryStatusServed {
-		var q domain.Queue
-		if err := s.queueCol.FindOne(ctx, bson.M{"_id": entry.QueueID}).Decode(&q); err == nil && q.HostID != nil {
+	// Update host metrics and invalidate cache
+	var q domain.Queue
+	if err := s.queueCol.FindOne(ctx, bson.M{"_id": entry.QueueID}).Decode(&q); err == nil {
+		if q.HostPublicID != nil {
+			s.InvalidateDashboardCache(*q.HostPublicID)
+		}
+		if status == constants.EntryStatusServed && q.HostID != nil {
 			_ = s.billingSvc.IncrementTotalServedCount(ctx, *q.HostID)
 		}
 	}
@@ -1189,6 +1225,7 @@ func (s *Service) ClearHostHistory(ctx context.Context, hostPublicID string) err
 	if err == nil {
 		// Invalidate cache
 		_ = s.redisRepo.InvalidateHistorySummary(ctx, hostPublicID)
+		s.InvalidateDashboardCache(hostPublicID)
 	}
 
 	return err
@@ -1513,6 +1550,7 @@ func (s *Service) DeleteQueue(ctx context.Context, hostID string, queueID string
 
 	if queue.HostPublicID != nil {
 		_ = s.redisRepo.InvalidateHistorySummary(ctx, *queue.HostPublicID)
+		s.InvalidateDashboardCache(*queue.HostPublicID)
 	}
 
 	return nil
@@ -1588,6 +1626,7 @@ func (s *Service) DeleteQueuesBulk(ctx context.Context, hostID string, queueIDs 
 
 	for pid := range hostPublicIDs {
 		_ = s.redisRepo.InvalidateHistorySummary(ctx, pid)
+		s.InvalidateDashboardCache(pid)
 	}
 
 	return nil

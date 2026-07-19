@@ -85,6 +85,25 @@ func (r *RedisRepository) InvalidateHistoryDetail(ctx context.Context, hostID, q
 	return r.rdb.Del(ctx, key).Err()
 }
 
+func (r *RedisRepository) SetPublicStatusSnapshot(ctx context.Context, queueID string, response interface{}) error {
+	key := fmt.Sprintf("queue:%s:public:status", queueID)
+	data, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	return r.rdb.Set(ctx, key, data, 5*time.Second).Err()
+}
+
+func (r *RedisRepository) GetPublicStatusSnapshot(ctx context.Context, queueID string) ([]byte, error) {
+	key := fmt.Sprintf("queue:%s:public:status", queueID)
+	return r.rdb.Get(ctx, key).Bytes()
+}
+
+func (r *RedisRepository) InvalidatePublicStatusSnapshot(ctx context.Context, queueID string) error {
+	key := fmt.Sprintf("queue:%s:public:status", queueID)
+	return r.rdb.Del(ctx, key).Err()
+}
+
 type RedisRepository struct {
 	rdb *redis.Client
 }

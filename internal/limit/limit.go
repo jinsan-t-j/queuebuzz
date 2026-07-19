@@ -72,7 +72,7 @@ func StartResourceMonitor() {
 
 		for range ticker.C {
 			// 1. Check goroutines count (concurrency pressure)
-			if runtime.NumGoroutine() > 8000 {
+			if runtime.NumGoroutine() > 50000 {
 				atomic.StoreInt32(&isOverloaded, 1)
 				log.Warn().Int("goroutines", runtime.NumGoroutine()).Msg("System marked OVERLOADED: Goroutine threshold exceeded")
 				continue

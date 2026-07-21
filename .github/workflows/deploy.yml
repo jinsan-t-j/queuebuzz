@@ -97,8 +97,10 @@ jobs:
           script: |
             cd /home/${{ secrets.OCI_USERNAME || 'ubuntu' }}/app
             
-            # Create .env.docker if not present from example
-            if [ ! -f .env.docker ]; then
+            # Populate .env.docker from GitHub Secret if provided, otherwise fallback to example
+            if [ -n "${{ secrets.ENV_DOCKER }}" ]; then
+              echo "${{ secrets.ENV_DOCKER }}" > .env.docker
+            elif [ ! -f .env.docker ]; then
               cp .env.docker.example .env.docker
             fi
             

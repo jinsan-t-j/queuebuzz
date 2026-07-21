@@ -6,7 +6,11 @@
 
 .env
 .env.*
+!.env.docker.example
 !test.env
+
+# Certbot SSL certificates (generated on server)
+nginx/certbot/
 
 main
 workflows/build-queuebuzz-backend.md

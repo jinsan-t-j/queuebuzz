@@ -1,83 +1,201 @@
 services:
+  # ──────────────────────────────────────────────
+  # Nginx — Reverse Proxy & Local Load Balancer
+  # ──────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: queuebuzz-nginx
+    restart: unless-stopped
+    stop_grace_period: 10s
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certbot/conf:/etc/letsencrypt:ro
+      - ./nginx/certbot/www:/var/www/certbot:ro
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      app:
+        condition: service_started
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/healthcheck || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+        reservations:
+          memory: 32M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ──────────────────────────────────────────────
+  # Certbot — Automatic Let's Encrypt SSL
+  # ──────────────────────────────────────────────
+  certbot:
+    image: certbot/certbot
+    container_name: queuebuzz-certbot
+    restart: unless-stopped
+    volumes:
+      - ./nginx/certbot/conf:/etc/letsencrypt
+      - ./nginx/certbot/www:/var/www/certbot
+    networks: []
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.10"
+    entrypoint: "/bin/sh -c 'trap exit TERM; while true; do certbot renew; sleep 12h & wait $${!}; done;'"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ──────────────────────────────────────────────
+  # App — Go Fiber Backend (scalable replicas)
+  # ──────────────────────────────────────────────
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: queuebuzz-app
-    ports:
-      - "${APP_PORT:-8080}:8080"
-    environment:
-      - DB_URI=mongodb://mongo:27017
-      - DB_NAME=queuebuzz
-      - REDIS_URL=redis://redis:6379
-    env_file:
-      - .env
-    depends_on:
-      mongo:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "./queuebuzz", "-health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
+    image: queuebuzz-backend:latest
     restart: unless-stopped
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64M
+    env_file:
+      - .env.docker
+    environment:
+      - PORT=8080
+      - REDIS_ADDR=valkey:6379
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - backend
+    depends_on:
+      valkey:
+        condition: service_healthy
     security_opt:
       - no-new-privileges:true
-    stop_grace_period: 30s
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+        reservations:
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ──────────────────────────────────────────────
+  # Valkey — Redis-compatible in-memory store
+  # ──────────────────────────────────────────────
+  valkey:
+    image: valkey/valkey:8.0-alpine
+    container_name: queuebuzz-valkey
+    restart: unless-stopped
+    stop_grace_period: 10s
+    working_dir: /data
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=16M
+    entrypoint: >
+      /bin/sh -c '
+      exec valkey-server
+      --save 60 1
+      --loglevel notice
+      --requirepass "$$VALKEY_PASSWORD"
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      '
+    env_file:
+      - .env.docker
+    networks:
+      - backend
+    volumes:
+      - valkey-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a \"$$VALKEY_PASSWORD\" ping | grep PONG || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: "0.25"
+        reservations:
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ──────────────────────────────────────────────
+  # Kibana — Monitoring Dashboard
+  # ──────────────────────────────────────────────
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: queuebuzz-kibana
+    restart: unless-stopped
+    stop_grace_period: 15s
+    env_file:
+      - .env.docker
+    environment:
+      - ELASTICSEARCH_HOSTS=http://localhost:9200
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     deploy:
       resources:
         limits:
           memory: 512M
-    networks:
-      - queuebuzz-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  mongo:
-    image: mongo:7
-    container_name: queuebuzz-mongo
-    ports:
-      - "${MONGO_PORT:-27018}:27017"
-    volumes:
-      - mongo_data:/data/db
-    environment:
-      MONGO_INITDB_DATABASE: queuebuzz
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - queuebuzz-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  redis:
-    image: redis:7-alpine
-    container_name: queuebuzz-redis
-    ports:
-      - "${REDIS_PORT:-6380}:6379"
-    volumes:
-      - redis_data:/data
-    command: ["redis-server", "--notify-keyspace-events", "Ex", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - queuebuzz-network
+          cpus: "0.50"
+        reservations:
+          memory: 256M
     logging:
       driver: "json-file"
       options:
@@ -85,10 +203,10 @@ services:
         max-file: "3"
 
 networks:
-  queuebuzz-network:
+  frontend:
+    driver: bridge
+  backend:
     driver: bridge
 
 volumes:
-  mongo_data:
-  redis_data:
-
+  valkey-data:

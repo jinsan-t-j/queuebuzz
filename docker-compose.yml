@@ -82,7 +82,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: queuebuzz-backend:latest
+    image: ${APP_IMAGE:-ghcr.io/jinsan-t-j/queuebuzz:latest}
     restart: unless-stopped
     stop_grace_period: 30s
     read_only: true

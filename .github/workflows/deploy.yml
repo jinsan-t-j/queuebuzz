@@ -127,13 +127,3 @@ jobs:
           echo "❌ Healthcheck failed!"
           exit 1
 
-      - name: Notify Production Failure
-        if: failure()
-        run: |
-          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
-            curl -X POST -H 'Content-type: application/json' \
-              --data '{"text":"❌ OCI Production deployment failed for QueueBuzz: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
-              ${{ secrets.SLACK_WEBHOOK_URL }}
-          else
-            echo "Slack Webhook URL not configured. Skipping notification."
-          fi

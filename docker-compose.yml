@@ -89,7 +89,7 @@ services:
     tmpfs:
       - /tmp:noexec,nosuid,size=64M
     env_file:
-      - .env.docker
+      - .env
     environment:
       - PORT=8080
       - REDIS_ADDR=valkey:6379
@@ -134,12 +134,12 @@ services:
       exec valkey-server
       --save 60 1
       --loglevel notice
-      --requirepass "$$VALKEY_PASSWORD"
+      --requirepass "$$REDIS_PASSWORD"
       --maxmemory 128mb
       --maxmemory-policy allkeys-lru
       '
     env_file:
-      - .env.docker
+      - .env
     networks:
       - backend
     volumes:
@@ -153,7 +153,7 @@ services:
       - SETGID
       - CHOWN
     healthcheck:
-      test: ["CMD-SHELL", "valkey-cli -a \"$$VALKEY_PASSWORD\" ping | grep PONG || exit 1"]
+      test: ["CMD-SHELL", "valkey-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -180,7 +180,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 15s
     env_file:
-      - .env.docker
+      - .env
     environment:
       - ELASTICSEARCH_HOSTS=http://localhost:9200
     networks:

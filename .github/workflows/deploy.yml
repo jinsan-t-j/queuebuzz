@@ -63,6 +63,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -88,7 +89,7 @@ jobs:
           port: ${{ secrets.OCI_PORT || 22 }}
           timeout: 60s
           command_timeout: 10m
-          source: "docker-compose.yml,nginx/,init-ssl.sh,.env.example,Dockerfile"
+          source: "docker-compose.yml,nginx/,init-ssl.sh,.env.example"
           target: "/home/${{ secrets.OCI_USERNAME || 'ubuntu' }}/app"
 
       - name: Execute deployment commands via SSH

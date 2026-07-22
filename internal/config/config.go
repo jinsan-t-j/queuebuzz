@@ -15,7 +15,7 @@ type Config struct {
 	AppPort string `env:"APP_PORT" env-default:"8080"`
 	AppEnv  string `env:"APP_ENV" env-default:"development"`
 
-	// MongoDB
+	// Database (Oracle NoSQL / Mongo-compatible interface)
 	DBUri              string `env:"DB_URI" env-required:"true"`
 	DBName             string `env:"DB_NAME" env-required:"true"`
 	MongoDBMaxPoolSize uint64 `env:"MONGO_MAX_POOL_SIZE" env-default:"500"`

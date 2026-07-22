@@ -104,18 +104,19 @@ cd queuebuzz
 
 ### 2. Environment Configuration
 
-Create a `.env` file based on the config structure:
+Create a `.env` file based on `.env.example`:
 
 ```env
 PORT=8080
 APP_ENV=development
 
-# MongoDB
+# Database (Oracle NoSQL / Mongo-compatible interface)
 DB_URI=mongodb://localhost:27017
 DB_NAME=queuebuzz
 
-# Redis
+# Redis / Valkey
 REDIS_URL=redis://localhost:6379
+REDIS_PASSWORD=
 
 # JWT RS256 (PEM encoded strings)
 JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
@@ -132,7 +133,7 @@ EMAIL_FROM=noreply@queuebuzz.com
 ### 3. Start Infrastructure
 
 ```bash
-docker compose up -d mongo redis
+docker compose up -d valkey
 ```
 
 ### 4. Run the Server

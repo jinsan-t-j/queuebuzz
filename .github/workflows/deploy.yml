@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - stage
+  repository_dispatch:
+    types: [deploy-infra]
   workflow_dispatch:
 
 permissions:
@@ -26,14 +28,10 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   docker:
-    name: Build & Push Image (Staging)
+    name: Build & Push Image to GHCR
     needs: quality-gates
-    if: github.ref_name == 'stage'
+    if: github.ref_name == 'main' || github.ref_name == 'stage' || github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment:
-      name: staging
-    outputs:
-      image: ${{ steps.meta.outputs.tags }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +54,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=stage
+            type=raw,value=latest
+            type=raw,value=${{ github.ref_name }}
             type=sha,prefix=${{ github.ref_name }}-
             type=ref,event=branch
 
@@ -70,52 +69,60 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy-staging:
-    name: Deploy to Render (Staging)
+  deploy-oci-production:
+    name: Deploy to OCI Compute Instance
     needs: docker
-    if: github.ref_name == 'stage'
-    runs-on: ubuntu-latest
-    environment:
-      name: staging
-    steps:
-      - name: Trigger Render Deploy Hook
-        run: |
-          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
-
-      - name: Notify Staging Failure
-        if: failure()
-        run: |
-          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
-            curl -X POST -H 'Content-type: application/json' \
-              --data '{"text":"❌ Staging deployment failed for QueueBuzz: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
-              ${{ secrets.SLACK_WEBHOOK_URL }}
-          else
-            echo "Slack Webhook URL not configured. Skipping notification."
-          fi
-
-  deploy-production:
-    name: Deploy to Fly.io (Production)
-    needs: quality-gates
-    if: github.ref_name == 'main'
+    if: (github.ref_name == 'main' || github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     environment:
       name: production
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Copy deployment files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USERNAME || 'ubuntu' }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          source: "docker-compose.yml,nginx/,init-ssl.sh,.env.example"
+          target: "/home/${{ secrets.OCI_USERNAME || 'ubuntu' }}/app"
 
-      - name: Deploy to Fly.io
-        run: flyctl deploy --local-only
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Execute deployment commands via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USERNAME || 'ubuntu' }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          script: |
+            cd /home/${{ secrets.OCI_USERNAME || 'ubuntu' }}/app
+            
+            # Refresh application environment variables from OCI Vault (or GitHub secret override)
+            if [ -n "${{ secrets.ENV_FILE }}" ]; then
+              echo "${{ secrets.ENV_FILE }}" > .env
+            elif [ -n "${{ secrets.ENV_DOCKER }}" ]; then
+              echo "${{ secrets.ENV_DOCKER }}" > .env
+            elif [ -f /usr/local/bin/fetch-vault-secrets ]; then
+              /usr/local/bin/fetch-vault-secrets
+            elif [ ! -f .env ]; then
+              cp .env.example .env
+            fi
+            
+            # Login to GHCR to pull private image
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Pull latest image & restart services
+            APP_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" docker compose pull
+            APP_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" docker compose up -d --remove-orphans
+            
+            # Prune old dangling images
+            docker image prune -f
 
       - name: Verify Deployment (Smoke Test)
         run: |
           echo "Verifying API health..."
           for i in {1..12}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.queuebuzz.com/healthz || echo "failed")
+            STATUS=$(curl -s -k -o /dev/null -w "%{http_code}" https://${{ secrets.OCI_HOST }}/healthcheck || curl -s -k -o /dev/null -w "%{http_code}" http://${{ secrets.OCI_HOST }}/healthcheck || echo "failed")
             if [ "$STATUS" = "200" ]; then
               echo "✅ Healthcheck passed!"
               exit 0
@@ -126,13 +133,3 @@ jobs:
           echo "❌ Healthcheck failed!"
           exit 1
 
-      - name: Notify Production Failure
-        if: failure()
-        run: |
-          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
-            curl -X POST -H 'Content-type: application/json' \
-              --data '{"text":"❌ Production deployment failed for QueueBuzz: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
-              ${{ secrets.SLACK_WEBHOOK_URL }}
-          else
-            echo "Slack Webhook URL not configured. Skipping notification."
-          fi

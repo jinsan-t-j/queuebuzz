@@ -88,7 +88,7 @@ jobs:
           port: ${{ secrets.OCI_PORT || 22 }}
           timeout: 60s
           command_timeout: 10m
-          source: "docker-compose.yml,nginx/,init-ssl.sh,.env.example,Dockerfile,start.sh"
+          source: "docker-compose.yml,nginx/,init-ssl.sh,.env.example,Dockerfile"
           target: "/home/${{ secrets.OCI_USERNAME || 'ubuntu' }}/app"
 
       - name: Execute deployment commands via SSH
@@ -101,12 +101,10 @@ jobs:
           timeout: 60s
           command_timeout: 10m
           script: |
-            cd /home/${{ secrets.OCI_USERNAME || 'ubuntu' }}/app
-            chmod +x start.sh
             GHCR_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
             GHCR_USER="${{ github.actor }}" \
             APP_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
-            ./start.sh
+            /usr/local/bin/start-app
 
       - name: Verify Deployment (Smoke Test)
         run: |

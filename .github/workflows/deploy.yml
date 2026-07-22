@@ -85,6 +85,9 @@ jobs:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME || 'ubuntu' }}
           key: ${{ secrets.OCI_SSH_KEY }}
+          port: ${{ secrets.OCI_PORT || 22 }}
+          timeout: 60s
+          command_timeout: 10m
           source: "docker-compose.yml,nginx/,init-ssl.sh,.env.example"
           target: "/home/${{ secrets.OCI_USERNAME || 'ubuntu' }}/app"
 
@@ -94,6 +97,9 @@ jobs:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USERNAME || 'ubuntu' }}
           key: ${{ secrets.OCI_SSH_KEY }}
+          port: ${{ secrets.OCI_PORT || 22 }}
+          timeout: 60s
+          command_timeout: 10m
           script: |
             cd /home/${{ secrets.OCI_USERNAME || 'ubuntu' }}/app
             

@@ -79,9 +79,6 @@ services:
   # App — Go Fiber Backend (scalable replicas)
   # ──────────────────────────────────────────────
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: ${APP_IMAGE:-ghcr.io/jinsan-t-j/queuebuzz:latest}
     restart: unless-stopped
     stop_grace_period: 30s

@@ -88,7 +88,7 @@ jobs:
           port: ${{ secrets.OCI_PORT || 22 }}
           timeout: 60s
           command_timeout: 10m
-          source: "docker-compose.yml,nginx/,init-ssl.sh,.env.example"
+          source: "docker-compose.yml,nginx/,init-ssl.sh,.env.example,Dockerfile,start.sh"
           target: "/home/${{ secrets.OCI_USERNAME || 'ubuntu' }}/app"
 
       - name: Execute deployment commands via SSH
@@ -102,27 +102,11 @@ jobs:
           command_timeout: 10m
           script: |
             cd /home/${{ secrets.OCI_USERNAME || 'ubuntu' }}/app
-            
-            # Refresh application environment variables from OCI Vault (or GitHub secret override)
-            if [ -n "${{ secrets.ENV_FILE }}" ]; then
-              echo "${{ secrets.ENV_FILE }}" > .env
-            elif [ -n "${{ secrets.ENV_DOCKER }}" ]; then
-              echo "${{ secrets.ENV_DOCKER }}" > .env
-            elif [ -f /usr/local/bin/fetch-vault-secrets ]; then
-              /usr/local/bin/fetch-vault-secrets
-            elif [ ! -f .env ]; then
-              cp .env.example .env
-            fi
-            
-            # Login to GHCR to pull private image
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            
-            # Pull latest image & restart services
-            APP_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" docker compose pull
-            APP_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" docker compose up -d --remove-orphans
-            
-            # Prune old dangling images
-            docker image prune -f
+            chmod +x start.sh
+            GHCR_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
+            GHCR_USER="${{ github.actor }}" \
+            APP_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
+            ./start.sh
 
       - name: Verify Deployment (Smoke Test)
         run: |

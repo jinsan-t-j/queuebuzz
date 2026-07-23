@@ -865,75 +865,89 @@ func (s *Service) GetQueueHistoryListForHost(ctx context.Context, hostID, hostPu
 		}
 	}
 
-	pipeline := mongodriver.Pipeline{
-		{{Key: "$match", Value: match}},
-		{{Key: "$facet", Value: bson.M{
-			"metadata": bson.A{
-				bson.M{"$count": "total"},
-			},
-			"data": bson.A{
-				bson.M{"$sort": bson.M{"created_at": -1}},
-				bson.M{"$skip": (page - 1) * limit},
-				bson.M{"$limit": limit},
-				bson.M{"$lookup": bson.M{
-					"from": "queue_entries",
-					"let":  bson.M{"queue_id": "$_id"},
-					"pipeline": bson.A{
-						bson.M{"$match": bson.M{
-							"$expr":  bson.M{"$eq": bson.A{"$queue_id", "$$queue_id"}},
-							"status": constants.EntryStatusServed,
-						}},
-					},
-					"as": "served_entries",
-				}},
-				bson.M{"$addFields": bson.M{
-					"total_served": bson.M{"$size": "$served_entries"},
-					"avg_wait_ms": bson.M{
-						"$cond": bson.A{
-							bson.M{"$gt": bson.A{bson.M{"$size": "$served_entries"}, 0}},
-							bson.M{"$avg": bson.M{
-								"$map": bson.M{
-									"input": "$served_entries",
-									"as":    "e",
-									"in":    bson.M{"$subtract": bson.A{"$$e.served_at", "$$e.created_at"}},
-								},
-							}},
-							0,
-						},
-					},
-				}},
-				bson.M{"$project": bson.M{"served_entries": 0}},
-			},
-		}}},
+	// 1. Total count
+	total, err := s.queueCol.CountDocuments(ctx, match)
+	if err != nil {
+		return nil, 0, err
 	}
 
-	cursor, err := s.queueCol.Aggregate(ctx, pipeline)
+	if total == 0 {
+		return []QueueWithStats{}, 0, nil
+	}
+
+	// 2. Fetch paginated queues
+	findOpts := options.Find().
+		SetSort(bson.M{"created_at": -1}).
+		SetSkip(int64((page - 1) * limit)).
+		SetLimit(int64(limit))
+
+	cursor, err := s.queueCol.Find(ctx, match, findOpts)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer cursor.Close(ctx)
 
-	var results []struct {
-		Metadata []struct {
-			Total int64 `bson:"total"`
-		} `bson:"metadata"`
-		Data []QueueWithStats `bson:"data"`
-	}
-
-	if err := cursor.All(ctx, &results); err != nil {
+	var queues []domain.Queue
+	if err := cursor.All(ctx, &queues); err != nil {
 		return nil, 0, err
 	}
-
-	if len(results) == 0 {
-		return []QueueWithStats{}, 0, nil
+	if len(queues) == 0 {
+		return []QueueWithStats{}, total, nil
 	}
 
-	total := int64(0)
-	if len(results[0].Metadata) > 0 {
-		total = results[0].Metadata[0].Total
+	// 3. Gather queue IDs & map for stats assembly
+	queueIDs := make([]string, len(queues))
+	queueMap := make(map[string]*QueueWithStats, len(queues))
+	resultList := make([]QueueWithStats, len(queues))
+
+	for i, q := range queues {
+		queueIDs[i] = q.ID
+		resultList[i] = QueueWithStats{
+			Queue:       q,
+			TotalServed: 0,
+			AvgWaitMS:   0,
+		}
+		queueMap[q.ID] = &resultList[i]
 	}
 
-	return results[0].Data, total, nil
+	// 4. Fetch served entries for these queues
+	entryCursor, err := s.entryCol.Find(ctx, bson.M{
+		"queue_id": bson.M{"$in": queueIDs},
+		"status":   constants.EntryStatusServed,
+	})
+	if err == nil {
+		defer entryCursor.Close(ctx)
+		var entries []domain.Entry
+		if err := entryCursor.All(ctx, &entries); err == nil {
+			type stats struct {
+				count     int
+				totalWait time.Duration
+			}
+			statsMap := make(map[string]*stats)
+			for _, e := range entries {
+				st, exists := statsMap[e.QueueID]
+				if !exists {
+					st = &stats{}
+					statsMap[e.QueueID] = st
+				}
+				st.count++
+				if e.ServedAt != nil {
+					st.totalWait += e.ServedAt.Sub(e.CreatedAt)
+				}
+			}
+
+			for qID, st := range statsMap {
+				if item, ok := queueMap[qID]; ok {
+					item.TotalServed = st.count
+					if st.count > 0 {
+						item.AvgWaitMS = st.totalWait.Milliseconds() / int64(st.count)
+					}
+				}
+			}
+		}
+	}
+
+	return resultList, total, nil
 }
 
 func (s *Service) GetHostHistorySummary(ctx context.Context, hostID, hostPublicID string) (*domain.HostHistorySummary, error) {
@@ -945,65 +959,60 @@ func (s *Service) GetHostHistorySummary(ctx context.Context, hostID, hostPublicI
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	pipeline := mongodriver.Pipeline{
-		// 1. Match queues for this host that are not active/paused
-		{{Key: "$match", Value: (func() bson.M {
-			match := bson.M{
-				"host_public_id": hostPublicID,
-				"status":         bson.M{"$nin": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
-			}
-			retentionDays, _ := s.billingSvc.GetHistoryRetentionDays(ctx, hostID)
-			if retentionDays > 0 {
-				cutoff := time.Now().AddDate(0, 0, -retentionDays)
-				match["created_at"] = bson.M{"$gte": cutoff}
-			}
-			return match
-		})()}},
-		// 2. Lookup served entries
-		{{Key: "$lookup", Value: bson.M{
-			"from": "queue_entries",
-			"let":  bson.M{"queue_id": "$_id"},
-			"pipeline": bson.A{
-				bson.M{"$match": bson.M{
-					"$expr":  bson.M{"$eq": bson.A{"$queue_id", "$$queue_id"}},
-					"status": constants.EntryStatusServed,
-				}},
-			},
-			"as": "served_entries",
-		}}},
-		// 3. Group everything
-		{{Key: "$group", Value: bson.M{
-			"_id":            nil,
-			"total_sessions": bson.M{"$sum": 1},
-			"total_served":   bson.M{"$sum": bson.M{"$size": "$served_entries"}},
-			"total_wait_ms": bson.M{"$sum": bson.M{
-				"$sum": bson.M{
-					"$map": bson.M{
-						"input": "$served_entries",
-						"as":    "e",
-						"in":    bson.M{"$subtract": bson.A{"$$e.served_at", "$$e.created_at"}},
-					},
-				},
-			}},
-		}}},
+	match := bson.M{
+		"host_public_id": hostPublicID,
+		"status":         bson.M{"$nin": []string{constants.QueueStatusActive, constants.QueueStatusPaused}},
+	}
+	retentionDays, _ := s.billingSvc.GetHistoryRetentionDays(ctx, hostID)
+	if retentionDays > 0 {
+		cutoff := time.Now().AddDate(0, 0, -retentionDays)
+		match["created_at"] = bson.M{"$gte": cutoff}
 	}
 
-	cursor, err := s.queueCol.Aggregate(ctx, pipeline)
+	findOpts := options.Find().SetProjection(bson.M{"_id": 1})
+	cursor, err := s.queueCol.Find(ctx, match, findOpts)
 	if err != nil {
 		return nil, err
 	}
 	defer cursor.Close(ctx)
 
-	var results []domain.HostHistorySummary
-	if err := cursor.All(ctx, &results); err != nil {
+	var queues []struct {
+		ID string `bson:"_id"`
+	}
+	if err := cursor.All(ctx, &queues); err != nil {
 		return nil, err
 	}
 
-	var summary *domain.HostHistorySummary
-	if len(results) == 0 {
-		summary = &domain.HostHistorySummary{}
-	} else {
-		summary = &results[0]
+	summary := &domain.HostHistorySummary{
+		TotalSessions: len(queues),
+		TotalServed:   0,
+		TotalWaitMS:   0,
+	}
+
+	if len(queues) > 0 {
+		queueIDs := make([]string, len(queues))
+		for i, q := range queues {
+			queueIDs[i] = q.ID
+		}
+
+		entryCursor, err := s.entryCol.Find(ctx, bson.M{
+			"queue_id": bson.M{"$in": queueIDs},
+			"status":   constants.EntryStatusServed,
+		})
+		if err == nil {
+			defer entryCursor.Close(ctx)
+			var entries []domain.Entry
+			if err := entryCursor.All(ctx, &entries); err == nil {
+				summary.TotalServed = len(entries)
+				var totalWait time.Duration
+				for _, e := range entries {
+					if e.ServedAt != nil {
+						totalWait += e.ServedAt.Sub(e.CreatedAt)
+					}
+				}
+				summary.TotalWaitMS = totalWait.Milliseconds()
+			}
+		}
 	}
 
 	// 4. Cache it

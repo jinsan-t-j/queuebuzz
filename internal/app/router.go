@@ -3,7 +3,7 @@ package app
 import "github.com/gofiber/fiber/v3"
 
 func RegisterRoutes(app *fiber.App, c *Container) {
-	app.Get("/healthz", func(ctx fiber.Ctx) error {
+	app.Get("/health", func(ctx fiber.Ctx) error {
 		return ctx.SendString("OK")
 	})
 

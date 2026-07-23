@@ -46,7 +46,7 @@ func Connect(cfg *config.Config) (*mongodriver.Client, *mongodriver.Database) {
 
 	database := client.Database(mongoDbName)
 	if err := EnsureIndexes(ctx, database); err != nil {
-		log.Fatal().Err(err).Msg("Failed to ensure MongoDB indexes")
+		log.Warn().Err(err).Msg("Could not create some MongoDB indexes (ignoring error for Oracle Autonomous Database compatibility)")
 	}
 
 	log.Info().Str("db", mongoDbName).Msg("Connected to MongoDB")

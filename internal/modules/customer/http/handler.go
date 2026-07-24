@@ -9,6 +9,7 @@ import (
 	"queuebuzz/internal/config"
 	"queuebuzz/internal/constants"
 	"queuebuzz/internal/helpers"
+	"queuebuzz/internal/log"
 	authservice "queuebuzz/internal/modules/auth/service"
 	customerdto "queuebuzz/internal/modules/customer/dto"
 	customerevents "queuebuzz/internal/modules/customer/events"
@@ -75,7 +76,8 @@ func (h *Handler) Leave(c fiber.Ctx) error {
 	queueID, _ := c.Locals("queue_id").(string)
 
 	if err := h.customerService.Leave(c.Context(), entryID); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to leave queue")
+		log.Error().Err(err).Str("entry_id", entryID).Msg("Failed to leave queue")
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
 	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusLeft)
@@ -382,7 +384,8 @@ func (h *Handler) ConfirmStillHere(c fiber.Ctx) error {
 	entryID := c.Locals("entry_id").(string)
 
 	if err := h.customerService.ConfirmStillHere(c.Context(), queueID, entryID); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to confirm presence")
+		log.Error().Err(err).Str("queue_id", queueID).Str("entry_id", entryID).Msg("Failed to confirm presence")
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
 	h.hostNotifierJob.DispatchUserStatus(queueID, entryID, constants.EntryStatusWaiting)

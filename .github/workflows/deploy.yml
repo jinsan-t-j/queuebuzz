@@ -111,7 +111,7 @@ jobs:
         run: |
           echo "Verifying API health..."
           for i in {1..12}; do
-            STATUS=$(curl -s -k -o /dev/null -w "%{http_code}" https://${{ secrets.OCI_HOST }}/healthcheck || curl -s -k -o /dev/null -w "%{http_code}" http://${{ secrets.OCI_HOST }}/healthcheck || echo "failed")
+            STATUS=$(curl -s -k -o /dev/null -w "%{http_code}" https://${{ secrets.OCI_HOST }}/health || curl -s -k -o /dev/null -w "%{http_code}" http://${{ secrets.OCI_HOST }}/health || echo "failed")
             if [ "$STATUS" = "200" ]; then
               echo "✅ Healthcheck passed!"
               exit 0
@@ -121,4 +121,3 @@ jobs:
           done
           echo "❌ Healthcheck failed!"
           exit 1
-

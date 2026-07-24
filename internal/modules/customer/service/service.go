@@ -57,7 +57,7 @@ func (s *Service) GetEntryStatusByID(ctx context.Context, entryID string) (strin
 }
 
 func (s *Service) JoinQueue(ctx context.Context, params queueservice.JoinQueueParams) (*queueservice.JoinQueueResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// 1. Validate Queue Status

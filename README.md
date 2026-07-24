@@ -89,7 +89,7 @@ QueueBuzz is a modern, high-performance virtual queue management platform API. I
 │   ├── services/        # Shared cross-module services
 │   └── validator/       # Custom request validation logic
 ├── Dockerfile           # Production container definition
-├── docker-compose.yml   # Local infrastructure (Mongo, Redis)
+├── docker-compose.yml   # Local infrastructure (Valkey, Nginx, App)
 └── Makefile             # Build & development tooling
 ```
 

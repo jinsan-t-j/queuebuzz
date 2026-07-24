@@ -26,11 +26,20 @@ func Connect(cfg *config.Config) (*mongodriver.Client, *mongodriver.Database) {
 		mongoDbName = cfg.DBName
 	}
 
+	maxPoolSize := cfg.MongoDBMaxPoolSize
+	if maxPoolSize == 0 || maxPoolSize > 100 {
+		log.Warn().Uint64("configured", maxPoolSize).Msg("Capping MongoDB maxPoolSize to 100 to satisfy Oracle Autonomous Database / NoSQL connection limits")
+		maxPoolSize = 100
+	}
+
 	opts := options.Client().
 		ApplyURI(cfg.DBUri).
-		SetMaxPoolSize(cfg.MongoDBMaxPoolSize).
+		SetMaxPoolSize(maxPoolSize).
 		SetMinPoolSize(10).
-		SetTimeout(3 * time.Second).
+		SetMaxConnecting(10).
+		SetMaxConnIdleTime(60 * time.Second).
+		SetConnectTimeout(10 * time.Second).
+		SetServerSelectionTimeout(10 * time.Second).
 		SetBSONOptions(&options.BSONOptions{
 			ObjectIDAsHexString: true,
 		})

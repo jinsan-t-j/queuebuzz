@@ -19,7 +19,7 @@ import (
 const (
 	// subscriberBufSize defines the per-subscriber FIFO channel capacity.
 	subscriberBufSize = 16
-	keepaliveInterval = 25 * time.Second
+	keepaliveInterval = 15 * time.Second
 )
 
 type envelope struct {

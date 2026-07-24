@@ -31,6 +31,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"golang.org/x/sync/singleflight"
 )
 
 type Handler struct {
@@ -47,6 +48,7 @@ type Handler struct {
 	Caller           *jobs.Caller
 	BillingSvc       *billingservice.BillingService
 	EmailService     *legacyservices.EmailService
+	sfGroup          singleflight.Group
 }
 
 type publicStatusPayload struct {
@@ -422,59 +424,81 @@ func (h *Handler) GetPublicStatus(c fiber.Ctx) error {
 		}
 	}
 
-	queue, err := h.Service.GetLiveQueueByID(c.Context(), queueID)
+	key := fmt.Sprintf("pubstatus:%s:%t", queueID, includeEntries)
+	val, err, _ := h.sfGroup.Do(key, func() (interface{}, error) {
+		bgCtx := context.Background()
+		if includeEntries && h.RedisRepo != nil {
+			if data, err := h.RedisRepo.GetPublicStatusSnapshot(bgCtx, queueID); err == nil {
+				var cached publicStatusResponse
+				if json.Unmarshal(data, &cached) == nil {
+					return cached, nil
+				}
+			}
+		}
+
+		queue, err := h.Service.GetLiveQueueByID(bgCtx, queueID)
+		if err != nil {
+			return nil, err
+		}
+		if queue == nil {
+			return nil, fiber.NewError(fiber.StatusNotFound, "live queue not found")
+		}
+
+		var entryResponses []dto.EntryRecord
+		var waitingCount int64
+		if includeEntries {
+			entries, err := h.Service.GetQueueEntries(bgCtx, queue.ID,
+				constants.EntryStatusWaiting,
+				constants.EntryStatusCalled,
+				constants.EntryStatusArrived,
+				constants.EntryStatusIdle,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			entryResponses = dto.ToEntryResponses(entries)
+			for i := range entryResponses {
+				entryResponses[i].Email = nil
+				entryResponses[i].Phone = nil
+				if queue.ManualPositioning {
+					entryResponses[i].Position = 0
+				}
+				if entryResponses[i].Status == constants.EntryStatusWaiting {
+					waitingCount++
+				}
+			}
+		} else {
+			waitingCount, _ = h.Service.GetWaitingCount(bgCtx, queue.ID)
+			if entryResponses == nil {
+				entryResponses = []dto.EntryRecord{}
+			}
+		}
+
+		response := publicStatusResponse{
+			Message: "Public status fetched",
+			Data: publicStatusPayload{
+				Queue:        h.toQueueResponse(bgCtx, *queue),
+				Entries:      entryResponses,
+				WaitingCount: waitingCount,
+			},
+		}
+
+		if includeEntries && h.RedisRepo != nil {
+			_ = h.RedisRepo.SetPublicStatusSnapshot(bgCtx, queueID, response)
+		}
+
+		return response, nil
+	})
+
 	if err != nil {
+		if fibErr, ok := err.(*fiber.Error); ok {
+			return fibErr
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	if queue == nil {
-		return fiber.NewError(fiber.StatusNotFound, "live queue not found")
-	}
 
-	var entryResponses []dto.EntryRecord
-	var waitingCount int64
-	if includeEntries {
-		entries, err := h.Service.GetQueueEntries(c.Context(), queue.ID,
-			constants.EntryStatusWaiting,
-			constants.EntryStatusCalled,
-			constants.EntryStatusArrived,
-			constants.EntryStatusIdle,
-		)
-		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-		}
-
-		entryResponses = dto.ToEntryResponses(entries)
-		for i := range entryResponses {
-			entryResponses[i].Email = nil
-			entryResponses[i].Phone = nil
-			if queue.ManualPositioning {
-				entryResponses[i].Position = 0
-			}
-			if entryResponses[i].Status == constants.EntryStatusWaiting {
-				waitingCount++
-			}
-		}
-	} else {
-		waitingCount, _ = h.Service.GetWaitingCount(c.Context(), queue.ID)
-		if entryResponses == nil {
-			entryResponses = []dto.EntryRecord{}
-		}
-	}
-
-	response := publicStatusResponse{
-		Message: "Public status fetched",
-		Data: publicStatusPayload{
-			Queue:        h.toQueueResponse(c.Context(), *queue),
-			Entries:      entryResponses,
-			WaitingCount: waitingCount,
-		},
-	}
-
-	if includeEntries && h.RedisRepo != nil {
-		_ = h.RedisRepo.SetPublicStatusSnapshot(c.Context(), queueID, response)
-	}
-
-	return c.Status(fiber.StatusOK).JSON(response)
+	return c.Status(fiber.StatusOK).JSON(val)
 }
 
 // Events godoc

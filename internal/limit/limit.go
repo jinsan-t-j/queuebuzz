@@ -51,16 +51,10 @@ func GetContainerMemoryUsage() (current int64, limitVal int64) {
 		return 0, 0
 	}
 
-	// Try cgroups v2
-	current, err := readIntFromFile("/sys/fs/cgroup/memory.current")
-	if err != nil {
-		// Fallback to cgroups v1
-		current, err = readIntFromFile("/sys/fs/cgroup/memory/memory.usage_in_bytes")
-	}
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	current = int64(m.Sys)
 
-	if err != nil {
-		return 0, 0
-	}
 	return current, limitVal
 }
 

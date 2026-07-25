@@ -1210,14 +1210,30 @@ func (s *Service) UnregisterHostFCM(ctx context.Context, queueID string) error {
 	return err
 }
 
-func (s *Service) ClearHostHistory(ctx context.Context, hostPublicID string) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+func (s *Service) ClearHostHistory(ctx context.Context, hostID, hostPublicID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
+	var filter bson.M
+	if hostID != "" && hostPublicID != "" {
+		filter = bson.M{
+			"$or": []bson.M{
+				{"host_public_id": hostPublicID},
+				{"host_id": hostID},
+			},
+		}
+	} else if hostPublicID != "" {
+		filter = bson.M{"host_public_id": hostPublicID}
+	} else if hostID != "" {
+		filter = bson.M{"host_id": hostID}
+	} else {
+		return fmt.Errorf("host identity required to clear history")
+	}
+
 	// 1. Get all queue IDs for this host
-	cursor, err := s.queueCol.Find(ctx, bson.M{"host_public_id": hostPublicID})
+	cursor, err := s.queueCol.Find(ctx, filter)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to query host queues: %w", err)
 	}
 	defer cursor.Close(ctx)
 
@@ -1226,25 +1242,86 @@ func (s *Service) ClearHostHistory(ctx context.Context, hostPublicID string) err
 		var q struct {
 			ID string `bson:"_id"`
 		}
-		if err := cursor.Decode(&q); err == nil {
+		if err := cursor.Decode(&q); err == nil && q.ID != "" {
 			queueIDs = append(queueIDs, q.ID)
 		}
 	}
 
 	// 2. Delete all entries for these queues
 	if len(queueIDs) > 0 {
-		_, _ = s.entryCol.DeleteMany(ctx, bson.M{"queue_id": bson.M{"$in": queueIDs}})
+		if _, err := s.entryCol.DeleteMany(ctx, bson.M{"queue_id": bson.M{"$in": queueIDs}}); err != nil {
+			log.Error().Err(err).Str("host_public_id", hostPublicID).Msg("Failed to delete queue entries in ClearHostHistory")
+			return fmt.Errorf("failed to delete queue entries: %w", err)
+		}
 	}
 
 	// 3. Delete all queues for this host
-	_, err = s.queueCol.DeleteMany(ctx, bson.M{"host_public_id": hostPublicID})
-	if err == nil {
-		// Invalidate cache
+	if _, err := s.queueCol.DeleteMany(ctx, filter); err != nil {
+		log.Error().Err(err).Str("host_public_id", hostPublicID).Msg("Failed to delete queues in ClearHostHistory")
+		return fmt.Errorf("failed to delete queues: %w", err)
+	}
+
+	// 4. Purge any orphaned queue entries left behind
+	_, _ = s.CleanOrphanedEntries(ctx)
+
+	// Invalidate cache
+	if hostPublicID != "" {
 		_ = s.redisRepo.InvalidateHistorySummary(ctx, hostPublicID)
 		s.InvalidateDashboardCache(hostPublicID)
 	}
+	if hostID != "" {
+		_ = s.redisRepo.InvalidateHostHistory(ctx, hostID)
+	}
 
-	return err
+	return nil
+}
+
+func (s *Service) CleanOrphanedEntries(ctx context.Context) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	pipeline := bson.A{
+		bson.M{"$lookup": bson.M{
+			"from":         "queues",
+			"localField":   "queue_id",
+			"foreignField": "_id",
+			"as":           "queue",
+		}},
+		bson.M{"$match": bson.M{
+			"queue": bson.M{"$size": 0},
+		}},
+		bson.M{"$project": bson.M{
+			"_id": 1,
+		}},
+	}
+
+	cursor, err := s.entryCol.Aggregate(ctx, pipeline)
+	if err != nil {
+		return 0, fmt.Errorf("failed to aggregate orphaned entries: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var orphanedIDs []string
+	for cursor.Next(ctx) {
+		var item struct {
+			ID string `bson:"_id"`
+		}
+		if err := cursor.Decode(&item); err == nil && item.ID != "" {
+			orphanedIDs = append(orphanedIDs, item.ID)
+		}
+	}
+
+	if len(orphanedIDs) == 0 {
+		return 0, nil
+	}
+
+	res, err := s.entryCol.DeleteMany(ctx, bson.M{"_id": bson.M{"$in": orphanedIDs}})
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete orphaned entries: %w", err)
+	}
+
+	log.Info().Int64("count", res.DeletedCount).Msg("Cleaned orphaned queue entries")
+	return res.DeletedCount, nil
 }
 
 /**

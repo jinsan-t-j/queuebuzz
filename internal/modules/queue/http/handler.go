@@ -1324,19 +1324,21 @@ func (h *Handler) DeleteHistoryBulk(c fiber.Ctx) error {
 // @Router /queue/history [delete]
 func (h *Handler) ClearHistory(c fiber.Ctx) error {
 	hostPublicID, _ := c.Locals("host_public_id").(string)
-	if hostPublicID == "" {
+	hostID, _ := c.Locals("host_id").(string)
+	if hostPublicID == "" && hostID == "" {
 		return fiber.NewError(fiber.StatusUnauthorized, "host session not found")
 	}
 
-	if err := h.Service.ClearHostHistory(c.Context(), hostPublicID); err != nil {
+	if err := h.Service.ClearHostHistory(c.Context(), hostID, hostPublicID); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to clear history")
 	}
 
 	if h.RedisRepo != nil {
-		hostID, _ := c.Locals("host_id").(string)
 		if hostID != "" {
 			_ = h.RedisRepo.InvalidateHostHistory(c.Context(), hostID)
-			_ = h.RedisRepo.InvalidateHistorySummary(c.Context(), hostID)
+		}
+		if hostPublicID != "" {
+			_ = h.RedisRepo.InvalidateHistorySummary(c.Context(), hostPublicID)
 		}
 	}
 

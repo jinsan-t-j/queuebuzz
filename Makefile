@@ -35,7 +35,16 @@ vet:
 
 # Generate Swagger docs (requires: go install github.com/swaggo/swag/cmd/swag@latest)
 swagger:
-	swag init -g main.go -o docs --parseDependency --parseInternal
+	@if command -v swag >/dev/null 2>&1; then \
+		swag init -g main.go -o docs --parseDependency --parseInternal; \
+	elif [ -f "$$(go env GOPATH)/bin/swag" ]; then \
+		"$$(go env GOPATH)/bin/swag" init -g main.go -o docs --parseDependency --parseInternal; \
+	elif [ -f "./bin/swag" ]; then \
+		./bin/swag init -g main.go -o docs --parseDependency --parseInternal; \
+	else \
+		echo "swag not found. Install it with: go install github.com/swaggo/swag/cmd/swag@latest"; \
+		exit 1; \
+	fi
 
 # Build Docker image
 docker:

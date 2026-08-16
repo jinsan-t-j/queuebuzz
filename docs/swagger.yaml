@@ -125,6 +125,8 @@ definitions:
         - monthly
         - yearly
         type: string
+      is_trial:
+        type: boolean
       plan_id:
         type: string
     required:
@@ -473,6 +475,13 @@ definitions:
       updated_at:
         type: string
     type: object
+  dto.TrialOfferResponse:
+    properties:
+      plan_id:
+        type: string
+      trial_duration_days:
+        type: integer
+    type: object
   dto.UpdateEntryRequest:
     properties:
       email:
@@ -758,6 +767,34 @@ paths:
           schema:
             $ref: '#/definitions/helpers.ErrorResponse'
       summary: List billing plans
+      tags:
+      - Billing
+  /api/v1/billing/plans/trial-offer:
+    get:
+      description: Looks up the plan whose trial_access_token matches the given token.
+      parameters:
+      - description: Hidden trial entry-point token
+        in: query
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/helpers.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.TrialOfferResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/helpers.ErrorResponse'
+      summary: Resolve trial offer
       tags:
       - Billing
   /api/v1/billing/subscription:

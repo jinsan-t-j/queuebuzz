@@ -279,6 +279,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/billing/plans/trial-offer": {
+            "get": {
+                "description": "Looks up the plan whose trial_access_token matches the given token.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Resolve trial offer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Hidden trial entry-point token",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/helpers.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.TrialOfferResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/helpers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/billing/subscription": {
             "get": {
                 "security": [
@@ -2943,6 +2990,9 @@ const docTemplate = `{
                         "yearly"
                     ]
                 },
+                "is_trial": {
+                    "type": "boolean"
+                },
                 "plan_id": {
                     "type": "string"
                 }
@@ -3464,6 +3514,17 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "dto.TrialOfferResponse": {
+            "type": "object",
+            "properties": {
+                "plan_id": {
+                    "type": "string"
+                },
+                "trial_duration_days": {
+                    "type": "integer"
                 }
             }
         },

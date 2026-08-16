@@ -14,6 +14,11 @@ type PlansResponse struct {
 	Plans []billingdomain.Plan `json:"plans"`
 }
 
+type TrialOfferResponse struct {
+	PlanID            string `json:"plan_id"`
+	TrialDurationDays int    `json:"trial_duration_days"`
+}
+
 type CheckoutResponse struct {
 	URL string `json:"url"`
 }

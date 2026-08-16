@@ -121,7 +121,13 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				HistoryRetentionDays: 0, // unlimited
 				AllowGeoLock:         true,
 			},
-			CreatedAt: time.Now(),
+			// Enables the hidden "?trial=<token>" entry point on the pricing page.
+			// Duration and the token are both data-driven, editable without a code
+			// change — rotate the token in the DB to revoke a leaked link.
+			TrialEnabled:      true,
+			TrialDurationDays: 3,
+			TrialAccessToken:  uuid.New().String(),
+			CreatedAt:         time.Now(),
 		},
 		domain.Plan{
 			ID:                       uuid.New().String(),
@@ -148,7 +154,10 @@ func seedPlans(ctx context.Context, db *mongodriver.Database) {
 				HistoryRetentionDays: 0, // unlimited
 				AllowGeoLock:         true,
 			},
-			CreatedAt: time.Now(),
+			TrialEnabled:      true,
+			TrialDurationDays: 3,
+			TrialAccessToken:  uuid.New().String(),
+			CreatedAt:         time.Now(),
 		},
 		domain.Plan{
 			ID:           uuid.New().String(),

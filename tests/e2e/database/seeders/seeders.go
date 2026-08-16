@@ -90,6 +90,9 @@ func SeedDefaults(db *mongo.Database) {
 		"monthly_price":               99900,
 		"yearly_price":                1099900,
 		"provider_monthly_product_id": "prod_elite_monthly",
+		"trial_enabled":               true,
+		"trial_duration_days":         3,
+		"trial_access_token":          "test-trial-token",
 		"limits": map[string]any{
 			"max_queues_per_month":   100,
 			"max_guests_per_queue":   500,

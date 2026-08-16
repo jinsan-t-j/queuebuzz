@@ -86,6 +86,12 @@ func (p *DodoProvider) CreateCheckoutSession(req CheckoutRequest) (*CheckoutResp
 		)
 	}
 
+	if req.TrialPeriodDays > 0 {
+		params.CheckoutSessionRequest.SubscriptionData = dodopayments.F(dodopayments.SubscriptionDataParam{
+			TrialPeriodDays: dodopayments.F(int64(req.TrialPeriodDays)),
+		})
+	}
+
 	// Set billing address country and currency from the plan's configuration.
 	// DodoPayments (as Merchant of Record) uses the billing country to
 	// automatically calculate and remit the correct tax (GST for IN, VAT for

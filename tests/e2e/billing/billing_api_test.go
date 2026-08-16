@@ -112,6 +112,52 @@ func TestBilling_PlanListing(t *testing.T) {
 		plans := decodePlans(t, resp)
 		assert.True(t, plansContainTierCurrency(plans, "pro", "USD"), "Pro plan for US not found")
 	})
+
+	t.Run("Trial fields are never exposed in the public listing", func(t *testing.T) {
+		resp, err := util.GET(s, "/api/v1/billing/plans")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		for _, p := range decodePlans(t, resp) {
+			pm := p.(map[string]any)
+			assert.NotContains(t, pm, "trial_enabled")
+			assert.NotContains(t, pm, "trial_duration_days")
+			assert.NotContains(t, pm, "trial_access_token")
+		}
+	})
+}
+
+// --- Trial Offer Resolution ---
+
+func TestBilling_TrialOffer(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+
+	t.Run("Valid token resolves the plan it unlocks", func(t *testing.T) {
+		resp, err := util.GET(s, "/api/v1/billing/plans/trial-offer?token=test-trial-token")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		data := util.DecodedBody(t, resp)
+		assert.Equal(t, "elite-v1", data["plan_id"])
+		assert.Equal(t, float64(3), data["trial_duration_days"])
+	})
+
+	t.Run("Invalid token falls back to 404", func(t *testing.T) {
+		resp, err := util.GET(s, "/api/v1/billing/plans/trial-offer?token=not-a-real-token")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	})
+
+	t.Run("Missing token falls back to 404", func(t *testing.T) {
+		resp, err := util.GET(s, "/api/v1/billing/plans/trial-offer")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	})
 }
 
 // --- Current Plan ---
@@ -193,6 +239,54 @@ func TestBilling_CheckoutFlow(t *testing.T) {
 		require.NoError(t, err)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+}
+
+// --- Trial Checkout (plan.trial_enabled + trial_duration_days) ---
+
+func TestBilling_TrialCheckout(t *testing.T) {
+	s := Suite(t)
+	s.CleanDB()
+	s.DodoMock.Reset()
+
+	t.Run("Trial checkout succeeds for a plan with a trial offer", func(t *testing.T) {
+		hostToken, _, _ := authutil.RegisterHost(t, s, "Trial Host 1", "trial1@test.com", "password")
+		payload := map[string]any{"plan_id": "elite-v1", "billing_cycle": "monthly", "is_trial": true}
+		resp, err := util.POSTAuth(s, "/api/v1/billing/checkout", payload, hostToken)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		data := util.DecodedBody(t, resp)
+		assert.Contains(t, data["url"], "dodopayments.com/checkout")
+	})
+
+	t.Run("Trial rejected for a plan without a trial offer", func(t *testing.T) {
+		hostToken, _, _ := authutil.RegisterHost(t, s, "Trial Host 2", "trial2@test.com", "password")
+		payload := map[string]any{"plan_id": "pro-in-v1", "billing_cycle": "monthly", "is_trial": true}
+		resp, err := util.POSTAuth(s, "/api/v1/billing/checkout", payload, hostToken)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("Trial rejected once already used for that plan", func(t *testing.T) {
+		hostToken, hostID, _ := authutil.RegisterHost(t, s, "Trial Host 3", "trial3@test.com", "password")
+		ProvisionSubscription(t, s, hostID, "elite-v1", "monthly")
+
+		payload := map[string]any{"plan_id": "elite-v1", "billing_cycle": "monthly", "is_trial": true}
+		resp, err := util.POSTAuth(s, "/api/v1/billing/checkout", payload, hostToken)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("Non-trial checkout for the same plan is unaffected", func(t *testing.T) {
+		hostToken, _, _ := authutil.RegisterHost(t, s, "Trial Host 4", "trial4@test.com", "password")
+		payload := map[string]any{"plan_id": "elite-v1", "billing_cycle": "monthly"}
+		resp, err := util.POSTAuth(s, "/api/v1/billing/checkout", payload, hostToken)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
 }
 

@@ -3,6 +3,7 @@ package dto
 type CheckoutRequest struct {
 	PlanID       string `json:"plan_id" validate:"required"`
 	BillingCycle string `json:"billing_cycle" validate:"oneof=monthly yearly"`
+	IsTrial      bool   `json:"is_trial"`
 }
 
 type WebhookRequest struct {

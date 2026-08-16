@@ -30,6 +30,7 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	group := router.Group("/billing")
 
 	group.Get("/plans", m.Handler.ListPlans)
+	group.Get("/plans/trial-offer", m.Handler.GetTrialOffer)
 	group.Post("/webhook", m.Handler.HandleWebhook)
 
 	auth := middlewares.HostAuthMiddleware(m.AuthService)

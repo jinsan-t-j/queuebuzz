@@ -113,6 +113,29 @@ func (s *BillingService) GetPlanByID(ctx context.Context, planID string) (*domai
 	return &plan, nil
 }
 
+// ResolveTrialOffer looks up the plan whose trial_access_token matches the
+// hidden pricing-page query param, returning it only if the offer is still
+// enabled. The token is the sole gate here — nothing about which plans have
+// trials is ever exposed via the public plan listing.
+func (s *BillingService) ResolveTrialOffer(ctx context.Context, token string) (*domain.Plan, error) {
+	if token == "" {
+		return nil, mongodriver.ErrNoDocuments
+	}
+
+	var plan domain.Plan
+	err := s.plansCol.FindOne(ctx, bson.M{
+		"trial_access_token": token,
+		"trial_enabled":      true,
+	}).Decode(&plan)
+	if err != nil {
+		return nil, err
+	}
+	if plan.TrialDurationDays <= 0 {
+		return nil, mongodriver.ErrNoDocuments
+	}
+	return &plan, nil
+}
+
 func (s *BillingService) IsLimitExceeded(ctx context.Context, hostID string, limitType string, currentVal int) (bool, error) {
 	plan, err := s.GetHostPlan(ctx, hostID)
 	if err != nil {
@@ -220,7 +243,7 @@ func (s *BillingService) ListPlans(ctx context.Context, country string) ([]domai
 
 // CreateCheckoutURL validates the request, creates a checkout session, and
 // records a pending transaction for audit. Returns the redirect URL.
-func (s *BillingService) CreateCheckoutURL(ctx context.Context, hostID, planID, billingCycle, frontendOrigin string) (string, error) {
+func (s *BillingService) CreateCheckoutURL(ctx context.Context, hostID, planID, billingCycle, frontendOrigin string, isTrial bool) (string, error) {
 	// 1. Validate billing cycle
 	billingCycle = strings.ToLower(billingCycle)
 	if billingCycle != "monthly" && billingCycle != "yearly" {
@@ -270,6 +293,24 @@ func (s *BillingService) CreateCheckoutURL(ctx context.Context, hostID, planID, 
 		return "", fmt.Errorf("you already have an active subscription for this plan")
 	}
 
+	// 7b. Trial requests: the FK is the sole source of truth for eligibility
+	// and duration (never hardcode a plan here), and each host may trial a
+	// given plan at most once, regardless of past cancellation.
+	trialDays := 0
+	if isTrial {
+		if !plan.HasTrialOffer() {
+			return "", fmt.Errorf("trial not available for this plan")
+		}
+		usedCount, err := s.subsCol.CountDocuments(ctx, bson.M{"host_id": hostID, "plan_id": planID})
+		if err != nil {
+			return "", fmt.Errorf("failed to verify trial eligibility: %w", err)
+		}
+		if usedCount > 0 {
+			return "", fmt.Errorf("trial already used for this plan")
+		}
+		trialDays = plan.TrialDurationDays
+	}
+
 	// 8. Build return URLs (pointing to our backend handlers)
 	backendBase := s.cfg.AppURL
 	if before, ok := strings.CutSuffix(backendBase, "/"); ok {
@@ -281,11 +322,12 @@ func (s *BillingService) CreateCheckoutURL(ctx context.Context, hostID, planID, 
 
 	// 9. Create checkout session via provider
 	resp, err := s.payment.CreateCheckoutSession(provider.CheckoutRequest{
-		Host:         host,
-		Plan:         *plan,
-		BillingCycle: billingCycle,
-		SuccessURL:   successURL,
-		CancelURL:    cancelURL,
+		Host:            host,
+		Plan:            *plan,
+		BillingCycle:    billingCycle,
+		SuccessURL:      successURL,
+		CancelURL:       cancelURL,
+		TrialPeriodDays: trialDays,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to create checkout: %w", err)

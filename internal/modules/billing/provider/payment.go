@@ -11,6 +11,10 @@ type CheckoutRequest struct {
 	BillingCycle string
 	SuccessURL   string
 	CancelURL    string
+	// TrialPeriodDays, when > 0, defers the first charge on the created
+	// subscription by this many days (same plan/product — Dodo bills it
+	// automatically once the trial ends).
+	TrialPeriodDays int
 }
 
 type CheckoutResponse struct {

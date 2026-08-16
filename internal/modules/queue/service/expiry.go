@@ -338,6 +338,7 @@ func (s *ExpiryService) expireQueue(ctx context.Context, queueID, joinCode, host
 
 	// Anonymous queues are hard-deleted after expiry so the record and guest PII are removed.
 	if q.HostID == nil || *q.HostID == "" {
+		_, _ = s.entryCol.DeleteMany(opCtx, bson.M{"queue_id": queueID})
 		_, _ = s.queueCol.DeleteOne(opCtx, bson.M{"_id": queueID})
 	}
 

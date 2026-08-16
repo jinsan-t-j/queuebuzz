@@ -30,4 +30,14 @@ type Plan struct {
 	YearlyPrice              int       `bson:"yearly_price" json:"yearly_price"`
 	Limits                   PlanLimit `bson:"limits" json:"limits"`
 	CreatedAt                time.Time `bson:"created_at" json:"created_at"`
+
+	TrialEnabled      bool   `bson:"trial_enabled,omitempty" json:"-"`
+	TrialDurationDays int    `bson:"trial_duration_days,omitempty" json:"-"`
+	TrialAccessToken  string `bson:"trial_access_token,omitempty" json:"-"`
+}
+
+// HasTrialOffer reports whether the hidden trial entry point is enabled for
+// this plan.
+func (p *Plan) HasTrialOffer() bool {
+	return p.TrialEnabled && p.TrialDurationDays > 0
 }

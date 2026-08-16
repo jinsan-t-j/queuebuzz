@@ -130,6 +130,34 @@ func (h *Handler) ListPlans(c fiber.Ctx) error {
 	return res.OK(c)
 }
 
+// GetTrialOffer resolves the hidden pricing-page trial token to the plan it
+// unlocks. Returns 404 for any missing/invalid/unsupported token so the
+// pricing page can fall back to its normal behavior indistinguishably from
+// "no trial configured".
+//
+// @Summary      Resolve trial offer
+// @Description  Looks up the plan whose trial_access_token matches the given token.
+//
+//	Public endpoint (no auth) — the pricing page calls this before login.
+//
+// @Tags         Billing
+// @Produce      json
+// @Param        token query string true "Hidden trial entry-point token"
+// @Success      200 {object} helpers.SuccessResponse{data=billingdto.TrialOfferResponse}
+// @Failure      404 {object} helpers.ErrorResponse
+// @Router       /api/v1/billing/plans/trial-offer [get]
+func (h *Handler) GetTrialOffer(c fiber.Ctx) error {
+	plan, err := h.svc.ResolveTrialOffer(c.Context(), c.Query("token"))
+	if err != nil {
+		return helpers.ErrorResponse{Message: "Trial offer not found"}.JSON(c, fiber.StatusNotFound)
+	}
+
+	return helpers.NewSuccessResponse("", billingdto.TrialOfferResponse{
+		PlanID:            plan.ID,
+		TrialDurationDays: plan.TrialDurationDays,
+	}).OK(c)
+}
+
 // GetCheckoutURL creates a Dodo checkout session for a specific plan.
 //
 // @Summary      Create checkout session
@@ -137,6 +165,8 @@ func (h *Handler) ListPlans(c fiber.Ctx) error {
 //
 //	Returns a secure payment URL from Dodo Payments. Free and enterprise plans
 //	are rejected. Includes idempotency protection (30-second cooldown per host+plan).
+//	Set is_trial to request trial pricing; only takes effect if the plan has a
+//	trial offer configured (trial_enabled) and the host hasn't used it before.
 //
 // @Tags         Billing
 // @Accept       json
@@ -178,7 +208,7 @@ func (h *Handler) GetCheckoutURL(c fiber.Ctx) error {
 		frontendOrigin = h.cfg.FrontendURL
 	}
 
-	url, err := h.svc.CreateCheckoutURL(c.Context(), hostID, req.PlanID, req.BillingCycle, frontendOrigin)
+	url, err := h.svc.CreateCheckoutURL(c.Context(), hostID, req.PlanID, req.BillingCycle, frontendOrigin, req.IsTrial)
 	if err != nil {
 		return helpers.ErrorResponse{Message: err.Error()}.JSON(c, fiber.StatusBadRequest)
 	}
